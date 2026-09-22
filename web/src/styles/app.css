@@ -1,0 +1,83 @@
+/* Bevro application styles. Colour only ever comes from the token sheet. */
+@import "./bevro-tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+    }
+  }
+  body {
+    @apply bg-bg text-ink antialiased;
+    font-family: var(--bv-family-sans);
+    font-size: var(--bv-size-base);
+    line-height: var(--bv-leading-normal);
+  }
+  /* Visible keyboard focus everywhere, from the focus token. */
+  :focus-visible {
+    outline: 2px solid var(--bv-focus);
+    outline-offset: 2px;
+    border-radius: var(--bv-radius-sm);
+  }
+  ::selection {
+    background: var(--bv-accent-subtle);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}
+
+@layer components {
+  .bv-input {
+    @apply w-full bg-surface text-ink placeholder:text-subtle border border-line rounded-md px-3 py-2 text-base;
+    @apply hover:border-line-strong focus:border-line-strong focus-visible:outline-focus;
+  }
+  .bv-btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium min-h-[40px];
+    @apply border border-line bg-surface text-ink hover:border-line-strong disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .bv-btn-primary {
+    @apply bv-btn border-transparent bg-accent text-accent-fg hover:bg-accent-hover hover:border-transparent;
+  }
+  .bv-btn-quiet {
+    @apply bv-btn border-transparent bg-transparent text-muted hover:text-ink hover:bg-sunken hover:border-transparent;
+  }
+  .bv-link {
+    @apply text-accent hover:text-accent-hover underline-offset-2 hover:underline;
+  }
+  .bv-label {
+    @apply block text-sm font-medium text-ink mb-1;
+  }
+  .bv-hint {
+    @apply text-sm text-muted;
+  }
+  .bv-row {
+    @apply flex items-start gap-4 py-3 border-b border-line last:border-b-0;
+  }
+  .bv-kbd {
+    @apply inline-block rounded-sm border border-line px-1.5 text-xs text-muted leading-5;
+    font-family: var(--bv-family-mono);
+  }
+}
+
+/* Quiet working indicator: a slowly pulsing dot. Static under reduced motion. */
+.bv-pulse {
+  animation: bv-pulse 1.6s ease-in-out infinite;
+}
+@keyframes bv-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}

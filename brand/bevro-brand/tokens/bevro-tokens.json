@@ -1,0 +1,207 @@
+{
+  "$description": "Bevro design tokens. Brand palette values are from the Bevro brand brief; neutral ramp, semantic mappings, scales and shadows are proposed by this manual.",
+  "palette": {
+    "burgundy": "#7A1837",
+    "burgundy-deep": "#5E1029",
+    "mauve": "#A86D82",
+    "mauve-soft": "#C596A7",
+    "gold": "#E7C080",
+    "charcoal": "#17181C",
+    "offwhite": "#F8F7F4"
+  },
+  "neutral": {
+    "neutral-50": "#F8F7F4",
+    "neutral-100": "#EDECE9",
+    "neutral-200": "#DFDEDC",
+    "neutral-300": "#CBCAC9",
+    "neutral-400": "#A7A7A6",
+    "neutral-500": "#717172",
+    "neutral-600": "#646465",
+    "neutral-700": "#48494C",
+    "neutral-800": "#303134",
+    "neutral-900": "#17181C"
+  },
+  "semantic": {
+    "light": {
+      "bg": "#F8F7F4",
+      "surface": "#FFFFFF",
+      "surface-sunken": "#EDECE9",
+      "border": "#DFDEDC",
+      "border-strong": "#CBCAC9",
+      "text": "#17181C",
+      "text-muted": "#646465",
+      "text-subtle": "#717172",
+      "accent": "#7A1837",
+      "accent-hover": "#5E1029",
+      "accent-fg": "#FFFFFF",
+      "accent-subtle": "#EBE1E1",
+      "focus": "#7A1837",
+      "highlight": "#E7C080"
+    },
+    "dark": {
+      "bg": "#101014",
+      "surface": "#17181C",
+      "surface-sunken": "#0B0B0E",
+      "border": "#2A2B31",
+      "border-strong": "#3A3B43",
+      "text": "#F8F7F4",
+      "text-muted": "#A8A7A4",
+      "text-subtle": "#858487",
+      "accent": "#C596A7",
+      "accent-hover": "#DBB4C0",
+      "accent-fg": "#17181C",
+      "accent-subtle": "#26161D",
+      "focus": "#C596A7",
+      "highlight": "#E7C080"
+    }
+  },
+  "typography": {
+    "family-sans": "system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif",
+    "family-mono": "ui-monospace, SFMono-Regular, Menlo, Consolas, \"Liberation Mono\", monospace",
+    "weight-regular": "400",
+    "weight-medium": "500",
+    "weight-semibold": "600",
+    "weight-bold": "700",
+    "size-xs": "0.75rem",
+    "size-sm": "0.875rem",
+    "size-base": "1rem",
+    "size-lg": "1.125rem",
+    "size-xl": "1.375rem",
+    "size-2xl": "1.75rem",
+    "size-3xl": "2.25rem",
+    "size-4xl": "3rem",
+    "leading-tight": "1.2",
+    "leading-snug": "1.35",
+    "leading-normal": "1.55",
+    "leading-relaxed": "1.7",
+    "tracking-tagline": "0.16em",
+    "tracking-wordmark": "-0.031em",
+    "tracking-normal": "0"
+  },
+  "space": {
+    "space-0": "0",
+    "space-1": "4px",
+    "space-2": "8px",
+    "space-3": "12px",
+    "space-4": "16px",
+    "space-5": "24px",
+    "space-6": "32px",
+    "space-7": "48px",
+    "space-8": "64px",
+    "space-9": "96px",
+    "space-10": "128px"
+  },
+  "radius": {
+    "radius-sm": "6px",
+    "radius-md": "10px",
+    "radius-lg": "16px",
+    "radius-xl": "24px",
+    "radius-pill": "999px"
+  },
+  "shadow": {
+    "shadow-sm": "0 1px 2px rgba(23,24,28,.06)",
+    "shadow-md": "0 2px 8px rgba(23,24,28,.08)",
+    "shadow-lg": "0 8px 28px rgba(23,24,28,.10)"
+  },
+  "logo": {
+    "logo-clearspace-ratio": "0.548",
+    "logo-mark-aspect": "0.8522",
+    "logo-min-width-lockup": "120px",
+    "logo-min-size-mark": "20px"
+  },
+  "gradient": {
+    "mark-a-stops": [
+      {
+        "offset": 0.0,
+        "color": "#F8D899"
+      },
+      {
+        "offset": 0.1,
+        "color": "#E6C092"
+      },
+      {
+        "offset": 0.2,
+        "color": "#C99584"
+      },
+      {
+        "offset": 0.3,
+        "color": "#A05A6D"
+      },
+      {
+        "offset": 0.4,
+        "color": "#782753"
+      },
+      {
+        "offset": 0.5,
+        "color": "#510F3F"
+      },
+      {
+        "offset": 0.6,
+        "color": "#3F0936"
+      },
+      {
+        "offset": 0.7,
+        "color": "#4E1442"
+      },
+      {
+        "offset": 0.8,
+        "color": "#894770"
+      },
+      {
+        "offset": 0.9,
+        "color": "#B57B91"
+      },
+      {
+        "offset": 1.0,
+        "color": "#CC97A1"
+      }
+    ],
+    "mark-b-stops": [
+      {
+        "offset": 0.0,
+        "color": "#E5B4B1"
+      },
+      {
+        "offset": 0.1,
+        "color": "#DBABAF"
+      },
+      {
+        "offset": 0.2,
+        "color": "#C592A5"
+      },
+      {
+        "offset": 0.3,
+        "color": "#A37095"
+      },
+      {
+        "offset": 0.4,
+        "color": "#804A7B"
+      },
+      {
+        "offset": 0.5,
+        "color": "#6F366B"
+      },
+      {
+        "offset": 0.6,
+        "color": "#74396A"
+      },
+      {
+        "offset": 0.7,
+        "color": "#874E7B"
+      },
+      {
+        "offset": 0.8,
+        "color": "#9A6389"
+      },
+      {
+        "offset": 0.9,
+        "color": "#BB859D"
+      },
+      {
+        "offset": 1.0,
+        "color": "#D19EA8"
+      }
+    ],
+    "axis-deg-from-x": 84.0
+  }
+}

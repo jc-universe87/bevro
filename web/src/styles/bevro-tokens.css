@@ -1,0 +1,122 @@
+/* Bevro design tokens - generated. Palette from the Bevro brand brief;
+   neutrals, semantics and scales proposed by the brand manual. */
+:root {
+  /* brand palette */
+  --bv-burgundy: #7A1837;
+  --bv-burgundy-deep: #5E1029;
+  --bv-mauve: #A86D82;
+  --bv-mauve-soft: #C596A7;
+  --bv-gold: #E7C080;
+  --bv-charcoal: #17181C;
+  --bv-offwhite: #F8F7F4;
+  /* neutrals */
+  --bv-neutral-50: #F8F7F4;
+  --bv-neutral-100: #EDECE9;
+  --bv-neutral-200: #DFDEDC;
+  --bv-neutral-300: #CBCAC9;
+  --bv-neutral-400: #A7A7A6;
+  --bv-neutral-500: #717172;
+  --bv-neutral-600: #646465;
+  --bv-neutral-700: #48494C;
+  --bv-neutral-800: #303134;
+  --bv-neutral-900: #17181C;
+  /* typography */
+  --bv-family-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --bv-family-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --bv-weight-regular: 400;
+  --bv-weight-medium: 500;
+  --bv-weight-semibold: 600;
+  --bv-weight-bold: 700;
+  --bv-size-xs: 0.75rem;
+  --bv-size-sm: 0.875rem;
+  --bv-size-base: 1rem;
+  --bv-size-lg: 1.125rem;
+  --bv-size-xl: 1.375rem;
+  --bv-size-2xl: 1.75rem;
+  --bv-size-3xl: 2.25rem;
+  --bv-size-4xl: 3rem;
+  --bv-leading-tight: 1.2;
+  --bv-leading-snug: 1.35;
+  --bv-leading-normal: 1.55;
+  --bv-leading-relaxed: 1.7;
+  --bv-tracking-tagline: 0.16em;
+  --bv-tracking-wordmark: -0.031em;
+  --bv-tracking-normal: 0;
+  /* space */
+  --bv-space-0: 0;
+  --bv-space-1: 4px;
+  --bv-space-2: 8px;
+  --bv-space-3: 12px;
+  --bv-space-4: 16px;
+  --bv-space-5: 24px;
+  --bv-space-6: 32px;
+  --bv-space-7: 48px;
+  --bv-space-8: 64px;
+  --bv-space-9: 96px;
+  --bv-space-10: 128px;
+  /* radius */
+  --bv-radius-sm: 6px;
+  --bv-radius-md: 10px;
+  --bv-radius-lg: 16px;
+  --bv-radius-xl: 24px;
+  --bv-radius-pill: 999px;
+  /* elevation */
+  --bv-shadow-sm: 0 1px 2px rgba(23,24,28,.06);
+  --bv-shadow-md: 0 2px 8px rgba(23,24,28,.08);
+  --bv-shadow-lg: 0 8px 28px rgba(23,24,28,.10);
+  /* logo */
+  --bv-logo-clearspace-ratio: 0.548;
+  --bv-logo-mark-aspect: 0.8522;
+  --bv-logo-min-width-lockup: 120px;
+  --bv-logo-min-size-mark: 20px;
+  /* semantic - light (default) */
+  --bv-bg: #F8F7F4;
+  --bv-surface: #FFFFFF;
+  --bv-surface-sunken: #EDECE9;
+  --bv-border: #DFDEDC;
+  --bv-border-strong: #CBCAC9;
+  --bv-text: #17181C;
+  --bv-text-muted: #646465;
+  --bv-text-subtle: #717172;
+  --bv-accent: #7A1837;
+  --bv-accent-hover: #5E1029;
+  --bv-accent-fg: #FFFFFF;
+  --bv-accent-subtle: #EBE1E1;
+  --bv-focus: #7A1837;
+  --bv-highlight: #E7C080;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bv-bg: #101014;
+    --bv-surface: #17181C;
+    --bv-surface-sunken: #0B0B0E;
+    --bv-border: #2A2B31;
+    --bv-border-strong: #3A3B43;
+    --bv-text: #F8F7F4;
+    --bv-text-muted: #A8A7A4;
+    --bv-text-subtle: #858487;
+    --bv-accent: #C596A7;
+    --bv-accent-hover: #DBB4C0;
+    --bv-accent-fg: #17181C;
+    --bv-accent-subtle: #26161D;
+    --bv-focus: #C596A7;
+    --bv-highlight: #E7C080;
+  }
+}
+:root[data-theme="dark"] {
+  --bv-bg: #101014;
+  --bv-surface: #17181C;
+  --bv-surface-sunken: #0B0B0E;
+  --bv-border: #2A2B31;
+  --bv-border-strong: #3A3B43;
+  --bv-text: #F8F7F4;
+  --bv-text-muted: #A8A7A4;
+  --bv-text-subtle: #858487;
+  --bv-accent: #C596A7;
+  --bv-accent-hover: #DBB4C0;
+  --bv-accent-fg: #17181C;
+  --bv-accent-subtle: #26161D;
+  --bv-focus: #C596A7;
+  --bv-highlight: #E7C080;
+}

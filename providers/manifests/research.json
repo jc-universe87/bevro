@@ -1,0 +1,36 @@
+{
+  "slug": "research",
+  "name": "Research",
+  "description": "Find, compare and analyse",
+  "enabled": true,
+  "capabilities": [
+    {
+      "id": "research",
+      "title": "Research",
+      "description": "Find, compare and analyse information about a topic.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request"
+        ]
+      }
+    }
+  ],
+  "adapter": {
+    "kind": "local",
+    "ref": "providers.research:run",
+    "config": {}
+  },
+  "app_url": null,
+  "icon": {
+    "kind": "letter",
+    "text": "R"
+  },
+  "origin": "example",
+  "$comment": "Example provider: proves the task, run and artifact plumbing end to end. It does not search anything yet."
+}

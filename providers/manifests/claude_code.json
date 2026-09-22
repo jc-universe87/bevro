@@ -1,0 +1,48 @@
+{
+  "slug": "claude-code",
+  "name": "Claude Code",
+  "description": "Build, fix and change software",
+  "enabled": true,
+  "capabilities": [
+    {
+      "id": "coding",
+      "title": "Write code",
+      "description": "Implement features and make changes in an approved project."
+    },
+    {
+      "id": "debugging",
+      "title": "Fix bugs",
+      "description": "Find and fix problems in an approved project."
+    },
+    {
+      "id": "repository_changes",
+      "title": "Change files",
+      "description": "Create, edit and remove files inside the workspace it is given."
+    },
+    {
+      "id": "integration_bridge_building",
+      "title": "Build connections",
+      "description": "Write a small program that lets Bevro give work to a project which has no interface of its own."
+    },
+    {
+      "id": "agent_building",
+      "title": "Build agents",
+      "description": "Write a small, self-contained project that does the work an agent was described as doing."
+    }
+  ],
+  "adapter": {
+    "kind": "claude_code",
+    "config": {
+      "cli": "claude",
+      "max_turns": 40,
+      "max_budget_usd": 2.0,
+      "timeout_seconds": 1800
+    }
+  },
+  "app_url": null,
+  "icon": {
+    "kind": "letter",
+    "text": "C"
+  },
+  "origin": "example"
+}

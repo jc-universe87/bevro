@@ -1,0 +1,14 @@
+{
+  "$comment": "Copy this file to config/workspaces.json and edit it. It lists the directories coding providers (such as Claude Code) may work in. Paths are paths on the machine that runs the worker (scripts/worker.sh). Only directories listed here can ever be used; nothing in the browser or in a prompt can add one.",
+  "workspaces": [
+    {
+      "slug": "example-project",
+      "name": "Example project",
+      "path": "/path/to/project",
+      "description": "What this project is, in a few words",
+      "enabled": true,
+      "permissions": ["read", "write", "run_commands"],
+      "repository": {"remote_url": "https://github.com/example/project"}
+    }
+  ]
+}

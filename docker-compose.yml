@@ -1,0 +1,140 @@
+# Bevro local development stack: web (Vite), api (FastAPI), db (PostgreSQL).
+# Everything works with no configuration. Optional settings come from a .env
+# file next to this one (see .env.example). Default ports: 6140 web, 6141 api,
+# 6142 database.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bevro
+      POSTGRES_PASSWORD: bevro
+      POSTGRES_DB: bevro
+    ports:
+      - "${BEVRO_DB_PORT:-6142}:5432"
+    volumes:
+      - bevro_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bevro -d bevro"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    # Run as your own user so files written to ./data belong to you, not root
+    # (the optional host worker shares that directory). Set BEVRO_UID/BEVRO_GID
+    # in .env if your user id is not 1000.
+    user: "${BEVRO_UID:-1000}:${BEVRO_GID:-1000}"
+    environment:
+      BEVRO_DATABASE_URL: postgresql+psycopg://bevro:bevro@db:5432/bevro
+      BEVRO_TEST_DATABASE_URL: postgresql+psycopg://bevro:bevro@db:5432/bevro_test
+      BEVRO_ARTIFACT_DIR: /data/artifacts
+      BEVRO_LOG_DIR: /data/logs
+      BEVRO_WORKSPACES_FILE: /srv/config/workspaces.json
+      # Empty means: generate a key once into data/secret.key (development).
+      BEVRO_SECRET_KEY: ${BEVRO_SECRET_KEY:-}
+      BEVRO_SECRET_KEY_FILE: /data/secret.key
+      BEVRO_CORS_ORIGINS: http://localhost:${BEVRO_WEB_PORT:-6140},http://127.0.0.1:${BEVRO_WEB_PORT:-6140}
+      BEVRO_WORKER_STALE_SECONDS: ${BEVRO_WORKER_STALE_SECONDS:-90}
+      # Routing: "deterministic" (default, calls nothing) or "llm" (see .env.example).
+      BEVRO_ROUTER_MODE: ${BEVRO_ROUTER_MODE:-deterministic}
+      BEVRO_ROUTER_BACKEND: ${BEVRO_ROUTER_BACKEND:-openai}
+      BEVRO_ROUTER_MODEL: ${BEVRO_ROUTER_MODEL:-}
+      BEVRO_ROUTER_API_KEY: ${BEVRO_ROUTER_API_KEY:-}
+      BEVRO_ROUTER_BASE_URL: ${BEVRO_ROUTER_BASE_URL:-}
+      BEVRO_ROUTER_TIMEOUT_SECONDS: ${BEVRO_ROUTER_TIMEOUT_SECONDS:-8}
+      # Connect. Local folders are inspected by the host worker, never by this
+      # container, so BEVRO_LOCAL_ROOTS is deliberately not passed in here.
+      BEVRO_INTEGRATIONS_DIR: /data/integrations
+      BEVRO_AGENTS_DIR: /data/agents
+      BEVRO_DISCOVERY_ASSIST: ${BEVRO_DISCOVERY_ASSIST:-auto}
+      # Notifications. All optional: with no mail server, Bevro still tells
+      # you inside Bevro and never attempts to send anything.
+      BEVRO_APP_URL: ${BEVRO_APP_URL:-http://localhost:${BEVRO_WEB_PORT:-6140}}
+      BEVRO_SMTP_HOST: ${BEVRO_SMTP_HOST:-}
+      BEVRO_SMTP_PORT: ${BEVRO_SMTP_PORT:-587}
+      BEVRO_SMTP_USERNAME: ${BEVRO_SMTP_USERNAME:-}
+      BEVRO_SMTP_PASSWORD: ${BEVRO_SMTP_PASSWORD:-}
+      BEVRO_SMTP_FROM: ${BEVRO_SMTP_FROM:-}
+      BEVRO_SMTP_STARTTLS: ${BEVRO_SMTP_STARTTLS:-true}
+      BEVRO_NOTIFY_EMAIL: ${BEVRO_NOTIFY_EMAIL:-}
+      BEVRO_NOTIFY_WEBHOOK_URL: ${BEVRO_NOTIFY_WEBHOOK_URL:-}
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /srv"
+    ports:
+      - "${BEVRO_API_PORT:-6141}:8000"
+    volumes:
+      - ./api:/srv/api
+      - ./adapters:/srv/adapters
+      - ./providers:/srv/providers
+      - ./config:/srv/config:ro
+      # A bind mount, not a named volume: the optional host worker shares it.
+      - ./data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # The clock: it decides when repeating work happens, and nothing else.
+  # One row per automation, claimed in PostgreSQL, so several may run safely.
+  scheduler:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    user: "${BEVRO_UID:-1000}:${BEVRO_GID:-1000}"
+    environment:
+      BEVRO_DATABASE_URL: postgresql+psycopg://bevro:bevro@db:5432/bevro
+      BEVRO_ARTIFACT_DIR: /data/artifacts
+      BEVRO_LOG_DIR: /data/logs
+      BEVRO_INTEGRATIONS_DIR: /data/integrations
+      BEVRO_AGENTS_DIR: /data/agents
+      BEVRO_SECRET_KEY: ${BEVRO_SECRET_KEY:-}
+      BEVRO_SECRET_KEY_FILE: /data/secret.key
+      BEVRO_WORKSPACES_FILE: /srv/config/workspaces.json
+      BEVRO_ROUTER_MODE: ${BEVRO_ROUTER_MODE:-deterministic}
+      BEVRO_ROUTER_BACKEND: ${BEVRO_ROUTER_BACKEND:-openai}
+      BEVRO_ROUTER_MODEL: ${BEVRO_ROUTER_MODEL:-}
+      BEVRO_ROUTER_API_KEY: ${BEVRO_ROUTER_API_KEY:-}
+      BEVRO_ROUTER_BASE_URL: ${BEVRO_ROUTER_BASE_URL:-}
+      # Notifications. All optional: with no mail server, Bevro still tells
+      # you inside Bevro and never attempts to send anything.
+      BEVRO_APP_URL: ${BEVRO_APP_URL:-http://localhost:${BEVRO_WEB_PORT:-6140}}
+      BEVRO_SMTP_HOST: ${BEVRO_SMTP_HOST:-}
+      BEVRO_SMTP_PORT: ${BEVRO_SMTP_PORT:-587}
+      BEVRO_SMTP_USERNAME: ${BEVRO_SMTP_USERNAME:-}
+      BEVRO_SMTP_PASSWORD: ${BEVRO_SMTP_PASSWORD:-}
+      BEVRO_SMTP_FROM: ${BEVRO_SMTP_FROM:-}
+      BEVRO_SMTP_STARTTLS: ${BEVRO_SMTP_STARTTLS:-true}
+      BEVRO_NOTIFY_EMAIL: ${BEVRO_NOTIFY_EMAIL:-}
+      BEVRO_NOTIFY_WEBHOOK_URL: ${BEVRO_NOTIFY_WEBHOOK_URL:-}
+    command: sh -c "cd /srv/api && python -m app.scheduler"
+    volumes:
+      - ./api:/srv/api
+      - ./adapters:/srv/adapters
+      - ./providers:/srv/providers
+      - ./config:/srv/config:ro
+      - ./data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
+
+  web:
+    build:
+      context: ./web
+      target: dev
+    environment:
+      VITE_API_PROXY: http://api:8000
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    ports:
+      - "${BEVRO_WEB_PORT:-6140}:5173"
+    volumes:
+      - ./web:/app
+      - web_node_modules:/app/node_modules
+    depends_on:
+      - api
+
+volumes:
+  bevro_db:
+  web_node_modules:

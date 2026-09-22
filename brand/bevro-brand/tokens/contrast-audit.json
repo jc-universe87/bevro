@@ -1,0 +1,119 @@
+[
+  {
+    "mode": "light",
+    "fg": "text",
+    "bg": "bg",
+    "fg_hex": "#17181C",
+    "bg_hex": "#F8F7F4",
+    "ratio": 16.56,
+    "verdict": "AAA"
+  },
+  {
+    "mode": "light",
+    "fg": "text",
+    "bg": "surface",
+    "fg_hex": "#17181C",
+    "bg_hex": "#FFFFFF",
+    "ratio": 17.74,
+    "verdict": "AAA"
+  },
+  {
+    "mode": "light",
+    "fg": "text-muted",
+    "bg": "bg",
+    "fg_hex": "#646465",
+    "bg_hex": "#F8F7F4",
+    "ratio": 5.52,
+    "verdict": "AA"
+  },
+  {
+    "mode": "light",
+    "fg": "text-subtle",
+    "bg": "bg",
+    "fg_hex": "#717172",
+    "bg_hex": "#F8F7F4",
+    "ratio": 4.55,
+    "verdict": "AA"
+  },
+  {
+    "mode": "light",
+    "fg": "accent",
+    "bg": "bg",
+    "fg_hex": "#7A1837",
+    "bg_hex": "#F8F7F4",
+    "ratio": 9.74,
+    "verdict": "AAA"
+  },
+  {
+    "mode": "light",
+    "fg": "accent",
+    "bg": "surface",
+    "fg_hex": "#7A1837",
+    "bg_hex": "#FFFFFF",
+    "ratio": 10.43,
+    "verdict": "AAA"
+  },
+  {
+    "mode": "light",
+    "fg": "accent-fg",
+    "bg": "accent",
+    "fg_hex": "#FFFFFF",
+    "bg_hex": "#7A1837",
+    "ratio": 10.43,
+    "verdict": "AAA"
+  },
+  {
+    "mode": "dark",
+    "fg": "text",
+    "bg": "bg",
+    "fg_hex": "#F8F7F4",
+    "bg_hex": "#101014",
+    "ratio": 17.72,
+    "verdict": "AAA"
+  },
+  {
+    "mode": "dark",
+    "fg": "text",
+    "bg": "surface",
+    "fg_hex": "#F8F7F4",
+    "bg_hex": "#17181C",
+    "ratio": 16.56,
+    "verdict": "AAA"
+  },
+  {
+    "mode": "dark",
+    "fg": "text-muted",
+    "bg": "bg",
+    "fg_hex": "#A8A7A4",
+    "bg_hex": "#101014",
+    "ratio": 7.89,
+    "verdict": "AAA"
+  },
+  {
+    "mode": "dark",
+    "fg": "text-subtle",
+    "bg": "bg",
+    "fg_hex": "#858487",
+    "bg_hex": "#101014",
+    "ratio": 5.11,
+    "verdict": "AA"
+  },
+  {
+    "mode": "dark",
+    "fg": "accent",
+    "bg": "bg",
+    "fg_hex": "#C596A7",
+    "bg_hex": "#101014",
+    "ratio": 7.5,
+    "verdict": "AAA"
+  },
+  {
+    "mode": "dark",
+    "fg": "accent-fg",
+    "bg": "accent",
+    "fg_hex": "#17181C",
+    "bg_hex": "#C596A7",
+    "ratio": 7.01,
+    "verdict": "AAA"
+  }
+]

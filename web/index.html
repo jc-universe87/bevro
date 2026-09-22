@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Bevro</title>
+    <meta name="description" content="Agents that get things done." />
+    <link rel="icon" href="/icon/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icon/favicon-dark.svg" type="image/svg+xml" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/icon/favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="apple-touch-icon" href="/icon/apple-touch-icon.png" />
+    <link rel="manifest" href="/icon/site.webmanifest" />
+    <meta name="theme-color" content="#7A1837" />
+    <meta property="og:image" content="/icon/og-image.png" />
+    <script>
+      // Apply the saved theme before first paint so there is no flash.
+      try {
+        var t = localStorage.getItem("bevro.theme");
+        if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

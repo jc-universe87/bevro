@@ -1,0 +1,68 @@
+// Bevro design tokens (SCSS)
+$bv-burgundy: #7A1837;
+$bv-burgundy-deep: #5E1029;
+$bv-mauve: #A86D82;
+$bv-mauve-soft: #C596A7;
+$bv-gold: #E7C080;
+$bv-charcoal: #17181C;
+$bv-offwhite: #F8F7F4;
+$bv-neutral-50: #F8F7F4;
+$bv-neutral-100: #EDECE9;
+$bv-neutral-200: #DFDEDC;
+$bv-neutral-300: #CBCAC9;
+$bv-neutral-400: #A7A7A6;
+$bv-neutral-500: #717172;
+$bv-neutral-600: #646465;
+$bv-neutral-700: #48494C;
+$bv-neutral-800: #303134;
+$bv-neutral-900: #17181C;
+$bv-space-0: 0;
+$bv-space-1: 4px;
+$bv-space-2: 8px;
+$bv-space-3: 12px;
+$bv-space-4: 16px;
+$bv-space-5: 24px;
+$bv-space-6: 32px;
+$bv-space-7: 48px;
+$bv-space-8: 64px;
+$bv-space-9: 96px;
+$bv-space-10: 128px;
+$bv-radius-sm: 6px;
+$bv-radius-md: 10px;
+$bv-radius-lg: 16px;
+$bv-radius-xl: 24px;
+$bv-radius-pill: 999px;
+
+$bv-light: (
+  "bg": #F8F7F4,
+  "surface": #FFFFFF,
+  "surface-sunken": #EDECE9,
+  "border": #DFDEDC,
+  "border-strong": #CBCAC9,
+  "text": #17181C,
+  "text-muted": #646465,
+  "text-subtle": #717172,
+  "accent": #7A1837,
+  "accent-hover": #5E1029,
+  "accent-fg": #FFFFFF,
+  "accent-subtle": #EBE1E1,
+  "focus": #7A1837,
+  "highlight": #E7C080
+);
+
+$bv-dark: (
+  "bg": #101014,
+  "surface": #17181C,
+  "surface-sunken": #0B0B0E,
+  "border": #2A2B31,
+  "border-strong": #3A3B43,
+  "text": #F8F7F4,
+  "text-muted": #A8A7A4,
+  "text-subtle": #858487,
+  "accent": #C596A7,
+  "accent-hover": #DBB4C0,
+  "accent-fg": #17181C,
+  "accent-subtle": #26161D,
+  "focus": #C596A7,
+  "highlight": #E7C080
+);
