@@ -168,7 +168,7 @@ def test_deterministic_router_never_routes_everything_to_research(seeded, two_wo
     assert coding.provider_id == "claude-code" and coding.needs_input and coding.input_request.kind == "workspace"
     with pytest.raises(task_service.NoProviderAvailable) as exc:
         task_service.submit(seeded, "Write a poem about autumn.")
-    assert str(exc.value) == "I don't have a connected provider for that yet." and exc.value.reason == "no_provider"
+    assert str(exc.value) == "Bevro doesn't have anything connected that can do this yet." and exc.value.reason == "no_provider"
 
 
 # ----------------------------------------------------------------------------- LLM router

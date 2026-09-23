@@ -1,5 +1,6 @@
 {
   "slug": "research",
+  "seed": "demo",
   "name": "Research",
   "description": "Find, compare and analyse",
   "enabled": true,

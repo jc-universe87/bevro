@@ -1,0 +1,288 @@
+"""A workspace is its owner's: it starts empty, and it can be emptied again.
+
+Nothing here is about demos. It is about what a real installation contains on
+the first day, what "remove this" means, and what must survive it.
+"""
+
+from __future__ import annotations
+
+import uuid
+
+import pytest
+
+from adapters import InvocationResult, ResultState
+from app.automations.schedule import Recurrence, ScheduleSpec
+from app.models import Artifact, Automation, AutomationRun, NotificationEvent, Provider, ProviderRun, Task
+from app.services import automations as automation_service
+from app.services import notifications as notification_service
+from app.services import providers as provider_service
+from app.services import tasks as task_service
+
+
+# --------------------------------------------------------------------------- a clean sheet
+
+def test_a_fresh_installation_has_no_agents_of_its_own(client, db):
+    """What someone sees on the first day: nothing pretending to be theirs."""
+    provider_service.seed_examples(db, demo=False)
+    listed = client.get("/api/providers").json()
+    assert [p["slug"] for p in listed] == ["claude-code"]
+    # ...and the one shipped provider is not offered as though it were set up.
+    assert listed[0]["actions"] == []
+    assert listed[0]["availability"]["state"] == "unavailable"
+
+    assert client.get("/api/tasks").json() == []
+    assert client.get("/api/automations").json() == []
+    assert client.get("/api/notifications").json() == {"unread": 0, "items": []}
+
+
+def test_asking_for_work_with_nothing_connected_says_so_plainly(client, db):
+    provider_service.seed_examples(db, demo=False)
+    response = client.post("/api/tasks", json={"request": "Compare three note-taking apps"})
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail["reason"] == "no_provider"
+    assert detail["message"] == "Bevro doesn't have anything connected that can do this yet."
+    assert client.get("/api/tasks").json() == []  # nothing half-made was left behind
+
+
+def test_both_routers_cope_with_an_empty_workspace(db):
+    """Neither router may invent a provider, and the model is never even asked."""
+    from app.routing.deterministic import DeterministicRouter
+    from app.routing.llm import LLMRouter
+    from tests.test_routing import FakeModel
+
+    provider_service.seed_examples(db, demo=False)
+    assert DeterministicRouter().route(db, "Compare three note-taking apps").selected_provider_ids == []
+
+    model = FakeModel()
+    decision = LLMRouter(model=model).route(db, "Compare three note-taking apps")
+    assert decision.selected_provider_ids == []
+    assert model.calls == []  # nothing was sent anywhere
+
+
+def test_create_still_previews_with_nothing_connected(client, db):
+    """Describing an agent works; building one needs a builder, and says so."""
+    provider_service.seed_examples(db, demo=False)
+    preview = client.post("/api/create/preview", json={"description": "Watch competitor pricing pages weekly"}).json()
+    assert preview["name"] and preview["can"]  # it still describes what it would be
+    assert preview["can_build"] is False  # ...but says it cannot be built yet
+
+
+# --------------------------------------------------------------------------- removing one piece of work
+
+@pytest.fixture
+def research(seeded):
+    return provider_service.get_by_slug(seeded, "research")
+
+
+def finished_task(db, provider, request="Compare three note-taking apps") -> Task:
+    task = task_service.submit(db, request, provider=provider)
+    db.commit()
+    task_service.execute_run(db, task.runs[-1].id)
+    db.commit()
+    return task
+
+
+def test_removing_a_task_takes_its_work_and_leaves_the_agent(client, seeded, research):
+    task = finished_task(seeded, research)
+    run_id, artifact_ids = task.runs[0].id, [a.id for a in task.artifacts]
+    assert artifact_ids
+
+    assert client.delete(f"/api/tasks/{task.id}").status_code == 204
+
+    assert seeded.get(Task, task.id) is None
+    assert seeded.get(ProviderRun, run_id) is None
+    assert [seeded.get(Artifact, a) for a in artifact_ids] == [None] * len(artifact_ids)
+    # The agent that did it is untouched, and still listed.
+    assert seeded.get(Provider, research.id) is not None
+    assert any(p["slug"] == "research" for p in client.get("/api/providers").json())
+
+
+def test_removing_a_task_leaves_every_other_task_alone(client, seeded, research):
+    keep = finished_task(seeded, research, "Keep this one")
+    drop = finished_task(seeded, research, "Remove this one")
+
+    client.delete(f"/api/tasks/{drop.id}")
+
+    remaining = [t["title"] for t in client.get("/api/tasks").json()]
+    assert remaining == ["Keep this one"]
+    assert seeded.get(Task, keep.id) is not None
+
+
+def test_the_automation_that_asked_for_the_work_survives_losing_it(client, seeded, research):
+    """Its history loses the link; the automation itself keeps running."""
+    from datetime import datetime, time, timezone
+
+    automation = automation_service.create(
+        seeded,
+        instruction="Compare three note-taking apps",
+        schedule=ScheduleSpec(recurrence=Recurrence.DAILY, at=time(9, 0), timezone="UTC"),
+        provider=research,
+        now=datetime(2026, 3, 4, 10, 0, tzinfo=timezone.utc),
+    )
+    seeded.commit()
+    for claimed, run in automation_service.claim_due(seeded, now=datetime(2026, 3, 5, 9, 0, tzinfo=timezone.utc)):
+        task = automation_service.start_run(seeded, claimed, run)
+        seeded.commit()
+        task_service.execute_run(seeded, task.runs[-1].id)
+    automation_service.settle_finished(seeded)
+    occurrence = automation_service.last_run(seeded, automation)
+    task_id = occurrence.task_id
+    assert task_id is not None
+
+    assert client.delete(f"/api/tasks/{task_id}").status_code == 204
+
+    assert seeded.get(Automation, automation.id) is not None
+    assert seeded.get(Automation, automation.id).next_run_at is not None  # still scheduled
+    seeded.expire_all()  # the database nullified the link; read it back rather than trusting the session
+    kept = seeded.get(AutomationRun, occurrence.id)
+    assert kept is not None and kept.task_id is None  # the history stays, without a broken link
+    assert client.get(f"/api/automations/{automation.id}").status_code == 200
+
+
+def test_a_notification_about_a_removed_result_goes_with_it(client, seeded, research, monkeypatch):
+    """A notification exists to point at a result. Without it there is nothing to show."""
+    answers = iter(["One.", "Two."])
+    monkeypatch.setattr(task_service, "execute", lambda *a, **k: (InvocationResult(state=ResultState.COMPLETED, summary=next(answers)), []))
+    task = finished_task(seeded, research, "Watched thing")
+    other = finished_task(seeded, research, "Unrelated thing")
+    event = notification_service.raise_event(seeded, kind="automation.matched", title="Watched thing", task=task)
+    unrelated = notification_service.raise_event(seeded, kind="automation.matched", title="Something else", task=other)
+    seeded.commit()
+
+    client.delete(f"/api/tasks/{task.id}")
+
+    assert seeded.get(NotificationEvent, event.id) is None
+    assert seeded.get(NotificationEvent, unrelated.id) is not None  # nothing else was touched
+    listed = client.get("/api/notifications").json()
+    assert [i["title"] for i in listed["items"]] == ["Something else"]
+    assert all(i["task_id"] is not None for i in listed["items"])  # no broken links left
+
+
+def test_work_still_running_is_not_pulled_out_from_under_it(client, seeded, research):
+    task = task_service.submit(seeded, "Something long", provider=research)
+    seeded.commit()
+    response = client.delete(f"/api/tasks/{task.id}")
+    assert response.status_code == 409
+    assert "still working" in response.json()["detail"]
+    assert seeded.get(Task, task.id) is not None
+
+
+def test_removing_a_task_removes_the_file_it_produced(client, seeded, research):
+    from app.services.artifacts import resolve_path
+
+    task = finished_task(seeded, research)
+    paths = [resolve_path(a) for a in task.artifacts]
+    stored = [p for p in paths if p is not None]
+    assert stored and all(p.is_file() for p in stored)
+
+    client.delete(f"/api/tasks/{task.id}")
+    assert not any(p.exists() for p in stored)
+
+
+def test_a_task_that_is_not_there_says_so(client, seeded):
+    assert client.delete(f"/api/tasks/{uuid.uuid4()}").status_code == 404
+
+
+# --------------------------------------------------------------------------- clearing the lot
+
+def test_clearing_history_empties_recent_and_nothing_else(client, seeded, research):
+    from datetime import datetime, time, timezone
+
+    for n in range(3):
+        finished_task(seeded, research, f"Task {n}")
+    automation = automation_service.create(
+        seeded,
+        instruction="Compare three note-taking apps",
+        schedule=ScheduleSpec(recurrence=Recurrence.DAILY, at=time(9, 0), timezone="UTC"),
+        provider=research,
+        now=datetime(2026, 3, 4, 10, 0, tzinfo=timezone.utc),
+    )
+    seeded.commit()
+    providers_before = {p["slug"] for p in client.get("/api/providers").json()}
+
+    cleared = client.delete("/api/tasks")
+    assert cleared.status_code == 200 and cleared.json() == {"removed": 3}
+
+    assert client.get("/api/tasks").json() == []
+    assert seeded.scalar(__import__("sqlalchemy").select(__import__("sqlalchemy").func.count()).select_from(ProviderRun)) == 0
+    # Everything that is not history is still here.
+    assert {p["slug"] for p in client.get("/api/providers").json()} == providers_before
+    assert [a["id"] for a in client.get("/api/automations").json()] == [str(automation.id)]
+    assert seeded.get(Automation, automation.id).next_run_at is not None
+
+
+def test_clearing_history_leaves_work_in_flight_alone(client, seeded, research):
+    done = finished_task(seeded, research, "Finished")
+    running = task_service.submit(seeded, "Still going", provider=research)
+    seeded.commit()
+
+    assert client.delete("/api/tasks").json() == {"removed": 1}
+
+    assert seeded.get(Task, done.id) is None
+    assert seeded.get(Task, running.id) is not None
+
+
+def test_clearing_an_empty_history_is_harmless(client, seeded):
+    assert client.delete("/api/tasks").json() == {"removed": 0}
+
+
+# --------------------------------------------------------------------------- upgrading an existing workspace
+
+def test_the_shipped_demos_are_retired_when_demo_mode_is_off(db):
+    provider_service.seed_examples(db, demo=True)
+    assert {p.slug for p in provider_service.list_providers(db, enabled_only=False)} == {"research", "event-demo", "claude-code"}
+
+    provider_service.seed_examples(db, demo=False)
+    assert {p.slug for p in provider_service.list_providers(db, enabled_only=False)} == {"claude-code"}
+
+
+def test_a_demo_that_did_real_work_is_disabled_rather_than_deleted(db):
+    """Its runs point at it, so removing it would take that history with it."""
+    provider_service.seed_examples(db, demo=True)
+    research = provider_service.get_by_slug(db, "research")
+    task = task_service.submit(db, "Compare three note-taking apps", provider=research)
+    db.commit()
+    task_service.execute_run(db, task.runs[-1].id)
+    db.commit()
+
+    provider_service.seed_examples(db, demo=False)
+
+    still_there = provider_service.get_by_slug(db, "research")
+    assert still_there is not None and still_there.enabled is False
+    assert db.get(Task, task.id) is not None  # the work is still readable
+    assert provider_service.get_by_slug(db, "event-demo") is None  # that one did nothing, so it went
+
+
+def test_an_agent_of_your_own_called_research_is_never_touched(db):
+    """The name is not the test: where the record came from is."""
+    provider_service.seed_examples(db, demo=True)
+    mine = provider_service.register_provider(
+        db,
+        {
+            "name": "Research",
+            "description": "My own research agent",
+            "capabilities": [{"id": "research", "title": "Research"}],
+            "adapter": {"kind": "http", "config": {"base_url": "http://localhost:9999"}},
+            "origin": "connected",
+        },
+    )
+    db.commit()
+
+    provider_service.seed_examples(db, demo=False)
+
+    assert db.get(Provider, mine.id) is not None
+    assert provider_service.get_by_slug(db, mine.slug).enabled is True
+    assert provider_service.shipped_demo(mine) is False
+
+
+def test_a_shipped_demo_someone_repointed_is_left_alone(db):
+    """If the adapter is no longer the shipped one, it is not Bevro's to remove."""
+    provider_service.seed_examples(db, demo=True)
+    research = provider_service.get_by_slug(db, "research")
+    research.adapter = {"kind": "http", "ref": None, "config": {"base_url": "http://localhost:9999"}}
+    db.commit()
+
+    assert provider_service.shipped_demo(research) is False
+    provider_service.seed_examples(db, demo=False)
+    assert provider_service.get_by_slug(db, "research") is not None

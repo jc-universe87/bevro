@@ -69,7 +69,7 @@ class NoProviderAvailable(Exception):
         self.reason = reason
 
 
-NO_PROVIDER_MESSAGE = "I don't have a connected provider for that yet."
+NO_PROVIDER_MESSAGE = "Bevro doesn't have anything connected that can do this yet."
 
 
 class InvalidInput(Exception):
@@ -528,6 +528,66 @@ def list_tasks(db: Session, *, query: str | None = None, state: str | None = Non
         like = f"%{query.strip()}%"
         stmt = stmt.where(Task.title.ilike(like) | Task.original_request.ilike(like) | Task.summary.ilike(like))
     return list(db.scalars(stmt))
+
+
+# --------------------------------------------------------------------------- forgetting work
+
+def _artifact_files(task: Task) -> None:
+    """Delete the files a task's artifacts kept on disk, and its folder."""
+    from app.services.artifacts import artifact_root, resolve_path
+
+    for artifact in task.artifacts:
+        path = resolve_path(artifact)
+        if path is not None:
+            path.unlink(missing_ok=True)
+    folder = (artifact_root() / str(task.id)).resolve()
+    root = artifact_root().resolve()
+    if root in folder.parents and folder.is_dir():
+        try:
+            folder.rmdir()  # only when nothing else is in it
+        except OSError:
+            log.info("task %s: artifact folder not empty; left in place", task.id)
+
+
+def delete_task(db: Session, task: Task) -> None:
+    """Remove one task and everything that is only that task's. Caller commits.
+
+    Gone: the task, its runs, its artifacts and their files, and any
+    notification whose whole point was that result.
+
+    Kept: the provider that did the work, the automation that asked for it
+    (its history simply loses the link), and every other task.
+    """
+    from app.models import NotificationEvent
+
+    if any(run.state not in RUN_TERMINAL for run in task.runs):
+        raise InvalidInput("This task is still working. Cancel it first.")
+
+    # A notification exists to point at a result. Without the result there is
+    # nothing for it to show, so it goes too - and only the ones for this task.
+    for event in db.scalars(select(NotificationEvent).where(NotificationEvent.task_id == task.id)):
+        db.delete(event)
+    _artifact_files(task)
+    db.delete(task)  # runs and artifacts cascade
+    db.flush()
+    log.info("task %s removed from history", task.id)
+
+
+def clear_history(db: Session) -> int:
+    """Forget all finished work. Caller commits.
+
+    Providers, automations, credentials and settings are untouched: this is
+    the record of what was done, not the machinery that did it. Work still in
+    flight is left alone rather than pulled out from under a running provider.
+    """
+    removed = 0
+    for task in list(db.scalars(select(Task))):
+        if any(run.state not in RUN_TERMINAL for run in task.runs):
+            continue
+        delete_task(db, task)
+        removed += 1
+    log.info("history cleared: %s tasks removed", removed)
+    return removed
 
 
 def get_task(db: Session, task_id: uuid.UUID) -> Task | None:

@@ -76,9 +76,14 @@ def db(engine) -> Iterator[Session]:
 
 @pytest.fixture
 def seeded(db: Session):
+    """A workspace with the example providers in it.
+
+    A real installation has none of them: the demos are opted into, here and
+    for screenshots, and never seeded into someone's own workspace.
+    """
     from app.services.providers import seed_examples
 
-    seed_examples(db)
+    seed_examples(db, demo=True)
     return db
 
 

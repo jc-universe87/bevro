@@ -5,10 +5,23 @@ from app.schemas.serialise import provider_actions
 from app.services import providers as provider_service
 
 
-def test_seed_examples_is_idempotent(db):
-    assert provider_service.seed_examples(db) == 3
-    assert provider_service.seed_examples(db) == 0
-    slugs = {p.slug for p in provider_service.list_providers(db)}
+def test_a_normal_workspace_starts_with_no_demo_agents(db):
+    """A real installation's agents are the ones its owner connected or created.
+
+    Only the optional integrations are registered, so that work can be routed
+    to them the moment their runtime is actually there.
+    """
+    assert provider_service.seed_examples(db, demo=False) == 1
+    slugs = {p.slug for p in provider_service.list_providers(db, enabled_only=False)}
+    assert slugs == {"claude-code"}
+    assert provider_service.seed_examples(db, demo=False) == 0  # and again changes nothing
+
+
+def test_demo_providers_are_opted_into(db):
+    """Tests, screenshots and BEVRO_DEMO_MODE ask for them; nothing else does."""
+    assert provider_service.seed_examples(db, demo=True) == 3
+    assert provider_service.seed_examples(db, demo=True) == 0
+    slugs = {p.slug for p in provider_service.list_providers(db, enabled_only=False)}
     assert slugs == {"event-demo", "research", "claude-code"}
 
 

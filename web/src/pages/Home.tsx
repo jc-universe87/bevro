@@ -21,6 +21,9 @@ export default function Home() {
   const [intent, setIntent] = useState<ScheduleIntent | null>(null);
   // Anything Bevro found while the person was away. Quiet when there is none.
   const [waiting, setWaiting] = useState<Notification[]>([]);
+  // Nothing connected yet: say so honestly rather than looking broken when a
+  // request comes back with nowhere to go.
+  const [hasAgents, setHasAgents] = useState<boolean | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const navigate = useNavigate();
 
@@ -30,6 +33,10 @@ export default function Home() {
       .listNotifications(true)
       .then((list) => setWaiting(list.items.slice(0, 3)))
       .catch(() => setWaiting([]));
+    api
+      .listProviders()
+      .then((list) => setHasAgents(list.some((p) => p.origin !== "example" || p.actions.includes("ask"))))
+      .catch(() => setHasAgents(null));
   }, []);
 
   const submit = async (e?: FormEvent) => {
@@ -138,6 +145,20 @@ export default function Home() {
           </section>
         )}
 
+        {hasAgents === false && !intent && (
+          <section aria-label="Getting started" className="mt-4 rounded-md border border-line p-4">
+            <p className="text-sm">Connect something you already use, or create an agent, to get started.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link to="/connect" className="bv-btn-primary">
+                Connect
+              </Link>
+              <Link to="/create" className="bv-btn-quiet">
+                Create
+              </Link>
+            </div>
+          </section>
+        )}
+
         {waiting.length > 0 && !intent && (
           <section aria-labelledby="attention-heading" className="mt-4 rounded-md border border-line p-4">
             <h2 id="attention-heading" className="text-sm font-medium">
@@ -179,9 +200,9 @@ export default function Home() {
               )}
             </p>
           ) : (
-            <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1">
-              <span className="hidden sm:inline">Try </span>
-              {SUGGESTIONS.map((suggestion, i) => (
+            <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1 empty:hidden">
+              {hasAgents !== false && <span className="hidden sm:inline">Try </span>}
+              {(hasAgents === false ? [] : SUGGESTIONS).map((suggestion, i) => (
                 <span key={suggestion} className="flex items-baseline gap-x-1.5">
                   <button type="button" className="bv-link text-left" onClick={() => { setText(suggestion); inputRef.current?.focus(); }}>
                     “{suggestion}”

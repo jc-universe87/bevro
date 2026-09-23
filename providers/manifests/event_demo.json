@@ -1,5 +1,6 @@
 {
   "slug": "event-demo",
+  "seed": "demo",
   "name": "Event Allocation Demo",
   "description": "Allocate participants for an event (demo)",
   "enabled": true,

@@ -1,5 +1,6 @@
 {
   "slug": "claude-code",
+  "seed": "integration",
   "name": "Claude Code",
   "description": "Build, fix and change software",
   "enabled": true,

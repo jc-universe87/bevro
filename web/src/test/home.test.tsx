@@ -56,7 +56,7 @@ test("when nothing can take the request, Home says so and offers Connect and Cre
   vi.stubGlobal(
     "fetch",
     vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      if ((init?.method ?? "GET") === "POST") return new Response(JSON.stringify({ detail: { message: "I don't have a connected provider for that yet.", reason: "no_provider" } }), { status: 503 });
+      if ((init?.method ?? "GET") === "POST") return new Response(JSON.stringify({ detail: { message: "Bevro doesn't have anything connected that can do this yet.", reason: "no_provider" } }), { status: 503 });
       return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
     }),
   );
@@ -68,7 +68,7 @@ test("when nothing can take the request, Home says so and offers Connect and Cre
   );
   await user.type(screen.getByPlaceholderText("Ask Bevro..."), "Write a poem about autumn{Enter}");
   const alert = await screen.findByRole("alert");
-  expect(alert).toHaveTextContent("I don't have a connected provider for that yet.");
+  expect(alert).toHaveTextContent("Bevro doesn't have anything connected that can do this yet.");
   const { getByRole } = within(alert);
   expect(getByRole("link", { name: "Connect" })).toHaveAttribute("href", "/connect");
   expect(getByRole("link", { name: "Create" })).toHaveAttribute("href", "/create");

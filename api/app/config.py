@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     # Where this Bevro can be reached, for the links in emails and webhooks.
     app_url: str = "http://localhost:6140"
 
+    # A normal workspace starts empty: the agents in it are the ones you
+    # connected or created. Turn this on for a demo, a screenshot or a
+    # walkthrough and Bevro also registers its example providers.
+    demo_mode: bool = False
+
     # Delivery. None of it is required: with nothing set up, Bevro still
     # notifies inside Bevro and no external message is ever attempted.
     smtp_host: str = ""

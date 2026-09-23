@@ -5,6 +5,7 @@ import { Page } from "../components/PageHeader";
 import TaskStatus from "../components/TaskStatus";
 import { api, ApiError, isTerminal, type TaskDetail } from "../lib/api";
 import { fullDateTime } from "../lib/format";
+import { REMOVE_TASK_DETAIL, REMOVE_TASK_QUESTION } from "./Recent";
 
 /** Where a failure's actions lead. add_credential opens Manage for that provider with the field ready. */
 function actionTarget(kind: string, providerId: string): string {
@@ -40,7 +41,20 @@ export default function TaskPage() {
   const [when, setWhen] = useState("");
   const [onlyWhenChanged, setOnlyWhenChanged] = useState(false);
   const [scheduleNote, setScheduleNote] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  const removeTask = async () => {
+    if (!task) return;
+    setBusy(true);
+    try {
+      await api.removeTask(task.id);
+      navigate("/recent");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "That couldn't be removed.");
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -364,11 +378,29 @@ export default function TaskPage() {
         </section>
       )}
 
-      <p className="mt-10">
-        <Link to="/" className="bv-link text-sm">
+      <div className="mt-10 flex flex-wrap items-baseline justify-between gap-4 text-sm">
+        <Link to="/" className="bv-link">
           Ask something else
         </Link>
-      </p>
+        {removing ? (
+          <div role="group" aria-label="Remove this task" className="max-w-md">
+            <p className="text-ink">{REMOVE_TASK_QUESTION}</p>
+            <p className="bv-hint">{REMOVE_TASK_DETAIL}</p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3">
+              <button type="button" className="bv-link" disabled={busy} onClick={() => void removeTask()}>
+                Yes, remove
+              </button>
+              <button type="button" className="text-muted hover:text-ink" onClick={() => setRemoving(false)}>
+                Keep it
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" className="text-muted hover:text-ink" onClick={() => setRemoving(true)}>
+            Remove from history
+          </button>
+        )}
+      </div>
     </Page>
   );
 }

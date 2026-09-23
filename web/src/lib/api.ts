@@ -372,6 +372,10 @@ export const api = {
   },
   getTask: (id: string) => request<TaskDetail>(`/tasks/${id}`),
   cancelTask: (id: string) => request<TaskDetail>(`/tasks/${id}/cancel`, { method: "POST" }),
+  /** Remove one task and its results. The agent that did it is untouched. */
+  removeTask: (id: string) => request<void>(`/tasks/${id}`, { method: "DELETE" }),
+  /** Forget all finished work. Agents, scheduled work and settings stay. */
+  clearHistory: () => request<{ removed: number }>("/tasks", { method: "DELETE" }),
   retryTask: (id: string) => request<TaskDetail>(`/tasks/${id}/retry`, { method: "POST" }),
   answerInput: (id: string, value: string) =>
     request<TaskDetail>(`/tasks/${id}/input`, { method: "POST", body: JSON.stringify({ value }) }),

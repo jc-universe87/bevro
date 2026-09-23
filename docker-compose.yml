@@ -56,6 +56,8 @@ services:
       BEVRO_INTEGRATIONS_DIR: /data/integrations
       BEVRO_AGENTS_DIR: /data/agents
       BEVRO_DISCOVERY_ASSIST: ${BEVRO_DISCOVERY_ASSIST:-auto}
+      # Empty by default: a workspace's agents are the ones you chose.
+      BEVRO_DEMO_MODE: ${BEVRO_DEMO_MODE:-false}
       # Notifications. All optional: with no mail server, Bevro still tells
       # you inside Bevro and never attempts to send anything.
       BEVRO_APP_URL: ${BEVRO_APP_URL:-http://localhost:${BEVRO_WEB_PORT:-6140}}

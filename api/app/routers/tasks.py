@@ -116,6 +116,27 @@ def retry_task(task_id: uuid.UUID, background: BackgroundTasks, db: Session = De
     return _detail(db, task)
 
 
+@router.delete("", status_code=200)
+def clear_history(db: Session = Depends(get_db)) -> dict[str, int]:
+    """Forget all finished work. Agents, scheduled work and settings stay."""
+    removed = task_service.clear_history(db)
+    db.commit()
+    return {"removed": removed}
+
+
+@router.delete("/{task_id}", status_code=204)
+def remove_task(task_id: uuid.UUID, db: Session = Depends(get_db)) -> None:
+    """Remove one task and its results. The agent that did it is untouched."""
+    task = task_service.get_task(db, task_id)
+    if task is None:
+        raise HTTPException(404, "Task not found.")
+    try:
+        task_service.delete_task(db, task)
+    except task_service.InvalidInput as exc:
+        raise HTTPException(409, str(exc)) from None
+    db.commit()
+
+
 @router.post("/{task_id}/cancel", response_model=TaskDetail)
 def cancel_task(task_id: uuid.UUID, db: Session = Depends(get_db)) -> TaskDetail:
     task = task_service.get_task(db, task_id)

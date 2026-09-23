@@ -23,7 +23,8 @@ docker compose up -d --build
 Then open <http://localhost:6140>.
 
 That is the whole core installation: web app, API, PostgreSQL and the
-example providers (Research, and the Event Allocation Demo). No configuration file is
+no agents of its own. Set `BEVRO_DEMO_MODE=true` for the example
+providers (Research and the Event Allocation Demo). No configuration file is
 required; a secret key for provider credentials is generated once into
 `data/secret.key`. Copy `.env.example` to `.env` only if you want to change
 ports or set your own key.
@@ -36,7 +37,8 @@ declined with a plain message. Enabling it is described in
 [CODING_PROVIDER.md](CODING_PROVIDER.md#enabling-claude-code-on-your-machine).
 
 - The API runs `alembic upgrade head` on start and seeds the two example
-  providers (Research, Event Allocation Demo) if they are missing.
+  providers if they are missing: the optional integrations always, and the
+  examples only when `BEVRO_DEMO_MODE=true`.
 - `api/`, `adapters/` and `providers/` are bind-mounted; the API reloads on save.
 - `web/` is bind-mounted; Vite hot-reloads. `node_modules` lives in a named
   volume, so after changing `web/package.json` rebuild: `docker compose up -d --build web`.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from datetime import datetime
@@ -14,9 +15,12 @@ from adapters import ProviderSpec, get_adapter
 from adapters.base import HealthResult, NotSupported
 from adapters.registry import execution_mode
 from adapters.runtime import RuntimeProfile
+from app.config import get_settings
 from app.models import Provider
 from app.models._common import utcnow
-from providers import load_manifests
+from providers import DEMO, INTEGRATION, demo_slugs, load_manifests
+
+log = logging.getLogger("bevro.providers")
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
@@ -78,17 +82,67 @@ def register_provider(db: Session, data: dict[str, Any]) -> Provider:
 _MANIFEST_FIELDS = ("name", "description", "capabilities", "adapter", "app_url", "icon")
 
 
-def seed_examples(db: Session) -> int:
-    """Insert shipped providers that are missing and refresh the ones that exist.
+def shipped_demo(provider: Provider) -> bool:
+    """Is this row a demo provider Bevro seeded, and no one has made their own?
+
+    Three things must all agree: Bevro put it there (`origin == "example"`),
+    the slug is one Bevro ships as a demo, and the way it is reached is still
+    the shipped one. Someone's own agent called "Research" is connected or
+    created, so it fails the first test and is never touched.
+    """
+    if provider.origin != "example" or provider.slug not in demo_slugs():
+        return False
+    shipped = next((m for m in load_manifests(seed=DEMO) if m["slug"] == provider.slug), None)
+    if shipped is None:
+        return False
+    adapter = provider.adapter or {}
+    return adapter.get("kind") == shipped["adapter"].get("kind") and adapter.get("ref") == shipped["adapter"].get("ref")
+
+
+def retire_demo_providers(db: Session) -> int:
+    """Take the shipped demos out of a workspace that is not in demo mode.
+
+    Only rows that are positively the untouched seeded demos. One that has
+    done work cannot be deleted - its runs point at it - so it is disabled
+    instead and stays readable in the history it belongs to.
+    """
+    from app.models import ProviderRun
+
+    removed = 0
+    for provider in list_providers(db, enabled_only=False):
+        if not shipped_demo(provider):
+            continue
+        used = db.scalar(select(ProviderRun.id).where(ProviderRun.provider_id == provider.id).limit(1))
+        if used is not None:
+            if provider.enabled:
+                provider.enabled = False
+                log.info("demo provider %s has history; disabled rather than removed", provider.slug)
+            continue
+        db.delete(provider)
+        removed += 1
+        log.info("demo provider %s removed: this workspace is not in demo mode", provider.slug)
+    db.flush()
+    return removed
+
+
+def seed_examples(db: Session, *, demo: bool | None = None) -> int:
+    """Register the providers Bevro ships, and refresh the ones already here.
+
+    A normal workspace gets the optional integrations only: the agents in it
+    should be the ones its owner connected or created. The demo providers are
+    for tests, screenshots and `BEVRO_DEMO_MODE=true`.
 
     Manifests are the source of truth for shipped providers; `enabled` is the
     user's and is left alone. Returns how many were inserted.
     """
+    if demo is None:
+        demo = get_settings().demo_mode
+    wanted = load_manifests() if demo else load_manifests(seed=INTEGRATION)
     added = 0
-    for manifest in load_manifests():
+    for manifest in wanted:
         existing = get_by_slug(db, manifest["slug"])
         if existing is None:
-            register_provider(db, manifest)
+            register_provider(db, {k: v for k, v in manifest.items() if k != "seed"})
             added += 1
         elif existing.origin == "example":
             for field in _MANIFEST_FIELDS:
@@ -97,11 +151,13 @@ def seed_examples(db: Session) -> int:
                     setattr(existing, field, value)
                     if field == "adapter":
                         existing.runtimes = []  # re-derived below from the manifest's adapter
+    if not demo:
+        added -= retire_demo_providers(db)
     db.commit()
     from app.services.runtime import ensure_runtimes
 
     ensure_runtimes(db)
-    return added
+    return max(added, 0)
 
 
 def to_spec(provider: Provider) -> ProviderSpec:

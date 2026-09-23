@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import Logo from "../components/Logo";
 import PageHeader, { Page } from "../components/PageHeader";
 import { api, type DeliveryChannelInfo, type Meta, type Workspace } from "../lib/api";
+import { CLEAR_HISTORY_DETAIL, CLEAR_HISTORY_QUESTION } from "./Recent";
 import { useTheme, type Theme } from "../lib/theme";
 
 // Where this copy of Bevro came from. One line, so a fork changes it once.
@@ -18,6 +19,29 @@ export default function Settings() {
   const [meta, setMeta] = useState<Meta | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [channels, setChannels] = useState<DeliveryChannelInfo[]>([]);
+  const [confirm, setConfirm] = useState<"history" | "notifications" | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  const run = async (what: "history" | "notifications") => {
+    setBusy(true);
+    setNote(null);
+    try {
+      if (what === "history") {
+        const { removed } = await api.clearHistory();
+        setNote(removed === 0 ? "There was nothing to clear." : `Removed ${removed} ${removed === 1 ? "task" : "tasks"}.`);
+      } else {
+        const list = await api.listNotifications();
+        await Promise.all(list.items.map((n) => api.dismissNotification(n.id)));
+        setNote(list.items.length === 0 ? "There was nothing to clear." : `Removed ${list.items.length}.`);
+      }
+      setConfirm(null);
+    } catch {
+      setNote("That didn't work.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     api.meta().then(setMeta).catch(() => setMeta(null));
@@ -89,6 +113,54 @@ export default function Settings() {
               </li>
             ))}
           </ul>
+        )}
+      </section>
+
+      <section aria-labelledby="data-heading" className="py-6 border-b border-line">
+        <h2 id="data-heading" className="font-medium mb-1">
+          Workspace data
+        </h2>
+        <p className="bv-hint mb-3">What Bevro keeps. Your agents, scheduled work and settings are not touched by anything here.</p>
+        {confirm === "history" ? (
+          <div role="group" aria-label="Clear task history">
+            <p className="text-sm">{CLEAR_HISTORY_QUESTION}</p>
+            <p className="bv-hint">{CLEAR_HISTORY_DETAIL}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button type="button" className="bv-btn-primary" disabled={busy} onClick={() => void run("history")}>
+                Clear task history
+              </button>
+              <button type="button" className="bv-btn-quiet" onClick={() => setConfirm(null)}>
+                Keep it
+              </button>
+            </div>
+          </div>
+        ) : confirm === "notifications" ? (
+          <div role="group" aria-label="Clear notifications">
+            <p className="text-sm">Remove every notification from Bevro?</p>
+            <p className="bv-hint">The work they point at stays under Recent. Scheduled work carries on as it is.</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button type="button" className="bv-btn-primary" disabled={busy} onClick={() => void run("notifications")}>
+                Clear notifications
+              </button>
+              <button type="button" className="bv-btn-quiet" onClick={() => setConfirm(null)}>
+                Keep them
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="bv-btn-quiet" onClick={() => setConfirm("history")}>
+              Clear task history
+            </button>
+            <button type="button" className="bv-btn-quiet" onClick={() => setConfirm("notifications")}>
+              Clear notifications
+            </button>
+          </div>
+        )}
+        {note && (
+          <p className="mt-2 text-sm" aria-live="polite">
+            {note}
+          </p>
         )}
       </section>
 

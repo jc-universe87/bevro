@@ -87,6 +87,10 @@ A coding agent, working in a directory you approved (optional — see
 
 <p align="center"><img src="docs/screenshots/home-dark.png" alt="Home, dark theme" width="70%"></p>
 
+<sub>The screenshots show a workspace with the example providers turned on
+(`BEVRO_DEMO_MODE=true`) so there is something to look at. A new installation
+starts empty.</sub>
+
 ## Core concepts
 
 | | |
@@ -108,15 +112,22 @@ cd bevro
 docker compose up -d --build
 ```
 
-Open <http://localhost:6140>, type something in the box, press Enter.
+Open <http://localhost:6140>. That gives you the web app, the API (Swagger at
+<http://localhost:6141/docs>), PostgreSQL and the scheduler.
 
-That gives you the web app, the API (Swagger at <http://localhost:6141/docs>),
-PostgreSQL, the scheduler, and two example providers: **Research** and the
-**Event Allocation Demo**. Try *"Compare three note-taking apps"* or
-*"Allocate participants for the spring conference"*.
+**It starts empty, on purpose.** The agents in your workspace should be the
+ones you chose, so Bevro ships with none of its own:
+
+```
+start empty  →  Connect something you already run, or Create an agent  →  ask Bevro
+```
+
+Home says so plainly until there is something that can take work, and asking
+for something with nothing connected gets an honest answer rather than a demo.
 
 No configuration is needed. To change ports or set your own encryption key,
-copy `.env.example` to `.env`.
+copy `.env.example` to `.env`. To look around with example agents first, set
+`BEVRO_DEMO_MODE=true` — see [Trying it out](#trying-it-out).
 
 ### Three ways to run it
 
@@ -251,13 +262,31 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Providers and runtimes
 
-Shipped:
+A normal workspace contains only what you connected or created. One optional
+integration ships with Bevro and is registered so it can be routed to the
+moment it is usable:
 
-| Provider | What it shows |
+| Provider | What it is |
+|---|---|
+| **Claude Code** | A real coding agent working in a directory you approve. Optional; needs the host worker. Until then it sits under *Available to set up* rather than among your agents. |
+
+### Trying it out
+
+Two example providers exist for tests, screenshots and a first look. They are
+never seeded into a real workspace:
+
+```sh
+# .env
+BEVRO_DEMO_MODE=true
+```
+
+| Example | What it shows |
 |---|---|
 | **Research** | The plumbing: a request in, a note artifact out. Example data, not a real search. |
-| **Event Allocation Demo** | An app-backed provider: a specialist application that answers with a one-line outcome and a deep link back into its own interface. Sample data; nothing is called. |
-| **Claude Code** | A real coding agent working in a directory you approve. Optional; needs the host worker. |
+| **Event Allocation Demo** | An app-backed provider: a specialist application answering with a one-line outcome and a deep link into its own interface. Sample data; nothing is called. |
+
+Turn demo mode off again and Bevro takes them back out, leaving anything you
+connected or created exactly where it is.
 
 Runtime kinds Bevro can discover and use today: HTTP services, MCP (Streamable
 HTTP and stdio), commands, Python and Node entry points, Docker Compose

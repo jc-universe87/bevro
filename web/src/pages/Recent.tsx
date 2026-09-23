@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import PageHeader, { Page } from "../components/PageHeader";
 import TaskStatus from "../components/TaskStatus";
-import { api, type Task } from "../lib/api";
+import { api, ApiError, type Task } from "../lib/api";
 import { relativeTime } from "../lib/format";
 
 const FILTERS: { value: string; label: string }[] = [
@@ -13,11 +13,20 @@ const FILTERS: { value: string; label: string }[] = [
 ];
 const OPEN = new Set(["created", "queued", "working", "waiting", "needs_input", "needs_approval", "scheduled", "monitoring"]);
 
+/** What removing something actually does, said once, in the same words everywhere. */
+export const REMOVE_TASK_QUESTION = "Remove this task and its results from Bevro?";
+export const REMOVE_TASK_DETAIL = "This removes the task, what the agent did and anything it produced. The agent itself, and any scheduled work that asked for it, stay.";
+export const CLEAR_HISTORY_QUESTION = "Remove all finished work from Bevro?";
+export const CLEAR_HISTORY_DETAIL = "This clears Recent: every finished task and its results. Your agents, scheduled work and settings stay. Anything still running is left alone.";
+
 export default function Recent() {
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,6 +43,34 @@ export default function Recent() {
   }, [query, filter]);
 
   const visible = (tasks ?? []).filter((t) => (filter === "open" ? OPEN.has(t.state) : true));
+
+  const remove = async (id: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.removeTask(id);
+      setTasks((list) => (list ?? []).filter((t) => t.id !== id));
+      setRemoving(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "That couldn't be removed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const clearAll = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.clearHistory();
+      setTasks(await api.listTasks({}));
+      setClearing(false);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "History couldn't be cleared.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <Page>
@@ -56,6 +93,29 @@ export default function Recent() {
       </div>
 
       {error && <p role="alert">{error}</p>}
+
+      {clearing ? (
+        <section aria-label="Clear history" className="mb-4 rounded-md border border-line p-4">
+          <p className="font-medium">{CLEAR_HISTORY_QUESTION}</p>
+          <p className="bv-hint mt-1">{CLEAR_HISTORY_DETAIL}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" className="bv-btn-primary" disabled={busy} onClick={() => void clearAll()}>
+              Clear history
+            </button>
+            <button type="button" className="bv-btn-quiet" onClick={() => setClearing(false)}>
+              Keep it
+            </button>
+          </div>
+        </section>
+      ) : (
+        (tasks?.length ?? 0) > 0 && (
+          <p className="mb-3 text-sm">
+            <button type="button" className="text-muted hover:text-ink" onClick={() => setClearing(true)}>
+              Clear history
+            </button>
+          </p>
+        )
+      )}
       {tasks && visible.length === 0 && !error && (
         <p className="bv-hint py-8">
           {query || filter ? "Nothing matches." : "Nothing yet. "}
@@ -70,7 +130,7 @@ export default function Recent() {
       <ul className="divide-y divide-line border-t border-b border-line" aria-label="Recent work">
         {visible.map((t) => (
           <li key={t.id}>
-            <Link to={`/tasks/${t.id}`} className="block py-3 -mx-2 px-2 rounded-md hover:bg-sunken">
+            <Link to={`/tasks/${t.id}`} className="block pt-3 -mx-2 px-2 rounded-md hover:bg-sunken">
               <div className="flex items-baseline justify-between gap-4">
                 <span className="font-medium truncate">{t.title}</span>
                 <time dateTime={t.created_at} className="text-xs text-subtle shrink-0">
@@ -84,6 +144,26 @@ export default function Recent() {
               </div>
               {t.summary && <p className="mt-1 text-sm text-muted truncate">{t.summary}</p>}
             </Link>
+            <div className="-mx-2 px-2 pb-3 text-sm">
+              {removing === t.id ? (
+                <div role="group" aria-label="Remove this task">
+                  <p className="text-ink">{REMOVE_TASK_QUESTION}</p>
+                  <p className="bv-hint">{REMOVE_TASK_DETAIL}</p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3">
+                    <button type="button" className="bv-link" disabled={busy} onClick={() => void remove(t.id)}>
+                      Yes, remove
+                    </button>
+                    <button type="button" className="text-muted hover:text-ink" onClick={() => setRemoving(null)}>
+                      Keep it
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" className="text-muted hover:text-ink" onClick={() => setRemoving(t.id)}>
+                  Remove from history
+                </button>
+              )}
+            </div>
           </li>
         ))}
       </ul>

@@ -369,6 +369,13 @@ export default function Agents() {
     api.listProviders().then(setProviders).catch(() => setError("Agents couldn't be loaded."));
   }, []);
 
+  // An agent Bevro ships that has never been usable here is not one of yours:
+  // it is something you could set up. Anything you connected or created stays
+  // in the list whatever its state today.
+  const isWaitingToBeSetUp = (p: Provider) => p.origin === "example" && p.availability?.state === "unavailable" && !p.actions.includes("ask");
+  const mine = (providers ?? []).filter((p) => !isWaitingToBeSetUp(p));
+  const available = (providers ?? []).filter(isWaitingToBeSetUp);
+
   const replace = (updated: Provider) => setProviders((list) => (list ?? []).map((x) => (x.id === updated.id ? updated : x)));
   const drop = (id: string) => {
     setProviders((list) => (list ?? []).filter((x) => x.id !== id));
@@ -389,8 +396,8 @@ export default function Agents() {
       </PageHeader>
 
       {error && <p role="alert">{error}</p>}
-      <ul className="divide-y divide-line border-t border-b border-line" aria-label="Agents">
-        {(providers ?? []).map((p) => {
+      <ul className="divide-y divide-line border-t border-b border-line empty:hidden" aria-label="Agents">
+        {mine.map((p) => {
           const note = statusNote(p);
           return (
             <li key={p.id} className="py-4">
@@ -432,18 +439,42 @@ export default function Agents() {
           );
         })}
       </ul>
-      {providers && providers.length === 0 && (
-        <div className="py-8">
-          <p className="bv-hint">No agents connected yet.</p>
+      {providers && mine.length === 0 && (
+        <section aria-label="No agents yet" className="py-8">
+          <p className="bv-hint">No agents yet.</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Link to="/connect" className="bv-btn-primary">
-              Connect an agent
+              Connect
             </Link>
             <Link to="/create" className="bv-btn-quiet">
-              Create one
+              Create
             </Link>
           </div>
-        </div>
+        </section>
+      )}
+
+      {/* Shipped with Bevro but not usable here yet: worth knowing about,
+          not worth listing as though you had set it up. */}
+      {available.length > 0 && (
+        <section aria-labelledby="available-heading" className="mt-8">
+          <h2 id="available-heading" className="text-sm font-medium">
+            Available to set up
+          </h2>
+          <ul className="mt-2 divide-y divide-line border-t border-b border-line">
+            {available.map((p) => (
+              <li key={p.id} className="py-3 flex items-start gap-3">
+                <LetterMark provider={p} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <h3 className="font-medium text-muted">{p.name}</h3>
+                    <span className="text-xs text-subtle">{p.availability?.note ?? "Not set up yet"}</span>
+                  </div>
+                  <p className="text-sm text-muted">{p.description}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
     </Page>
   );
