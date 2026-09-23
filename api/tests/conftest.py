@@ -122,8 +122,8 @@ def client(db: Session):
 @pytest.fixture(autouse=True)
 def fast_providers(monkeypatch):
     """Example providers pause for realism; tests do not need that."""
-    import providers.moimio_example as moimio
+    import providers.event_demo as event_demo
     import providers.research as research
 
     monkeypatch.setattr(research, "WORK_SECONDS", 0)
-    monkeypatch.setattr(moimio, "WORK_SECONDS", 0)
+    monkeypatch.setattr(event_demo, "WORK_SECONDS", 0)

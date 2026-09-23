@@ -1,9 +1,13 @@
-"""Example Moimio provider.
+"""Example provider: a specialist application that already exists.
 
-Demonstrates a specialist application answering with a concise outcome and a
-deep link back into itself. The numbers are sample data; the deep-link
-handling (app_url + configured path -> external_url artifact) is the real
-architecture a connected Moimio will use.
+Not every provider is an AI agent. This one stands for the events app, the
+rota system or the finance tool a team already runs: it answers with a
+concise outcome and a deep link back into its own interface, where the real
+detail lives.
+
+The numbers are sample data and nothing is called. The deep-link handling
+(app_url + a configured path -> an external_url artifact) is exactly what a
+real connected application uses.
 """
 
 from __future__ import annotations
@@ -51,7 +55,7 @@ def run(request: InvocationRequest, provider: ProviderSpec) -> InvocationResult:
         artifacts.append(
             ArtifactDraft(
                 type="deep_link",
-                title="Review in Moimio",
+                title="Review in the events app",
                 summary=f"{review} participants need a decision",
                 external_url=link,
                 metadata={"event_id": event_id, "provider": provider.slug},

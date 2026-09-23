@@ -432,7 +432,19 @@ export default function Agents() {
           );
         })}
       </ul>
-      {providers && providers.length === 0 && <p className="bv-hint py-8">No agents yet.</p>}
+      {providers && providers.length === 0 && (
+        <div className="py-8">
+          <p className="bv-hint">No agents connected yet.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link to="/connect" className="bv-btn-primary">
+              Connect an agent
+            </Link>
+            <Link to="/create" className="bv-btn-quiet">
+              Create one
+            </Link>
+          </div>
+        </div>
+      )}
     </Page>
   );
 }

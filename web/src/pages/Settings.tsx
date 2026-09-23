@@ -4,6 +4,9 @@ import PageHeader, { Page } from "../components/PageHeader";
 import { api, type DeliveryChannelInfo, type Meta, type Workspace } from "../lib/api";
 import { useTheme, type Theme } from "../lib/theme";
 
+// Where this copy of Bevro came from. One line, so a fork changes it once.
+const REPOSITORY = "https://github.com/jc-universe87/bevro";
+
 const THEMES: { value: Theme; label: string }[] = [
   { value: "system", label: "System" },
   { value: "light", label: "Light" },
@@ -94,13 +97,29 @@ export default function Settings() {
           About
         </h2>
         <Logo variant="primary" height={72} />
-        <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-sm mt-2">
+        <p className="text-sm mt-2">{meta?.tagline ?? "Agents that get things done."}</p>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-sm mt-3">
           <dt className="text-muted">Version</dt>
           <dd>{meta?.version ?? "—"}</dd>
           <dt className="text-muted">Server</dt>
           <dd>{meta ? "Connected" : "Not reachable"}</dd>
+          <dt className="text-muted">Licence</dt>
+          <dd>Apache-2.0</dd>
         </dl>
-        <p className="bv-hint mt-4">A workspace for getting work done through agents, apps, workflows and other work providers.</p>
+        <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-sm">
+          <a className="bv-link" href={REPOSITORY} target="_blank" rel="noreferrer">
+            Repository
+          </a>
+          <a className="bv-link" href={`${REPOSITORY}/tree/main/docs`} target="_blank" rel="noreferrer">
+            Documentation
+          </a>
+          <a className="bv-link" href={`${REPOSITORY}/blob/main/LICENSE`} target="_blank" rel="noreferrer">
+            Licence
+          </a>
+        </p>
+        <p className="bv-hint mt-4">
+          Bevro is early software. The shape is settled; the details still move.
+        </p>
       </section>
     </Page>
   );

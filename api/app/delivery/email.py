@@ -26,20 +26,30 @@ log = logging.getLogger("bevro.delivery.email")
 class SmtpChannel(DeliveryChannel):
     name = "email"
     label = "Email"
+    accepts_destination = True
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
 
     # ------------------------------------------------------------------ setup
 
-    def validate_configuration(self) -> str | None:
+    def validate_configuration(self, destination: str | None = None) -> str | None:
         s = self.settings
         if not s.smtp_host.strip():
             return "No mail server is set up on this installation."
         if not (s.smtp_from.strip() or s.smtp_username.strip()):
             return "No address to send from is set up."
-        if not self.default_destination():
+        if not (destination or self.default_destination()):
             return "No address to send to is set up."
+        return None
+
+    def setup_problem(self) -> str | None:
+        """A mail server and an address to send from. The recipient may come later."""
+        s = self.settings
+        if not s.smtp_host.strip():
+            return "No mail server is set up on this installation."
+        if not (s.smtp_from.strip() or s.smtp_username.strip()):
+            return "No address to send from is set up."
         return None
 
     def default_destination(self) -> str | None:
@@ -52,7 +62,7 @@ class SmtpChannel(DeliveryChannel):
     # ------------------------------------------------------------------ sending
 
     def deliver(self, payload: dict, destination: str | None) -> DeliveryResult:
-        problem = self.validate_configuration()
+        problem = self.validate_configuration(destination)
         if problem:
             return DeliveryResult.permanent_failure(problem)
         to = (destination or self.default_destination() or "").strip()

@@ -149,9 +149,9 @@ For things you cannot decide alone, return `NEEDS_INPUT` or
 ## 7. Deep links
 
 A `deep_link` artifact with an `external_url` becomes the headline action of
-the result ("Review in Moimio →"). Build it from `provider.app_url` plus a
+the result ("Review in the events app →"). Build it from `provider.app_url` plus a
 path in `adapter.config` so that the configuration, not the code, decides
-where the application lives. `providers/moimio_example.py` shows the pattern.
+where the application lives. `providers/event_demo.py` shows the pattern.
 
 ## 8. UI
 

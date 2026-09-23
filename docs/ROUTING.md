@@ -24,7 +24,7 @@ Task → ProviderRun → Adapter → Provider → Artifact      (unchanged)
 families to *capabilities* (`coding`, `events.allocate`, `research`), then
 picks an available provider that declares the capability — when several do,
 the one the request actually names (by its name or a capability title, e.g.
-"Ask Moimio Research about competitor changes") wins; otherwise catalogue
+"Ask Market Research about competitor changes") wins; otherwise catalogue
 order. If no family matches, a provider the request clearly names (two or
 more distinct words from its name and capability titles) is still chosen
 with low confidence, which is how a newly connected agent becomes reachable

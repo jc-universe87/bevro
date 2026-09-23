@@ -170,7 +170,13 @@ def availability_of(provider: Provider) -> dict[str, Any]:
     state = str(report.get("state") or "unavailable") if fresh else "unavailable"
     if state not in AVAILABILITY_NOTES:
         state = "unavailable"
-    return {"state": state, "note": AVAILABILITY_NOTES[state]}
+    note = AVAILABILITY_NOTES[state]
+    if state == "unavailable" and not report:
+        # Nothing has ever reported on it. On a fresh installation that is not
+        # a fault - the optional host worker simply is not running - and
+        # saying so is kinder than "not available".
+        note = "Optional \u00b7 needs the host worker"
+    return {"state": state, "note": note}
 
 
 def is_available(provider: Provider) -> bool:

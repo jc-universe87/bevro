@@ -55,12 +55,12 @@ Connect an agent, app or service to Bevro.
 [ Connect ]    Advanced setup
 ```
 
-Then, for `~/agents/moimio-research`:
+Then, for `~/agents/market-research`:
 
 ```
 Found
-Moimio Research & Strategy Agent
-Researches changes in the church-software market that matter to Moimio.
+Market Research & Strategy Agent
+Researches changes in the software market.
 
 Capabilities found:
   Research · Market analysis · Product strategy · Competitor analysis · Monitor
@@ -153,7 +153,7 @@ returns a draft:
 | `runtimes`, `active_runtime`, `choice_needed` | every RuntimeProfile found, the chosen one, and whether the person must pick (see [RUNTIMES.md](RUNTIMES.md)) |
 | `mechanism`, `mechanism_label` | derived from the active runtime: its adapter family and its plain wording ("Runs from this project") |
 | `adapter` | the full adapter block a Provider would get — **server-side only** |
-| `invocation_label` | how Bevro will talk to it, in words without absolute paths (`python -m moimio_research.agent --topic "…"`) |
+| `invocation_label` | how Bevro will talk to it, in words without absolute paths (`python -m market_research.agent --topic "…"`) |
 | `availability` | `ready` · `needs_worker` (runs on the host) · `needs_start` (a service that is not running) · `not_invocable` |
 | `confidence` | `high` / `medium` / `low`, shown as **Confident** / **Likely** / **Needs review** |
 | `evidence`, `warnings` | short sentences, no paths |
@@ -181,11 +181,11 @@ An existing agent keeps its own interface. Bevro stores how to talk to it:
 
 ```json
 {"kind": "command", "config": {
-  "argv": ["/home/me/agents/moimio-research/.venv/bin/python", "-m", "moimio_research.agent"],
-  "cwd": "/home/me/agents/moimio-research",
+  "argv": ["/home/me/agents/market-research/.venv/bin/python", "-m", "market_research.agent"],
+  "cwd": "/home/me/agents/market-research",
   "input": {"mode": "flag", "flag": "--topic"},
   "output": {"mode": "stdout"},
-  "env": {"PYTHONPATH": "/home/me/agents/moimio-research/src"},
+  "env": {"PYTHONPATH": "/home/me/agents/market-research/src"},
   "secret_env": ["OPENAI_API_KEY"],
   "timeout_seconds": 1800}}
 ```
@@ -208,10 +208,10 @@ Transports (all in `adapters/`, see [PROVIDER_MODEL.md](PROVIDER_MODEL.md)):
 A service *may* publish `/.well-known/bevro.json` to skip inference:
 
 ```json
-{"name": "Moimio", "description": "Events and organisation",
+{"name": "Event Allocation Demo", "description": "Events and organisation",
  "capabilities": [{"id": "events.allocate", "title": "Allocate participants"}],
  "invoke_path": "/bevro/invoke", "health_path": "/health",
- "auth": {"type": "bearer"}, "app_url": "https://moimio.example/app"}
+ "auth": {"type": "bearer"}, "app_url": "https://events.example/app"}
 ```
 
 It is a fast path, never a requirement.
@@ -253,7 +253,7 @@ The API usually lives in Docker and cannot see your home directory. Anything
 local — inspecting a folder, running a command, starting a stdio MCP server —
 is done by the **worker** on the host (`./scripts/worker.sh`), the same
 process that runs Claude Code. Connect hands the worker a pending draft and
-polls; the person just sees *Looking at moimio-research…*.
+polls; the person just sees *Looking at market-research…*.
 
 The worker only looks inside **approved roots**:
 
@@ -265,7 +265,7 @@ BEVRO_LOCAL_ROOTS=~/agents
 `:`-separated, `~` allowed. Empty means local Connect is off (addresses and
 MCP servers still work). Paths are resolved with symlinks followed *before*
 the check, so a link out of a root is refused; `..` is refused; relative
-paths are refused; a bare name (`moimio-research`) is looked up directly
+paths are refused; a bare name (`market-research`) is looked up directly
 under each root. The same rule is applied again at run time by the `command`
 and `mcp` adapters, so a stored working directory outside the roots never
 runs. An API started on the host with `BEVRO_LOCAL_ROOTS` set discovers

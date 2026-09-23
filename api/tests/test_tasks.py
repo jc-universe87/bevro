@@ -31,9 +31,9 @@ def test_long_requests_get_a_short_title(seeded):
     assert task.original_request == words
 
 
-def test_demo_router_sends_event_wording_to_moimio(seeded):
+def test_demo_router_sends_event_wording_to_event_demo(seeded):
     task = task_service.submit(seeded, "Allocate the participants for the spring conference")
-    assert task.runs[0].provider.slug == "moimio"
+    assert task.runs[0].provider.slug == "event-demo"
 
 
 def test_example_task_completes_with_summary_and_artifacts(seeded):
@@ -48,8 +48,8 @@ def test_example_task_completes_with_summary_and_artifacts(seeded):
     types = {a.type for a in task.artifacts}
     assert types == {"structured", "deep_link"}
     link = next(a for a in task.artifacts if a.type == "deep_link")
-    assert link.title == "Review in Moimio"
-    assert link.external_url.startswith("https://moimio.example/app/events/")
+    assert link.title == "Review in the events app"
+    assert link.external_url.startswith("https://events.example/app/events/")
 
 
 def test_research_stores_a_file_backed_artifact(seeded):
@@ -126,9 +126,9 @@ def test_cancel_open_task_and_not_completed_one(seeded):
 
 
 def test_task_can_target_a_specific_provider(seeded):
-    moimio = provider_service.get_by_slug(seeded, "moimio")
-    task = task_service.submit(seeded, "Find something unrelated to events", provider=moimio)
-    assert task.runs[0].provider_id == moimio.id
+    event_demo = provider_service.get_by_slug(seeded, "event-demo")
+    task = task_service.submit(seeded, "Find something unrelated to events", provider=event_demo)
+    assert task.runs[0].provider_id == event_demo.id
 
 
 def test_missing_run_raises(seeded):

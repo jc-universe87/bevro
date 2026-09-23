@@ -3,6 +3,7 @@
  * Bevro renders the types it understands. Anything else - a type it has never
  * seen, or a known type without usable content - falls back to a plain
  * "Open result" link when there is somewhere to open. */
+import { Fragment, useState } from "react";
 import type { Artifact } from "../lib/api";
 import Icon from "./Icon";
 import Markdown from "./Markdown";
@@ -13,8 +14,57 @@ function payloadText(a: Artifact): string | null {
   return null;
 }
 
-function StructuredTable({ columns, rows }: { columns: string[]; rows: unknown[][] }) {
+// A result can be any size. Long ones open to a readable amount and offer the
+// rest, rather than turning the page into a wall.
+const TEXT_LIMIT = 4000;
+const ROW_LIMIT = 25;
+
+function LongText({ text, markdown }: { text: string; markdown: boolean }) {
+  const [full, setFull] = useState(false);
+  const long = text.length > TEXT_LIMIT;
+  const shown = full || !long ? text : text.slice(0, TEXT_LIMIT).replace(/\s\S*$/, "") + "…";
   return (
+    <>
+      {markdown ? (
+        <div className="mt-1">
+          <Markdown text={shown} />
+        </div>
+      ) : (
+        <pre className="mt-2 whitespace-pre-wrap font-[inherit] text-sm text-ink leading-relaxed">{shown}</pre>
+      )}
+      {long && (
+        <button type="button" className="bv-link mt-1 text-sm" onClick={() => setFull((v) => !v)}>
+          {full ? "Show less" : `Show all (${text.length.toLocaleString()} characters)`}
+        </button>
+      )}
+    </>
+  );
+}
+
+/** A structured payload that is not a table: readable pairs, not a JSON blob. */
+function KeyValues({ payload }: { payload: Record<string, unknown> }) {
+  const entries = Object.entries(payload);
+  const simple = (v: unknown) => v === null || ["string", "number", "boolean"].includes(typeof v);
+  return (
+    <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-sm">
+      {entries.map(([key, value]) => (
+        <Fragment key={key}>
+          <dt className="text-muted">{key.replace(/[_-]+/g, " ")}</dt>
+          <dd className={simple(value) ? "" : "text-muted"}>
+            {simple(value) ? String(value ?? "—") : Array.isArray(value) ? `${value.length} items` : "…"}
+          </dd>
+        </Fragment>
+      ))}
+    </dl>
+  );
+}
+
+function StructuredTable({ columns, rows }: { columns: string[]; rows: unknown[][] }) {
+  const [full, setFull] = useState(false);
+  const long = rows.length > ROW_LIMIT;
+  const shown = full || !long ? rows : rows.slice(0, ROW_LIMIT);
+  return (
+    <>
     <table className="text-sm min-w-[18rem]">
       <thead>
         <tr className="text-left text-muted">
@@ -26,7 +76,7 @@ function StructuredTable({ columns, rows }: { columns: string[]; rows: unknown[]
         </tr>
       </thead>
       <tbody>
-        {rows.map((row, i) => (
+        {shown.map((row, i) => (
           <tr key={i}>
             {row.map((cell, j) => (
               <td key={j} className={`py-1.5 border-b border-line ${j > 0 ? "text-right pl-8 tabular-nums" : "pr-8"}`}>
@@ -37,6 +87,12 @@ function StructuredTable({ columns, rows }: { columns: string[]; rows: unknown[]
         ))}
       </tbody>
     </table>
+    {long && (
+      <button type="button" className="bv-link mt-2 text-sm" onClick={() => setFull((v) => !v)}>
+        {full ? "Show fewer" : `Show all ${rows.length.toLocaleString()} rows`}
+      </button>
+    )}
+    </>
   );
 }
 
@@ -71,13 +127,7 @@ export default function ArtifactView({ artifact }: { artifact: Artifact }) {
     return (
       <div>
         <h3 className="text-sm font-medium">{a.title}</h3>
-        {markdown ? (
-          <div className="mt-1">
-            <Markdown text={text} />
-          </div>
-        ) : (
-          <pre className="mt-2 whitespace-pre-wrap font-[inherit] text-sm text-ink leading-relaxed">{text}</pre>
-        )}
+        <LongText text={text} markdown={markdown} />
         {a.content_url && (
           <div className="mt-2">
             <OpenLink href={a.content_url} label="Open file" />
@@ -94,7 +144,9 @@ export default function ArtifactView({ artifact }: { artifact: Artifact }) {
           <span className="inline-block transition-transform group-open:rotate-90" aria-hidden="true">›</span>
           {a.title}
         </summary>
-        <pre className="mt-2 max-h-[28rem] overflow-auto rounded-md border border-line bg-sunken p-3 text-xs leading-relaxed">{text}</pre>
+        <pre className="mt-2 max-h-[28rem] overflow-auto rounded-md border border-line bg-sunken p-3 text-xs leading-relaxed">
+          {text.length > 40_000 ? text.slice(0, 40_000) + "\n…" : text}
+        </pre>
       </details>
     );
   }
@@ -105,6 +157,16 @@ export default function ArtifactView({ artifact }: { artifact: Artifact }) {
       <div>
         <h3 className="text-sm font-medium mb-2">{a.title}</h3>
         <StructuredTable columns={p.columns as string[]} rows={p.rows as unknown[][]} />
+      </div>
+    );
+  }
+
+  // Structured, but not a table. Readable pairs beat a wall of JSON.
+  if (a.type === "structured" && p && !Array.isArray(a.payload)) {
+    return (
+      <div>
+        <h3 className="text-sm font-medium mb-2">{a.title}</h3>
+        <KeyValues payload={p as Record<string, unknown>} />
       </div>
     );
   }

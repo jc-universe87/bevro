@@ -13,17 +13,17 @@ const draftView = (over: Record<string, unknown> = {}) => ({
   credentials_label: "None needed",
   needs_bridge: false,
   bridge_possible: false,
-  name: "Moimio Research",
-  description: "Research and strategy for Moimio",
+  name: "Market Research",
+  description: "Competitor and market research",
   capabilities: [{ id: "research", title: "Research" }, { id: "product_strategy", title: "Product strategy" }, { id: "competitor_analysis", title: "Competitor analysis" }],
   mechanism: "command",
   mechanism_label: "Local Python agent",
-  invocation_label: 'python -m moimio_research.agent --topic "…"',
+  invocation_label: 'python -m market_research.agent --topic "…"',
   availability: "needs_worker",
   confidence: "high",
   confidence_label: "Confident",
   note: null,
-  evidence: ["pyproject.toml declares moimio-research 1.4.1", "README documents python -m moimio_research.agent"],
+  evidence: ["pyproject.toml declares market-research 1.4.1", "README documents python -m market_research.agent"],
   warnings: [],
   app_url: null,
   auth: { required: false, secret_name: null, label: null, hint: null },
@@ -35,7 +35,7 @@ const draft = (over: Record<string, unknown> = {}) => ({
   id: "d1",
   state: "found",
   target_kind: "local",
-  target_label: "moimio-research",
+  target_label: "market-research",
   draft: draftView(),
   error: null,
   test: null,
@@ -44,7 +44,7 @@ const draft = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-const provider = { id: "p9", slug: "moimio-research", name: "Moimio Research", description: "Research and strategy for Moimio", enabled: true, capabilities: [], app_url: null, icon: null, origin: "connected", actions: [], connection: "command", availability: { state: "unavailable", note: "Not available on this installation" }, secret_names: [], credentials: [], runtime: { display_name: "Runs from this project", availability: "needs_worker", credentials_label: "None needed", runtimes_found: 1, alternatives: 0, health: "available", built: false, review: null, abilities: {} }, created_at: "", updated_at: "" };
+const provider = { id: "p9", slug: "market-research", name: "Market Research", description: "Competitor and market research", enabled: true, capabilities: [], app_url: null, icon: null, origin: "connected", actions: [], connection: "command", availability: { state: "unavailable", note: "Not available on this installation" }, secret_names: [], credentials: [], runtime: { display_name: "Runs from this project", availability: "needs_worker", credentials_label: "None needed", runtimes_found: 1, alternatives: 0, health: "available", built: false, review: null, abilities: {} }, created_at: "", updated_at: "" };
 
 function renderAt(path: string) {
   return render(
@@ -75,13 +75,13 @@ test("typing a folder finds the agent, confirms it, and says it is under Agents"
   });
   const user = userEvent.setup();
   renderAt("/connect");
-  await user.type(screen.getByPlaceholderText("URL, local project, MCP server or command"), "~/agents/moimio-research{Enter}");
-  expect(calls.find((c) => c.method === "POST")?.body).toEqual({ target: "~/agents/moimio-research", secrets: {} });
-  expect(await screen.findByText("Looking at moimio-research…")).toBeInTheDocument();
+  await user.type(screen.getByPlaceholderText("URL, local project, MCP server or command"), "~/agents/market-research{Enter}");
+  expect(calls.find((c) => c.method === "POST")?.body).toEqual({ target: "~/agents/market-research", secrets: {} });
+  expect(await screen.findByText("Looking at market-research…")).toBeInTheDocument();
 
   const found = await screen.findByRole("region", { name: "Found" }, { timeout: 3000 });
-  expect(within(found).getByRole("heading", { name: "Moimio Research" })).toBeInTheDocument();
-  expect(within(found).getByText("Research and strategy for Moimio")).toBeInTheDocument();
+  expect(within(found).getByRole("heading", { name: "Market Research" })).toBeInTheDocument();
+  expect(within(found).getByText("Competitor and market research")).toBeInTheDocument();
   const caps = within(found).getByRole("list", { name: "Capabilities" });
   expect(within(caps).getAllByRole("listitem").map((li) => li.textContent?.replace("• ", ""))).toEqual(["Research", "Product strategy", "Competitor analysis"]);
   expect(within(found).getByText("Runs via:").parentElement).toHaveTextContent("Runs from this project");
@@ -91,7 +91,7 @@ test("typing a folder finds the agent, confirms it, and says it is under Agents"
 
   await user.click(within(found).getByRole("button", { name: "Connect" }));
   const done = await screen.findByRole("region", { name: "Connected" });
-  expect(within(done).getByText(/Moimio Research is available under Agents\. Bevro can now route suitable work here\./)).toBeInTheDocument();
+  expect(within(done).getByText(/Market Research is available under Agents\. Bevro can now route suitable work here\./)).toBeInTheDocument();
   expect(within(done).getByRole("link", { name: "Go to Agents" })).toHaveAttribute("href", "/agents");
   expect(calls.find((c) => c.url === "/api/connect/drafts/d1/confirm")?.body).toEqual({ secrets: {} });
 });
@@ -156,9 +156,9 @@ test("agents lists a connected provider and Manage offers pause, test and remove
   });
   const user = userEvent.setup();
   renderAt("/agents");
-  expect(await screen.findByRole("heading", { name: "Moimio Research" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Market Research" })).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Manage" }));
-  const panel = screen.getByLabelText("Manage Moimio Research");
+  const panel = screen.getByLabelText("Manage Market Research");
   expect(within(panel).getByText("Runs from this project")).toBeInTheDocument();
   expect(within(panel).getByRole("button", { name: "Reconnect" })).toBeInTheDocument();
   expect(panel.textContent).not.toMatch(/argv|cwd|python -m|stdio|systemd/);
@@ -167,7 +167,7 @@ test("agents lists a connected provider and Manage offers pause, test and remove
   await user.click(within(panel).getByRole("button", { name: "Remove" }));
   await user.click(within(panel).getByRole("button", { name: "Yes, remove" }));
   expect(calls.some((c) => c.method === "DELETE" && c.url === "/api/providers/p9")).toBe(true);
-  expect(screen.queryByRole("heading", { name: "Moimio Research" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Market Research" })).not.toBeInTheDocument();
 });
 
 test("when two ways are close, the person picks one and the choice is sent", async () => {

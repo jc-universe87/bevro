@@ -24,7 +24,7 @@ test("asking creates a task, shows it working, then shows the outcome and deep l
     state: "completed",
     summary: "Done. 148 participants allocated. 7 need review.",
     artifacts: [
-      { id: "a1", task_id: "t1", provider_run_id: null, type: "deep_link", title: "Review in Moimio", summary: null, mime_type: null, payload: null, external_url: "https://moimio.example/app/events/x", content_url: null, metadata: {}, known: true, created_at: "" },
+      { id: "a1", task_id: "t1", provider_run_id: null, type: "deep_link", title: "Review in the events app", summary: null, mime_type: null, payload: null, external_url: "https://events.example/app/events/x", content_url: null, metadata: {}, known: true, created_at: "" },
     ],
   });
   const calls = mockApi({
@@ -47,8 +47,8 @@ test("asking creates a task, shows it working, then shows the outcome and deep l
   expect(calls.find((c) => c.url === "/api/tasks" && c.method === "POST")?.body).toEqual({ request: "Allocate participants for the spring conference" });
   expect(await screen.findByText("Working…")).toBeInTheDocument();
   expect(await screen.findByText("Done. 148 participants allocated. 7 need review.", {}, { timeout: 3000 })).toBeInTheDocument();
-  const link = screen.getByRole("link", { name: /Review in Moimio/ });
-  expect(link).toHaveAttribute("href", "https://moimio.example/app/events/x");
+  const link = screen.getByRole("link", { name: /Review in the events app/ });
+  expect(link).toHaveAttribute("href", "https://events.example/app/events/x");
   await waitFor(() => expect(screen.getByText("Done")).toBeInTheDocument());
 });
 

@@ -6,14 +6,31 @@ to place and easy to review.
 ## Setup
 
 ```sh
-git clone <repository-url> bevro && cd bevro
-docker compose up -d --build        # web :6140, api :6141, db :6142
+git clone https://github.com/jc-universe87/bevro.git && cd bevro
+docker compose up -d --build        # web :6140, api :6141, db :6142, scheduler
 ```
 
 `api/`, `adapters/`, `providers/` and `web/` are bind-mounted; the API and
 the web dev server reload on save. After changing `web/package.json`, rebuild
 the web image (`docker compose up -d --build web`). Details, environment
 variables and the optional coding-provider worker: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+## Where things are
+
+| | |
+|---|---|
+| `api/app/routers/` | The HTTP surface. Thin: it validates, calls a service, serialises. |
+| `api/app/services/` | What Bevro actually does: tasks, providers, runtimes, automations, notifications. |
+| `api/app/models/` | SQLAlchemy models. Every change needs a migration. |
+| `api/app/schemas/` | What the browser may see. Allow-lists, never the model. |
+| `api/app/domain/` | The state machines. |
+| `api/app/connect/`, `api/app/create/` | Discovery, and building an agent from a sentence. |
+| `api/app/automations/`, `api/app/scheduler.py` | When work happens. |
+| `api/app/delivery/` | How a person is told: in-app, email, webhook. |
+| `adapters/` | The provider boundary. Imports nothing from the API, on purpose. |
+| `providers/` | The shipped example providers: a manifest and a function each. |
+| `web/src/pages/` | One file per screen. `web/src/lib/api.ts` is the only place that calls the API. |
+| `docs/` | Written for someone who has never seen the project. |
 
 ## Running the checks
 
@@ -54,19 +71,37 @@ docker compose exec db psql -U bevro -d postgres -c 'DROP DATABASE bevro_fresh'
   libraries.
 - Keep dependencies restrained. A new one needs a reason in the PR.
 
-## Adding a provider
+## The three extension points
 
-Read [docs/BUILDING_A_PROVIDER.md](docs/BUILDING_A_PROVIDER.md). A built-in
-provider is a manifest and a function; a new transport is an adapter class.
-Ship tests with it, and never let the normal test suite call a paid or
-external service.
+Each is deliberately small. If adding one requires changing anything else,
+that is a design problem worth raising in an issue.
+
+**A provider** — something that does work. A JSON manifest in
+`providers/manifests/` and one Python function. See
+[docs/BUILDING_A_PROVIDER.md](docs/BUILDING_A_PROVIDER.md).
+
+**A runtime adapter** — a new way of reaching providers (a transport Bevro
+does not speak yet). Subclass the adapter base in `adapters/`, implement
+`health`, `invoke`, `status`, `cancel` and `collect_artifacts`, and register
+it. Everything above the adapter — routing, fallback, artifacts, scheduling —
+is already generic. See [docs/RUNTIMES.md](docs/RUNTIMES.md).
+
+**A delivery channel** — a new way of telling someone. A class in
+`api/app/delivery/` implementing `validate_configuration`, `health` and
+`deliver`, listed in `CHANNEL_CLASSES`. Nothing about automations, tasks or
+the browser changes. See [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md).
+
+Ship tests with any of them, and never let the normal test suite call a paid
+or external service: use a fixture, a fake or a local stub.
 
 ## Documentation
 
 `docs/` is written for someone who has never seen the project. If you change
-behaviour, change the document that describes it in the same PR. Keep the
-seven concept definitions (Provider, Capability, Task, ProviderRun, Artifact,
-Adapter, Workspace, Worker) consistent across README and docs.
+behaviour, change the document that describes it in the same PR, and add a
+line to [CHANGELOG.md](CHANGELOG.md) if it is visible to a user. Keep the
+concept vocabulary (Provider, Runtime, Capability, Task, ProviderRun,
+Artifact, Adapter, Workspace, Worker, Automation, Notification) consistent
+across README and docs — the same word should mean the same thing everywhere.
 
 ## Pull requests
 

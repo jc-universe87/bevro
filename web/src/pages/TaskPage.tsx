@@ -13,7 +13,18 @@ function actionTarget(kind: string, providerId: string): string {
   return `/agents?manage=${providerId}`;
 }
 
-const POLL_MS = 800;
+// Quick work deserves a quick answer; a coding run that takes ten minutes does
+// not deserve a request every 800ms for all of it. Watch closely at first,
+// then ease off.
+const POLL_STEPS = [
+  { until: 20_000, every: 800 },
+  { until: 120_000, every: 2_000 },
+  { until: Infinity, every: 5_000 },
+];
+
+function pollDelay(watchingForMs: number): number {
+  return (POLL_STEPS.find((s) => watchingForMs < s.until) ?? POLL_STEPS[POLL_STEPS.length - 1]).every;
+}
 
 export default function TaskPage() {
   const { id = "" } = useParams();
@@ -34,12 +45,13 @@ export default function TaskPage() {
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const startedWatching = Date.now();
     const load = async () => {
       try {
         const t = await api.getTask(id);
         if (cancelled) return;
         setTask(t);
-        if (!isTerminal(t.state)) timer = setTimeout(load, POLL_MS);
+        if (!isTerminal(t.state)) timer = setTimeout(load, pollDelay(Date.now() - startedWatching));
       } catch {
         if (!cancelled) setError("This task couldn't be loaded.");
       }

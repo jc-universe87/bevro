@@ -12,12 +12,12 @@ from app.connect.targets import TargetError, classify_target, split_command
         ("http://localhost:8000", "url"),
         ("http://localhost:3333/mcp", "mcp"),
         ("https://tools.example.com/sse", "mcp"),
-        ("~/agents/moimio-research", "local"),
+        ("~/agents/market-research", "local"),
         ("/srv/agents/thing", "local"),
         ("./relative/project", "local"),
-        ("moimio-research", "local"),
-        ("agents/moimio-research", "local"),
-        ("python -m moimio_research.agent", "command"),
+        ("market-research", "local"),
+        ("agents/market-research", "local"),
+        ("python -m market_research.agent", "command"),
         ("npx my-agent --verbose", "command"),
         ('"/home/me/my agents/x"', "local"),
     ],
@@ -58,6 +58,6 @@ def test_unbalanced_quotes_and_empty_input_are_refused():
 
 
 def test_labels_never_carry_an_absolute_path():
-    assert classify_target("/home/someone/agents/moimio-research/").label == "moimio-research"
+    assert classify_target("/home/someone/agents/market-research/").label == "market-research"
     assert classify_target("~/agents/x").label == "x"
     assert classify_target("https://a.example/mcp").label == "https://a.example/mcp"

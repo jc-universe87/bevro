@@ -4,16 +4,16 @@ import { MemoryRouter } from "react-router-dom";
 import App from "../App";
 import { mockApi, task } from "./helpers";
 
-const providerRef = { id: "p9", slug: "moimio-research", name: "Moimio Research" };
+const providerRef = { id: "p9", slug: "market-research", name: "Market Research" };
 const failedRun = {
-  id: "run-1", provider: providerRef, state: "failed", result_summary: null, error_summary: "Moimio Research needs a credential before it can run.",
+  id: "run-1", provider: providerRef, state: "failed", result_summary: null, error_summary: "Market Research needs a credential before it can run.",
   failure: {
-    category: "credential_required", title: "Credential required", message: "Moimio Research needs an OpenAI credential before it can run.",
+    category: "credential_required", title: "Credential required", message: "Market Research needs an OpenAI credential before it can run.",
     actions: [{ kind: "add_credential", label: "Add credential", secret_name: "OPENAI_API_KEY", secret_label: "OpenAI credential" }, { kind: "retry", label: "Retry", secret_name: null, secret_label: null }],
   },
-  recovered: false, phase: null, steps: ["Running Moimio Research"], workspace: null, permissions: [], started_at: "2026-09-21T21:17:04Z", completed_at: "2026-09-21T21:17:08Z",
+  recovered: false, phase: null, steps: ["Running Market Research"], workspace: null, permissions: [], started_at: "2026-09-21T21:17:04Z", completed_at: "2026-09-21T21:17:08Z",
 };
-const provider = { id: "p9", slug: "moimio-research", name: "Moimio Research", description: "Research", enabled: true, capabilities: [], app_url: null, icon: null, origin: "connected", actions: ["ask"], connection: "command", availability: { state: "available", note: null }, secret_names: [], credentials: [{ name: "OPENAI_API_KEY", label: "OpenAI credential", present: false }], runtime: { display_name: "Runs from this project", availability: "needs_worker", credentials_label: "Missing", runtimes_found: 1, alternatives: 0, health: "available", built: false, review: null, abilities: {} }, created_at: "", updated_at: "" };
+const provider = { id: "p9", slug: "market-research", name: "Market Research", description: "Research", enabled: true, capabilities: [], app_url: null, icon: null, origin: "connected", actions: ["ask"], connection: "command", availability: { state: "available", note: null }, secret_names: [], credentials: [{ name: "OPENAI_API_KEY", label: "OpenAI credential", present: false }], runtime: { display_name: "Runs from this project", availability: "needs_worker", credentials_label: "Missing", runtimes_found: 1, alternatives: 0, health: "available", built: false, review: null, abilities: {} }, created_at: "", updated_at: "" };
 
 function renderAt(path: string) {
   return render(
@@ -24,7 +24,7 @@ function renderAt(path: string) {
 }
 
 test("a failed task explains itself, offers Add credential and Retry, and hides internals behind Details", async () => {
-  const failed = task({ id: "t5", state: "failed", summary: "Moimio Research stopped with an error.", provider: providerRef, runs: [failedRun] });
+  const failed = task({ id: "t5", state: "failed", summary: "Market Research stopped with an error.", provider: providerRef, runs: [failedRun] });
   let retried = false;
   const calls = mockApi({
     "GET /api/tasks/t5": () => (retried ? task({ ...failed, state: "queued", summary: null, runs: [failedRun, { ...failedRun, id: "run-2", state: "pending", failure: null }] }) : failed),
@@ -35,10 +35,10 @@ test("a failed task explains itself, offers Add credential and Retry, and hides 
   renderAt("/tasks/t5");
   const card = await screen.findByRole("region", { name: "What went wrong" });
   expect(within(card).getByRole("heading", { name: "Credential required" })).toBeInTheDocument();
-  expect(within(card).getByText("Moimio Research needs an OpenAI credential before it can run.")).toBeInTheDocument();
+  expect(within(card).getByText("Market Research needs an OpenAI credential before it can run.")).toBeInTheDocument();
   expect(within(card).getByRole("link", { name: "Add credential" })).toHaveAttribute("href", "/agents?manage=p9&credential=1");
   expect(within(card).getByRole("link", { name: "Manage provider" })).toHaveAttribute("href", "/agents?manage=p9");
-  expect(screen.queryByText("Moimio Research stopped with an error.")).not.toBeInTheDocument();
+  expect(screen.queryByText("Market Research stopped with an error.")).not.toBeInTheDocument();
   expect(document.body.textContent).not.toMatch(/Traceback|argv|exit_code|\/home\//);
 
   await user.click(within(card).getByText("Details"));
@@ -54,7 +54,7 @@ test("a failed task explains itself, offers Add credential and Retry, and hides 
 test("a provider that has its own credential is not asked for one", async () => {
   mockApi({ "GET /api/providers": [{ ...provider, credentials: [{ name: "OPENAI_API_KEY", label: "OpenAI credential", present: true, source: "host", status: "From this machine" }] }] });
   renderAt("/agents?manage=p9");
-  const panel = await screen.findByLabelText("Manage Moimio Research");
+  const panel = await screen.findByLabelText("Manage Market Research");
   expect(within(panel).getByText("OpenAI credential · From this machine")).toBeInTheDocument();
   expect(within(panel).queryByLabelText("OpenAI credential")).not.toBeInTheDocument();
   expect(screen.queryByText(/Needs openai credential/)).not.toBeInTheDocument();
@@ -67,7 +67,7 @@ test("Add credential opens Manage with the field ready; saving never echoes the 
   });
   const user = userEvent.setup();
   renderAt("/agents?manage=p9&credential=1");
-  const panel = await screen.findByLabelText("Manage Moimio Research");
+  const panel = await screen.findByLabelText("Manage Market Research");
   expect(within(panel).getByText("OpenAI credential · Missing")).toBeInTheDocument();
   const field = within(panel).getByLabelText("OpenAI credential");
   expect(field).toHaveAttribute("type", "password");
@@ -99,7 +99,7 @@ test("Manage shows a preferred connection and its alternatives in plain words", 
   });
   const user = userEvent.setup();
   renderAt("/agents?manage=p9");
-  const panel = await screen.findByLabelText("Manage Moimio Research");
+  const panel = await screen.findByLabelText("Manage Market Research");
   expect(within(panel).getByText("Preferred")).toBeInTheDocument();
   expect(within(panel).getByText("Already running on this machine")).toBeInTheDocument();
   expect(within(panel).getByText(/1 available/)).toBeInTheDocument();

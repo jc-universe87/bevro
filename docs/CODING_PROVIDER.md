@@ -30,7 +30,7 @@ same run. Taking a run marks it `running` (task `working`) with the worker's
 id and a heartbeat.
 
 **Adapters declare how they run.** `ProviderAdapter.execution` is `"inline"`
-(Research, Moimio, HTTP providers: the API runs them in a background thread
+(Research, Event Allocation Demo, HTTP providers: the API runs them in a background thread
 as before) or `"background"`. Adding Codex is adding another background
 adapter; nothing else changes.
 

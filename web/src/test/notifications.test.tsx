@@ -21,9 +21,9 @@ const notification = (over: Record<string, unknown> = {}) => ({
 });
 
 const channels = [
-  { name: "in_app", label: "In Bevro", available: true, external: false, note: null },
-  { name: "email", label: "Email", available: false, external: true, note: "No mail server is set up on this installation." },
-  { name: "webhook", label: "Webhook", available: false, external: true, note: "No web address is set up on this installation." },
+  { name: "in_app", label: "In Bevro", available: true, offerable: true, external: false, accepts_destination: false, needs_destination: false, note: null },
+  { name: "email", label: "Email", available: false, offerable: false, external: true, accepts_destination: true, needs_destination: false, note: "No mail server is set up on this installation." },
+  { name: "webhook", label: "Webhook", available: false, offerable: false, external: true, accepts_destination: true, needs_destination: false, note: null },
 ];
 
 const automation = (over: Record<string, unknown> = {}) => ({
@@ -38,7 +38,7 @@ const automation = (over: Record<string, unknown> = {}) => ({
   next_run_at: new Date(Date.now() + 86_400_000).toISOString(),
   last_run_at: null,
   last_result: null,
-  notify: { in_app: true, email: false, webhook: false, on_finish: false },
+  notify: { in_app: true, email: false, webhook: false, on_finish: false, email_to: "", webhook_url: "" },
   created_at: "",
   ...over,
 });
@@ -141,12 +141,12 @@ test("email is only offered when this installation has it", async () => {
 });
 
 test("with email set up, an automation can be told to use it", async () => {
-  const withEmail = channels.map((c) => (c.name === "email" ? { ...c, available: true, note: null } : c));
+  const withEmail = channels.map((c) => (c.name === "email" ? { ...c, available: true, offerable: true, note: null } : c));
   const calls = mockApi({
     "GET /api/automations": [automation()],
     "GET /api/notifications/channels": withEmail,
     "GET /api/notifications*": { unread: 0, items: [] },
-    "PATCH /api/automations/a1": automation({ notify: { in_app: true, email: true, webhook: false, on_finish: false } }),
+    "PATCH /api/automations/a1": automation({ notify: { in_app: true, email: true, webhook: false, on_finish: false, email_to: "", webhook_url: "" } }),
     "GET /api/providers": [],
     "GET /api/tasks": [],
   });
@@ -160,4 +160,33 @@ test("with email set up, an automation can be told to use it", async () => {
   const patch = calls.find((c) => c.method === "PATCH");
   expect((patch?.body as { notify: Record<string, boolean> }).notify).toMatchObject({ in_app: true, email: true });
   expect(await screen.findByText(/Also by email/)).toBeInTheDocument();
+});
+
+test("an automation can be sent somewhere of its own, and is not asked to before", async () => {
+  const withEmail = channels.map((c) =>
+    c.name === "email" ? { ...c, available: true, offerable: true, needs_destination: false, note: null } : c,
+  );
+  const calls = mockApi({
+    "GET /api/automations": [automation()],
+    "GET /api/notifications/channels": withEmail,
+    "GET /api/notifications*": { unread: 0, items: [] },
+    "PATCH /api/automations/a1": automation({ notify: { in_app: true, email: true, webhook: false, on_finish: false, email_to: "ops@example.com", webhook_url: "" } }),
+    "GET /api/providers": [],
+    "GET /api/tasks": [],
+  });
+  const user = userEvent.setup();
+  renderAt("/scheduled");
+
+  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  // Nowhere to type an address until the channel is actually chosen.
+  expect(screen.queryByLabelText("Email address")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("checkbox", { name: "Email" }));
+  const address = screen.getByLabelText("Email address");
+  expect(address).toHaveAttribute("placeholder", "Somewhere else (optional)");
+  await user.type(address, "ops@example.com");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+
+  const patch = calls.find((c) => c.method === "PATCH");
+  expect((patch?.body as { notify: Record<string, unknown> }).notify).toMatchObject({ email: true, email_to: "ops@example.com" });
 });

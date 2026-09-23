@@ -30,23 +30,48 @@ function NotifySection({
   onChange: (next: NotifyPreference) => void;
   disabled: boolean;
 }) {
-  // A channel this installation cannot use is not offered at all.
-  const offered = channels.filter((c) => c.available || c.name === "in_app");
+  // A channel this installation cannot use at all is not offered.
+  const offered = channels.filter((c) => c.offerable || c.name === "in_app");
+  const destinationKey = (name: string) => (name === "email" ? "email_to" : "webhook_url") as "email_to" | "webhook_url";
   return (
     <fieldset className="mt-3">
       <legend className="text-sm font-medium">When this needs my attention</legend>
       <div className="mt-1 flex flex-col gap-1">
-        {offered.map((channel) => (
-          <label key={channel.name} className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={Boolean(value[channel.name as keyof NotifyPreference])}
-              disabled={disabled}
-              onChange={(e) => onChange({ ...value, [channel.name]: e.target.checked })}
-            />
-            {channel.label}
-          </label>
-        ))}
+        {offered.map((channel) => {
+          const on = Boolean(value[channel.name as keyof NotifyPreference]);
+          const key = destinationKey(channel.name);
+          return (
+            <div key={channel.name}>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={on}
+                  disabled={disabled}
+                  onChange={(e) => onChange({ ...value, [channel.name]: e.target.checked })}
+                />
+                {channel.label}
+              </label>
+              {/* Only once it is ticked, and only where an address makes sense. */}
+              {on && channel.accepts_destination && (
+                <div className="mt-1 ml-6">
+                  <label htmlFor={`${channel.name}-to-${automation.id}`} className="sr-only">
+                    {channel.name === "email" ? "Email address" : "Web address"}
+                  </label>
+                  <input
+                    id={`${channel.name}-to-${automation.id}`}
+                    value={value[key] ?? ""}
+                    disabled={disabled}
+                    onChange={(e) => onChange({ ...value, [key]: e.target.value })}
+                    placeholder={channel.needs_destination
+                      ? (channel.name === "email" ? "you@example.com" : "https://example.com/hook")
+                      : "Somewhere else (optional)"}
+                    className="bv-input text-sm"
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })}
         {automation.mode !== "monitoring" && (
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={value.on_finish} disabled={disabled} onChange={(e) => onChange({ ...value, on_finish: e.target.checked })} />
@@ -63,7 +88,7 @@ function NotifySection({
   );
 }
 
-const IN_BEVRO_ONLY: NotifyPreference = { in_app: true, email: false, webhook: false, on_finish: false };
+const IN_BEVRO_ONLY: NotifyPreference = { in_app: true, email: false, webhook: false, on_finish: false, email_to: "", webhook_url: "" };
 
 /** Only said when it is more than the default: silence means "in Bevro". */
 function notifyWords(automation: Automation): string {
@@ -116,8 +141,8 @@ function Row({ automation, channels, onChange, onRemoved }: { automation: Automa
 
   return (
     <li className="py-4">
-      <div className="flex flex-wrap items-baseline gap-x-2">
-        <h2 className="font-medium">{automation.title}</h2>
+      <div className="flex flex-wrap items-baseline gap-x-2 min-w-0">
+        <h2 className="font-medium min-w-0 break-words">{automation.title}</h2>
         {!automation.enabled && <span className="text-xs text-subtle">Paused</span>}
       </div>
       <p className="text-sm text-muted">

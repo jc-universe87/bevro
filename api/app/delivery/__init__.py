@@ -43,14 +43,21 @@ def availability(settings: Settings | None = None) -> list[dict]:
     """What the browser may offer, in words. No host names, no passwords."""
     out = []
     for name, channel in channels(settings).items():
-        health = channel.health()
+        setup = channel.setup_problem()
+        has_default = channel.default_destination() is not None
         out.append(
             {
                 "name": name,
                 "label": channel.label,
-                "available": health.usable,
+                # Usable straight away, with nothing more to type.
+                "available": setup is None and (has_default or not channel.external),
+                # Worth offering: the machinery is here, even if an address is not.
+                "offerable": setup is None,
                 "external": channel.external,
-                "note": health.note,
+                "accepts_destination": channel.accepts_destination,
+                # True when the person must supply an address themselves.
+                "needs_destination": setup is None and channel.accepts_destination and not has_default,
+                "note": setup,
             }
         )
     return out

@@ -64,8 +64,12 @@ class DeliveryChannel(ABC):
     external: bool = True
 
     @abstractmethod
-    def validate_configuration(self) -> str | None:
-        """None when this channel can be used; otherwise why it cannot, in words."""
+    def validate_configuration(self, destination: str | None = None) -> str | None:
+        """None when this channel can be used; otherwise why it cannot, in words.
+
+        A destination may be given when one piece of work has its own address.
+        An installation with no default can still deliver to that.
+        """
 
     def health(self) -> ChannelHealth:
         problem = self.validate_configuration()
@@ -74,6 +78,18 @@ class DeliveryChannel(ABC):
     def default_destination(self) -> str | None:
         """Where this installation sends by default. None when it has nowhere."""
         return None
+
+    # True when one piece of work may give an address of its own.
+    accepts_destination: bool = False
+
+    def setup_problem(self) -> str | None:
+        """Why this channel cannot work here at all, setting aside where it sends.
+
+        Email needs a mail server whatever the address; a webhook needs
+        nothing but an address. This is what decides whether the channel is
+        worth offering in the first place.
+        """
+        return self.validate_configuration()
 
     @abstractmethod
     def deliver(self, payload: dict, destination: str | None) -> DeliveryResult:

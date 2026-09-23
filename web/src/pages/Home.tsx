@@ -5,7 +5,12 @@ import { api, ApiError, type Notification, type ScheduleIntent } from "../lib/ap
 
 const TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
-const SUGGESTION = "Allocate participants for the spring conference";
+// What the two built-in providers are for, in the person's own words. A first
+// visit should be able to start without reading anything.
+const SUGGESTIONS = [
+  "Compare three note-taking apps",
+  "Allocate participants for the spring conference",
+];
 
 export default function Home() {
   const [text, setText] = useState("");
@@ -156,7 +161,7 @@ export default function Home() {
           </section>
         )}
 
-        <div className="mt-3 flex items-center justify-between text-sm text-muted min-h-[1.5rem]">
+        <div className="mt-3 flex items-start justify-between gap-4 text-sm text-muted min-h-[1.5rem]">
           {error ? (
             <p role="alert" className="text-ink">
               {error.message}
@@ -174,14 +179,19 @@ export default function Home() {
               )}
             </p>
           ) : (
-            <p>
+            <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1">
               <span className="hidden sm:inline">Try </span>
-              <button type="button" className="bv-link" onClick={() => { setText(SUGGESTION); inputRef.current?.focus(); }}>
-                “{SUGGESTION}”
-              </button>
+              {SUGGESTIONS.map((suggestion, i) => (
+                <span key={suggestion} className="flex items-baseline gap-x-1.5">
+                  <button type="button" className="bv-link text-left" onClick={() => { setText(suggestion); inputRef.current?.focus(); }}>
+                    “{suggestion}”
+                  </button>
+                  {i < SUGGESTIONS.length - 1 && <span className="text-subtle" aria-hidden="true">·</span>}
+                </span>
+              ))}
             </p>
           )}
-          <span className="hidden sm:inline text-subtle">Enter to send</span>
+          <span className="hidden sm:inline shrink-0 whitespace-nowrap text-subtle">Enter to send</span>
         </div>
       </div>
     </div>

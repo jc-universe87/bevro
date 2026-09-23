@@ -2,15 +2,20 @@
 # Everything works with no configuration. Optional settings come from a .env
 # file next to this one (see .env.example). Default ports: 6140 web, 6141 api,
 # 6142 database.
+#
+# Everything is published to 127.0.0.1 only: Bevro has no login, so it is not
+# safe to expose as it is. To reach it from another machine on a network you
+# trust, set BEVRO_BIND=0.0.0.0 - and read SECURITY.md first.
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: bevro
       POSTGRES_PASSWORD: bevro
       POSTGRES_DB: bevro
     ports:
-      - "${BEVRO_DB_PORT:-6142}:5432"
+      - "${BEVRO_BIND:-127.0.0.1}:${BEVRO_DB_PORT:-6142}:5432"
     volumes:
       - bevro_db:/var/lib/postgresql/data
     healthcheck:
@@ -23,6 +28,7 @@ services:
     build:
       context: .
       dockerfile: api/Dockerfile
+    restart: unless-stopped
     # Run as your own user so files written to ./data belong to you, not root
     # (the optional host worker shares that directory). Set BEVRO_UID/BEVRO_GID
     # in .env if your user id is not 1000.
@@ -61,9 +67,12 @@ services:
       BEVRO_SMTP_STARTTLS: ${BEVRO_SMTP_STARTTLS:-true}
       BEVRO_NOTIFY_EMAIL: ${BEVRO_NOTIFY_EMAIL:-}
       BEVRO_NOTIFY_WEBHOOK_URL: ${BEVRO_NOTIFY_WEBHOOK_URL:-}
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /srv"
+      BEVRO_NOTIFY_WEBHOOK_SECRET: ${BEVRO_NOTIFY_WEBHOOK_SECRET:-}
+    # `exec` so the server is PID 1 and receives Docker's stop signal itself;
+    # without it the shell holds PID 1 and the process is killed, not stopped.
+    command: sh -c "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /srv"
     ports:
-      - "${BEVRO_API_PORT:-6141}:8000"
+      - "${BEVRO_BIND:-127.0.0.1}:${BEVRO_API_PORT:-6141}:8000"
     volumes:
       - ./api:/srv/api
       - ./adapters:/srv/adapters
@@ -81,6 +90,7 @@ services:
     build:
       context: .
       dockerfile: api/Dockerfile
+    restart: unless-stopped
     user: "${BEVRO_UID:-1000}:${BEVRO_GID:-1000}"
     environment:
       BEVRO_DATABASE_URL: postgresql+psycopg://bevro:bevro@db:5432/bevro
@@ -107,7 +117,9 @@ services:
       BEVRO_SMTP_STARTTLS: ${BEVRO_SMTP_STARTTLS:-true}
       BEVRO_NOTIFY_EMAIL: ${BEVRO_NOTIFY_EMAIL:-}
       BEVRO_NOTIFY_WEBHOOK_URL: ${BEVRO_NOTIFY_WEBHOOK_URL:-}
-    command: sh -c "cd /srv/api && python -m app.scheduler"
+      BEVRO_NOTIFY_WEBHOOK_SECRET: ${BEVRO_NOTIFY_WEBHOOK_SECRET:-}
+    # `exec`: the scheduler finishes its turn and stops cleanly on SIGTERM.
+    command: sh -c "cd /srv/api && exec python -m app.scheduler"
     volumes:
       - ./api:/srv/api
       - ./adapters:/srv/adapters
@@ -126,9 +138,10 @@ services:
       target: dev
     environment:
       VITE_API_PROXY: http://api:8000
+    restart: unless-stopped
     command: npm run dev -- --host 0.0.0.0 --port 5173
     ports:
-      - "${BEVRO_WEB_PORT:-6140}:5173"
+      - "${BEVRO_BIND:-127.0.0.1}:${BEVRO_WEB_PORT:-6140}:5173"
     volumes:
       - ./web:/app
       - web_node_modules:/app/node_modules

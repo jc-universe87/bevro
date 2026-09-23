@@ -2,8 +2,9 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.db import get_sessionmaker
@@ -14,6 +15,7 @@ from app.services.runtime import ensure_runtimes
 from app.services.workspaces import seed_from_config
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+log = logging.getLogger("bevro.api")
 
 
 @asynccontextmanager
@@ -37,6 +39,19 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    @app.exception_handler(Exception)
+    async def unhandled(request: Request, exc: Exception) -> JSONResponse:
+        """A bug is still a sentence to the person reading it.
+
+        The detail goes to the server log, where it belongs; the browser gets
+        something it can act on instead of "Internal Server Error".
+        """
+        log.exception("unhandled error on %s %s", request.method, request.url.path)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Something went wrong at Bevro's end. The details are in the server log."},
+        )
+
     api = APIRouter(prefix="/api")
 
     @api.get("/health", tags=["meta"])

@@ -6,10 +6,11 @@ happened, why, whether it went out, and where to look.
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class NotificationOut(BaseModel):
@@ -41,8 +42,15 @@ class ChannelOut(BaseModel):
 
     name: str
     label: str
+    # Usable with nothing more to type.
     available: bool
+    # Worth offering at all: the machinery is here, even if an address is not.
+    offerable: bool = False
     external: bool
+    # True when a single automation may give an address of its own.
+    accepts_destination: bool = False
+    # True when the person must supply that address themselves.
+    needs_destination: bool = False
     # "No mail server is set up on this installation."
     note: str | None = None
 
@@ -56,3 +64,23 @@ class NotifyPreference(BaseModel):
     # Scheduled work only: tell me each time it finishes, not just when
     # something is worth saying.
     on_finish: bool = False
+    # Optional: somewhere of its own. Empty means wherever this installation
+    # sends by default. There is no address book; this is one field.
+    email_to: str = Field(default="", max_length=320)
+    webhook_url: str = Field(default="", max_length=2000)
+
+    @field_validator("email_to")
+    @classmethod
+    def _plausible_address(cls, value: str) -> str:
+        value = (value or "").strip()
+        if value and not re.fullmatch(r"[^@\s]+@[^@\s.]+(\.[^@\s.]+)+", value):
+            raise ValueError("That doesn't look like an email address.")
+        return value
+
+    @field_validator("webhook_url")
+    @classmethod
+    def _plausible_url(cls, value: str) -> str:
+        value = (value or "").strip()
+        if value and not value.lower().startswith(("http://", "https://")):
+            raise ValueError("A web address must start with http:// or https://.")
+        return value

@@ -41,21 +41,33 @@ SUMMARY_MAX = 2000
 
 # What a new automation does unless the person says otherwise: tell me here.
 DEFAULT_PREFERENCES: dict[str, bool] = {"in_app": True, "email": False, "webhook": False, "on_finish": False}
+# One piece of work may go somewhere of its own. Empty means: wherever this
+# installation sends by default.
+DESTINATION_KEYS: dict[str, str] = {"email": "email_to", "webhook": "webhook_url"}
 
 
-def preferences(raw: dict[str, Any] | None) -> dict[str, bool]:
+def preferences(raw: dict[str, Any] | None) -> dict[str, Any]:
     """A stored preference, filled out with the defaults for anything missing."""
-    merged = dict(DEFAULT_PREFERENCES)
+    merged: dict[str, Any] = dict(DEFAULT_PREFERENCES)
+    merged.update({key: "" for key in DESTINATION_KEYS.values()})
     for key, value in (raw or {}).items():
-        if key in merged:
+        if key in DEFAULT_PREFERENCES:
             merged[key] = bool(value)
+        elif key in merged:
+            merged[key] = (value or "").strip() if isinstance(value, str) else ""
     return merged
 
 
-def wanted_channels(prefs: dict[str, bool]) -> list[str]:
+def wanted_channels(prefs: dict[str, Any]) -> list[str]:
     """Which channels this automation asked for, in the order they are tried."""
     chosen = [IN_APP] if prefs.get("in_app", True) else []
     return chosen + [name for name in EXTERNAL_CHANNELS if prefs.get(name)]
+
+
+def destination_for(channel: str, prefs: dict[str, Any]) -> str | None:
+    """Where this automation wants that channel to send, if it said."""
+    key = DESTINATION_KEYS.get(channel)
+    return ((prefs.get(key) or "").strip() or None) if key else None
 
 
 # --------------------------------------------------------------------------- raising one
@@ -110,14 +122,18 @@ def queue(db: Session, event: NotificationEvent, *, prefs: dict[str, Any] | None
     settings = settings or get_settings()
     available = build_channels(settings)
     moment = utcnow()
+    wanted = preferences(prefs)
     made: list[NotificationDelivery] = []
     # An external delivery is queued with no time on it: it goes with the next
     # turn of the sender, whenever that is. Only a retry is given a moment.
-    for name in wanted_channels(preferences(prefs)):
+    for name in wanted_channels(wanted):
         channel = available.get(name)
         if channel is None:
             continue
-        problem = channel.validate_configuration()
+        # This automation's own address, if it gave one; otherwise the
+        # installation's.
+        where = destination_for(name, wanted) or channel.default_destination()
+        problem = channel.validate_configuration(where)
         if problem:
             # Asked for, but not set up here. Say so plainly rather than
             # pretending it went, and never try to send it.
@@ -127,7 +143,7 @@ def queue(db: Session, event: NotificationEvent, *, prefs: dict[str, Any] | None
             # In Bevro: the event itself is the delivery.
             made.append(_add(db, event, name, status="sent", delivered_at=moment))
             continue
-        made.append(_add(db, event, name, status="pending", destination=channel.default_destination()))
+        made.append(_add(db, event, name, status="pending", destination=where))
     db.flush()
     return made
 

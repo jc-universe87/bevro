@@ -1,27 +1,47 @@
 #!/usr/bin/env sh
-# Runs the Bevro worker on the host: the process that executes long-running
-# provider runs (Claude Code) against approved workspaces.
+# The Bevro worker: the optional host process that runs work Docker cannot.
 #
 #   ./scripts/worker.sh            # foreground; Ctrl-C stops it
 #
-# It runs on the host, not in Docker, because that is where the logged-in
-# `claude` CLI and your project directories are. It needs the .venv created by
-# docs/CODING_PROVIDER.md and the Docker stack (for PostgreSQL) to be up.
+# You need this only for providers that live on this machine: a coding agent
+# such as Claude Code, a local project you connected, or a command-line agent.
+# Everything else - the built-in providers, HTTP and MCP services, scheduling,
+# monitoring and notifications - works without it.
+#
+# It runs on the host rather than in a container because that is where your
+# logged-in CLI tools and your project directories are.
+#
+# Prerequisites: the Docker stack up (for PostgreSQL), and a virtualenv:
+#   python3 -m venv .venv && .venv/bin/pip install -r api/requirements.txt
 # Optional settings are read from .env next to docker-compose.yml.
 set -eu
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+fail() {
+  echo "" >&2
+  echo "Bevro worker: $1" >&2
+  shift
+  for line in "$@"; do echo "  $line" >&2; done
+  exit 1
+}
+
+# .env is optional and may contain secrets: it is loaded, never echoed.
 [ -f .env ] && { set -a; . ./.env; set +a; }
-if [ ! -x .venv/bin/python ]; then
-  echo "no .venv - run: python3 -m venv .venv && .venv/bin/pip install -r api/requirements.txt" >&2
-  exit 1
-fi
+
+[ -x .venv/bin/python ] || fail "no Python environment found in .venv/" \
+  "Create one:" \
+  "  python3 -m venv .venv && .venv/bin/pip install -r api/requirements.txt"
+
 if ! mkdir -p data/artifacts data/logs 2>/dev/null || [ ! -w data ]; then
-  echo "data/ is not writable by $(id -un). If Docker created it as root, run: sudo chown -R $(id -u):$(id -g) data" >&2
-  exit 1
+  fail "data/ is not writable by $(id -un)" \
+    "Docker may have created it as root. Fix it with:" \
+    "  sudo chown -R $(id -u):$(id -g) data"
 fi
-# The worker talks to the same database and data directory as the Docker stack.
-export BEVRO_DATABASE_URL="${BEVRO_WORKER_DATABASE_URL:-postgresql+psycopg://bevro:bevro@localhost:${BEVRO_DB_PORT:-6142}/bevro}"
+
+DB_PORT="${BEVRO_DB_PORT:-6142}"
+export BEVRO_DATABASE_URL="${BEVRO_WORKER_DATABASE_URL:-postgresql+psycopg://bevro:bevro@localhost:${DB_PORT}/bevro}"
 export BEVRO_ARTIFACT_DIR="${BEVRO_WORKER_ARTIFACT_DIR:-$ROOT/data/artifacts}"
 export BEVRO_LOG_DIR="${BEVRO_WORKER_LOG_DIR:-$ROOT/data/logs}"
 export BEVRO_WORKSPACES_FILE="${BEVRO_WORKER_WORKSPACES_FILE:-$ROOT/config/workspaces.json}"
@@ -29,10 +49,47 @@ export BEVRO_SECRET_KEY="${BEVRO_SECRET_KEY:-}"
 export BEVRO_SECRET_KEY_FILE="${BEVRO_WORKER_SECRET_KEY_FILE:-$ROOT/data/secret.key}"
 export BEVRO_INTEGRATIONS_DIR="${BEVRO_WORKER_INTEGRATIONS_DIR:-$ROOT/data/integrations}"
 export BEVRO_AGENTS_DIR="${BEVRO_WORKER_AGENTS_DIR:-$ROOT/data/agents}"
-# BEVRO_LOCAL_ROOTS (folders Connect may inspect and run agents in) comes from .env as-is.
+# Folders Connect may inspect and run agents in. Empty means local Connect is off.
 export BEVRO_LOCAL_ROOTS="${BEVRO_LOCAL_ROOTS:-}"
 export PYTHONPATH="$ROOT:$ROOT/api"
+
+# Is the database there? Failing here is much clearer than a stack trace later.
+.venv/bin/python - "$DB_PORT" <<'PY' || fail "can't reach PostgreSQL on port ${DB_PORT}" \
+  "Start the stack first:" \
+  "  docker compose up -d"
+import socket, sys
+try:
+    socket.create_connection(("localhost", int(sys.argv[1])), timeout=3).close()
+except OSError:
+    raise SystemExit(1)
+PY
+
+# What this worker will and will not be able to do, in one short block. No
+# values are printed: only whether something is set.
+echo "Bevro worker"
+echo "  database      localhost:${DB_PORT}"
+echo "  writes to     data/artifacts, data/logs"
+if [ -f "$BEVRO_WORKSPACES_FILE" ]; then
+  echo "  workspaces    $BEVRO_WORKSPACES_FILE"
+else
+  echo "  workspaces    none configured - coding agents will have nowhere to work"
+  echo "                (copy config/workspaces.example.json to config/workspaces.json)"
+fi
+if [ -n "$BEVRO_LOCAL_ROOTS" ]; then
+  echo "  local roots   $BEVRO_LOCAL_ROOTS"
+else
+  echo "  local roots   none - local Connect is off (set BEVRO_LOCAL_ROOTS in .env)"
+fi
+if command -v claude >/dev/null 2>&1; then
+  echo "  claude CLI    found"
+else
+  echo "  claude CLI    not found - Claude Code will show as unavailable"
+fi
+echo "  Ctrl-C to stop."
+echo ""
+
 # Never let the worker look like a nested Claude Code session to the CLI it starts.
 unset CLAUDECODE
 for v in $(env | grep -o '^CLAUDE_[A-Z_]*'); do unset "$v"; done
+
 exec .venv/bin/python -m app.worker

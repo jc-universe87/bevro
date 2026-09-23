@@ -22,7 +22,7 @@ test("recent is a list with title, provider, state and summary, and search hits 
   const items = await screen.findAllByRole("listitem");
   expect(items).toHaveLength(2);
   expect(list).toHaveTextContent("Allocate participants for the spring conference");
-  expect(list).toHaveTextContent("Moimio");
+  expect(list).toHaveTextContent("Event Allocation Demo");
   expect(list).toHaveTextContent("Done. 148 participants allocated. 7 need review.");
   expect(list).toHaveTextContent("Research");
   expect(list).toHaveTextContent("Working…");

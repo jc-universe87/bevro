@@ -1,7 +1,7 @@
 {
-  "slug": "moimio",
-  "name": "Moimio",
-  "description": "Events and organisation (demo)",
+  "slug": "event-demo",
+  "name": "Event Allocation Demo",
+  "description": "Allocate participants for an event (demo)",
   "enabled": true,
   "capabilities": [
     {
@@ -25,22 +25,22 @@
     },
     {
       "id": "app.open",
-      "title": "Open in Moimio",
-      "description": "Deep-link into the Moimio application."
+      "title": "Open in the events app",
+      "description": "Deep-link into the application that did the work."
     }
   ],
   "adapter": {
     "kind": "local",
-    "ref": "providers.moimio_example:run",
+    "ref": "providers.event_demo:run",
     "config": {
       "review_path": "/events/{event_id}/allocation?filter=review"
     }
   },
-  "app_url": "https://moimio.example/app",
+  "app_url": "https://events.example/app",
   "icon": {
     "kind": "letter",
-    "text": "M"
+    "text": "E"
   },
   "origin": "example",
-  "$comment": "Demo of an app-backed provider: a specialist application answering with a concise outcome and a deep link back into its own UI. The numbers are sample data; the URL is sample configuration. Bevro does not depend on Moimio."
+  "$comment": "Demo of an app-backed provider: a specialist application answering with a concise outcome and a deep link back into its own UI. The numbers are sample data and the URL is sample configuration - nothing is called."
 }

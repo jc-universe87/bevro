@@ -22,22 +22,22 @@ For a step-by-step guide to adding one, see [BUILDING_A_PROVIDER.md](BUILDING_A_
 
 ## The provider record
 
-The example below is the shipped **Moimio demo** — a stand-in for a
+The example below is the shipped **Event Allocation Demo** — a stand-in for a
 specialist application that answers with a summary and a deep link. It uses
 sample data and a sample URL; Bevro does not depend on it.
 
 ```json
 {
-  "slug": "moimio",
-  "name": "Moimio",
+  "slug": "event-demo",
+  "name": "Event Allocation Demo",
   "description": "Events and organisation (demo)",
   "enabled": true,
   "capabilities": [
     {"id": "events.allocate", "title": "Allocate participants",
      "description": "...", "input": {"type": "object", "properties": {...}}}
   ],
-  "adapter": {"kind": "local", "ref": "providers.moimio_example:run", "config": {...}},
-  "app_url": "https://moimio.example/app",
+  "adapter": {"kind": "local", "ref": "providers.event_demo:run", "config": {...}},
+  "app_url": "https://events.example/app",
   "icon": {"kind": "letter", "text": "M"},
   "origin": "example"
 }
@@ -177,9 +177,9 @@ spec, build the thing, and replace the adapter block with a real `local` or
 
 A provider that knows its own application returns an artifact of type
 `deep_link` with an `external_url`. The UI renders it as the headline action
-("Review in Moimio →"). The example Moimio provider builds the URL from the
+("Review in the events app →"). The example provider builds the URL from the
 provider's `app_url` and a `review_path` pattern in `adapter.config`; a real
-Moimio would return the actual URL.
+real application would return the actual URL.
 
 ## Providers never own a timetable
 

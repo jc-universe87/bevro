@@ -26,7 +26,7 @@ from typing import Any
 import httpx
 
 PROTOCOL_VERSION = "2025-03-26"
-CLIENT_INFO = {"name": "bevro", "version": "0.4"}
+CLIENT_INFO = {"name": "bevro", "version": "0.1"}
 DEFAULT_TIMEOUT = 15.0
 
 

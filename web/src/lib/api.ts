@@ -190,6 +190,9 @@ export interface NotifyPreference {
   webhook: boolean;
   /** Scheduled work only: tell me every time it finishes. */
   on_finish: boolean;
+  /** Optional: somewhere of its own. Empty means the installation's default. */
+  email_to: string;
+  webhook_url: string;
 }
 
 /** Something worth telling the person about. The work itself is the Task. */
@@ -219,8 +222,15 @@ export interface NotificationList {
 export interface DeliveryChannelInfo {
   name: "in_app" | "email" | "webhook" | string;
   label: string;
+  /** Usable with nothing more to type. */
   available: boolean;
+  /** Worth offering: the machinery is here, even if an address is not. */
+  offerable: boolean;
   external: boolean;
+  /** True when one automation may give an address of its own. */
+  accepts_destination: boolean;
+  /** True when the person must supply that address themselves. */
+  needs_destination: boolean;
   note: string | null;
 }
 

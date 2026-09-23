@@ -8,6 +8,7 @@ A fixed clock throughout, so backoff is counted rather than waited for.
 
 from __future__ import annotations
 
+import json
 import smtplib
 from datetime import datetime, timedelta, timezone
 
@@ -21,7 +22,7 @@ from app.delivery import availability, channels
 from app.delivery.base import DeliveryChannel, DeliveryResult
 from app.delivery.email import SmtpChannel, body
 from app.delivery.payload import event_payload, scrub
-from app.delivery.webhook import WebhookChannel
+from app.delivery.webhook import EVENT_HEADER, SIGNATURE_HEADER, TIMESTAMP_HEADER, WebhookChannel, sign, verify
 from app.models import NotificationDelivery, NotificationEvent
 from app.services import automations as automation_service
 from app.services import notifications as notification_service
@@ -464,20 +465,14 @@ def test_the_email_body_says_what_happened_and_where_to_look():
 def test_a_webhook_posts_the_small_payload(seeded, research, monkeypatch):
     settings = settings_with(notify_webhook_url="https://hooks.example/bevro")
     monkeypatch.setattr(notification_service, "get_settings", lambda: settings)
-    posted: list[tuple[str, dict]] = []
-
-    class Response:
-        status_code = 200
-        is_success = True
-
-    monkeypatch.setattr("app.delivery.webhook.httpx.post", lambda url, json, timeout: (posted.append((url, json)), Response())[1])
+    seen = _capture_post(monkeypatch)
     automation = make(seeded, provider=research, notify={"webhook": True})
     answers(monkeypatch, "One.", "Two.")
     occur(seeded, automation, NOW)
     occur(seeded, automation, NOW + timedelta(days=1))
 
     assert notification_service.deliver_pending(seeded, settings=settings, now=NOW) == 1
-    url, payload = posted[0]
+    url, payload = seen["url"], json.loads(seen["body"])
     assert url == "https://hooks.example/bevro"
     assert payload["event"] == "automation.matched"
     assert set(payload) == {"event", "title", "summary", "reason", "task_id", "automation_id", "created_at", "url"}
@@ -491,14 +486,14 @@ def test_a_webhook_tells_a_busy_server_from_a_wrong_address(monkeypatch):
             status_code = status
             is_success = 200 <= status < 300
 
-        monkeypatch.setattr("app.delivery.webhook.httpx.post", lambda url, json, timeout: Response())
+        monkeypatch.setattr("app.delivery.webhook.httpx.post", lambda *a, **kw: Response())
 
     answer(503)
-    assert channel.deliver({}, None).permanent is False
+    assert channel.deliver({"event": "x"}, None).permanent is False
     answer(404)
-    assert channel.deliver({}, None).permanent is True
+    assert channel.deliver({"event": "x"}, None).permanent is True
     answer(429)
-    assert channel.deliver({}, None).permanent is False
+    assert channel.deliver({"event": "x"}, None).permanent is False
 
 
 # --------------------------------------------------------------------------- the browser's view
@@ -541,7 +536,7 @@ def test_an_automation_carries_its_own_choice_of_channels(client, seeded, resear
         "/api/automations",
         json={"when": "every day at 9", "instruction": "Watch the page", "only_when": "only when something changes", "notify": {"in_app": True, "email": True}},
     ).json()
-    assert created["notify"] == {"in_app": True, "email": True, "webhook": False, "on_finish": False}
+    assert created["notify"] == {"in_app": True, "email": True, "webhook": False, "on_finish": False, "email_to": "", "webhook_url": ""}
 
     updated = client.patch(f"/api/automations/{created['id']}", json={"notify": {"in_app": True, "email": False}}).json()
     assert updated["notify"]["email"] is False
@@ -559,6 +554,142 @@ def test_every_channel_answers_the_same_three_questions():
 
 
 def test_an_automation_notifies_in_bevro_unless_it_is_told_otherwise(seeded):
-    assert notification_service.preferences(None) == {"in_app": True, "email": False, "webhook": False, "on_finish": False}
+    assert notification_service.preferences(None) == {
+        "in_app": True, "email": False, "webhook": False, "on_finish": False, "email_to": "", "webhook_url": "",
+    }
     assert notification_service.wanted_channels(notification_service.preferences({"email": True})) == ["in_app", "email"]
     assert notification_service.wanted_channels(notification_service.preferences({"in_app": False, "webhook": True})) == ["webhook"]
+
+
+# --------------------------------------------------------------------------- signing
+
+def _capture_post(monkeypatch):
+    """Record exactly what the webhook channel put on the wire."""
+    seen: dict = {}
+
+    class Response:
+        status_code = 200
+        is_success = True
+
+    def post(url, content=None, headers=None, timeout=None, **kw):
+        seen.update(url=url, body=content, headers=headers or {})
+        return Response()
+
+    monkeypatch.setattr("app.delivery.webhook.httpx.post", post)
+    return seen
+
+
+def test_an_unsigned_webhook_still_says_what_it_is(monkeypatch):
+    seen = _capture_post(monkeypatch)
+    channel = WebhookChannel(settings_with(notify_webhook_url="https://hooks.example/bevro"))
+    assert channel.deliver({"event": "automation.matched", "title": "x"}, None).ok
+    assert seen["headers"][EVENT_HEADER] == "automation.matched"
+    assert SIGNATURE_HEADER not in seen["headers"]
+
+
+def test_a_signed_webhook_can_be_checked_by_whoever_receives_it(monkeypatch):
+    seen = _capture_post(monkeypatch)
+    secret = "a-shared-secret"
+    channel = WebhookChannel(settings_with(notify_webhook_url="https://hooks.example/bevro", notify_webhook_secret=secret))
+    assert channel.deliver({"event": "automation.matched", "title": "Competitor watch"}, None).ok
+
+    body, headers = seen["body"], seen["headers"]
+    signature, timestamp = headers[SIGNATURE_HEADER], headers[TIMESTAMP_HEADER]
+    assert signature.startswith("sha256=")
+    # The documented recipe, run against the exact bytes that were sent.
+    assert verify(secret, timestamp, body, signature)
+    # And it fails for everything it should.
+    assert not verify("the-wrong-secret", timestamp, body, signature)
+    assert not verify(secret, timestamp, body + b" ", signature)
+    assert not verify(secret, str(int(timestamp) - 10_000), body, signature)  # an old message replayed
+    assert not verify(secret, timestamp, body, "sha256=deadbeef")
+    assert not verify(secret, "not-a-time", body, signature)
+
+
+def test_the_signature_covers_the_bytes_that_were_actually_sent(monkeypatch):
+    seen = _capture_post(monkeypatch)
+    secret = "s"
+    channel = WebhookChannel(settings_with(notify_webhook_url="https://hooks.example/x", notify_webhook_secret=secret))
+    payload = {"event": "automation.matched", "title": "Quotes \"and\" unicode \u2014 \u00e9"}
+    channel.deliver(payload, None)
+    body = seen["body"]
+    assert isinstance(body, bytes)
+    assert sign(secret, seen["headers"][TIMESTAMP_HEADER], body) == seen["headers"][SIGNATURE_HEADER]
+    # The receiver reads the same object back out of those bytes.
+    import json as _json
+    assert _json.loads(body)["title"] == payload["title"]
+
+
+def test_the_signing_secret_never_reaches_the_browser(client, monkeypatch):
+    listed = client.get("/api/notifications/channels").json()
+    assert "secret" not in str(listed).lower()
+
+
+# --------------------------------------------------------------------------- its own destination
+
+def test_an_automation_may_be_sent_somewhere_of_its_own(seeded, research, monkeypatch, fake_smtp):
+    settings = settings_with(**EMAIL_READY)  # the installation writes to me@example
+    monkeypatch.setattr(notification_service, "get_settings", lambda: settings)
+    automation = make(seeded, provider=research, notify={"email": True, "email_to": "ops@example.test"})
+    answers(monkeypatch, "One.", "Two.")
+    occur(seeded, automation, NOW)
+    occur(seeded, automation, NOW + timedelta(days=1))
+
+    assert notification_service.deliver_pending(seeded, settings=settings) == 1
+    assert fake_smtp.sent[0]["to"] == "ops@example.test"
+
+
+def test_without_its_own_address_the_installation_default_is_used(seeded, research, monkeypatch, fake_smtp):
+    settings = settings_with(**EMAIL_READY)
+    monkeypatch.setattr(notification_service, "get_settings", lambda: settings)
+    automation = make(seeded, provider=research, notify={"email": True})
+    answers(monkeypatch, "One.", "Two.")
+    occur(seeded, automation, NOW)
+    occur(seeded, automation, NOW + timedelta(days=1))
+
+    assert notification_service.deliver_pending(seeded, settings=settings) == 1
+    assert fake_smtp.sent[0]["to"] == "me@example"
+
+
+def test_an_installation_with_no_default_address_can_still_email_one_automation(seeded, research, monkeypatch, fake_smtp):
+    # A mail server, but nobody named to write to.
+    settings = settings_with(smtp_host="mail.example", smtp_from="bevro@example", notify_email="")
+    monkeypatch.setattr(notification_service, "get_settings", lambda: settings)
+    offered = {c["name"]: c for c in availability(settings)}
+    assert offered["email"]["available"] is False  # nothing to send to yet
+    assert offered["email"]["offerable"] is True and offered["email"]["needs_destination"] is True
+
+    automation = make(seeded, provider=research, notify={"email": True, "email_to": "just-me@example.test"})
+    answers(monkeypatch, "One.", "Two.")
+    occur(seeded, automation, NOW)
+    occur(seeded, automation, NOW + timedelta(days=1))
+    assert notification_service.deliver_pending(seeded, settings=settings) == 1
+    assert fake_smtp.sent[0]["to"] == "just-me@example.test"
+
+
+def test_a_webhook_needs_nothing_set_up_but_an_address(seeded, research, monkeypatch):
+    settings = settings_with()  # nothing configured at all
+    monkeypatch.setattr(notification_service, "get_settings", lambda: settings)
+    seen = _capture_post(monkeypatch)
+    offered = {c["name"]: c for c in availability(settings)}
+    assert offered["webhook"]["offerable"] is True and offered["webhook"]["needs_destination"] is True
+
+    automation = make(seeded, provider=research, notify={"webhook": True, "webhook_url": "https://mine.example/hook"})
+    answers(monkeypatch, "One.", "Two.")
+    occur(seeded, automation, NOW)
+    occur(seeded, automation, NOW + timedelta(days=1))
+    assert notification_service.deliver_pending(seeded, settings=settings) == 1
+    assert seen["url"] == "https://mine.example/hook"
+
+
+def test_a_destination_is_never_returned_to_the_browser(client, seeded, research, monkeypatch, fake_smtp):
+    settings = settings_with(**EMAIL_READY)
+    monkeypatch.setattr(notification_service, "get_settings", lambda: settings)
+    automation = make(seeded, provider=research, notify={"email": True, "email_to": "private@example.test"})
+    answers(monkeypatch, "One.", "Two.")
+    occur(seeded, automation, NOW)
+    occur(seeded, automation, NOW + timedelta(days=1))
+    notification_service.deliver_pending(seeded, settings=settings)
+
+    listed = str(client.get("/api/notifications").json())
+    assert "private@example.test" not in listed

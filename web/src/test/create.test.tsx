@@ -6,7 +6,7 @@ import { mockApi } from "./helpers";
 
 const preview = (over: Record<string, unknown> = {}) => ({
   name: "Market Watch",
-  description: "Tracks competitors and relevant changes in church event software.",
+  description: "Tracks competitors and relevant changes in event management software.",
   can: ["Research", "Competitor analysis", "Reports"],
   needs: ["Web access", "Write reports"],
   produces: "a short report",
@@ -100,7 +100,7 @@ test("a failed build offers Retry, and Manage lets the purpose be edited", async
     app_url: null, icon: null, origin: "created", actions: ["ask"], connection: "command",
     availability: { state: "available", note: null }, secret_names: [], credentials: [],
     runtime: { display_name: "Runs from this project", availability: "needs_worker", credentials_label: "None needed", runtimes_found: 1, alternatives: 0, health: "available", built: false, review: null, abilities: {} },
-    build: { purpose: "Tracks competitors in church event software.", version: 2, state: "ready", built_by: "fixture-agent-builder", needs: ["web"], can_rebuild: true },
+    build: { purpose: "Tracks competitors in event management software.", version: 2, state: "ready", built_by: "fixture-agent-builder", needs: ["web"], can_rebuild: true },
     created_at: "", updated_at: "",
   };
   const calls = mockApi({
@@ -110,7 +110,7 @@ test("a failed build offers Retry, and Manage lets the purpose be edited", async
   const user = userEvent.setup();
   renderAt("/agents?manage=p7");
   const panel = await screen.findByLabelText("Manage Market Watch");
-  expect(within(panel).getByText("Tracks competitors in church event software.", { exact: false })).toBeInTheDocument();
+  expect(within(panel).getByText("Tracks competitors in event management software.", { exact: false })).toBeInTheDocument();
   expect(within(panel).getByText("2")).toBeInTheDocument();
   await user.click(within(panel).getByRole("button", { name: "Edit purpose" }));
   const field = within(panel).getByLabelText("What should this agent do?");

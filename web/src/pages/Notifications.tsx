@@ -43,9 +43,9 @@ function Row({ item, onChange, onRemoved }: { item: Notification; onChange: (n: 
 
   return (
     <li className="py-4">
-      <div className="flex items-baseline gap-2">
+      <div className="flex items-baseline gap-2 min-w-0">
         {!item.read && <span className="h-2 w-2 shrink-0 rounded-full bg-accent" aria-hidden="true" />}
-        <h2 className={item.read ? "font-medium text-muted" : "font-medium"}>{item.title}</h2>
+        <h2 className={`min-w-0 break-words ${item.read ? "font-medium text-muted" : "font-medium"}`}>{item.title}</h2>
         {!item.read && <span className="sr-only">Unread</span>}
       </div>
       {item.reason && <p className="text-sm">{item.reason}</p>}
@@ -153,7 +153,7 @@ export default function Notifications() {
       )}
       {items && items.length === 0 && (
         <p className="bv-hint py-8">
-          Nothing to tell you. Bevro says something when work it{"’"}s <Link to="/scheduled" className="bv-link">watching</Link> finds a result that matters.
+          Nothing needs your attention. Bevro speaks up when work it{"’"}s <Link to="/scheduled" className="bv-link">watching</Link> finds a result that matters.
         </p>
       )}
       <ul className="divide-y divide-line border-t border-b border-line empty:hidden" aria-label="Notifications">

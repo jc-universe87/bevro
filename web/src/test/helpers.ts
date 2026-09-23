@@ -32,7 +32,7 @@ export const task = (over: Record<string, unknown> = {}) => ({
   original_request: "Allocate participants for the spring conference",
   state: "queued",
   summary: null,
-  provider: { id: "p1", slug: "moimio", name: "Moimio" },
+  provider: { id: "p1", slug: "event-demo", name: "Event Allocation Demo" },
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
   completed_at: null,

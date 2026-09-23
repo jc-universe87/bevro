@@ -16,9 +16,9 @@ def test_home_flow_submit_and_find_under_recent(client, seeded):
     task = submit(client, request="Allocate participants for the spring conference")
     assert task["state"] == "completed"
     assert task["summary"] == "Done. 148 participants allocated. 7 need review."
-    assert task["provider"]["name"] == "Moimio"
+    assert task["provider"]["name"] == "Event Allocation Demo"
     link = next(a for a in task["artifacts"] if a["type"] == "deep_link")
-    assert link["title"] == "Review in Moimio" and link["known"] is True
+    assert link["title"] == "Review in the events app" and link["known"] is True
 
     r = client.get("/api/tasks", params={"q": "spring"})
     assert [t["id"] for t in r.json()] == [task["id"]]
@@ -137,3 +137,29 @@ def test_meta_reports_routing_mode_without_configuration_details(client):
     body = r.json()
     assert body["routing"] == {"mode": "deterministic"}
     assert "key" not in r.text.lower() and "base_url" not in r.text
+
+
+def test_an_unexpected_error_is_still_a_sentence(db, monkeypatch):
+    """A bug must not reach the browser as "Internal Server Error"."""
+    from fastapi.testclient import TestClient
+
+    from app.db import get_db
+    from app.main import app
+    from app.services import tasks as task_service
+
+    def boom(*a, **k):
+        raise RuntimeError("something deep broke")
+
+    monkeypatch.setattr(task_service, "list_tasks", boom)
+    app.dependency_overrides[get_db] = lambda: db
+    # A browser gets the response; only the test client re-raises by default.
+    # Deliberately not used as a context manager: that would run the app's
+    # startup seeding against a session outside this test's transaction.
+    try:
+        response = TestClient(app, raise_server_exceptions=False).get("/api/tasks")
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 500
+    detail = response.json()["detail"]
+    assert detail == "Something went wrong at Bevro's end. The details are in the server log."
+    assert "RuntimeError" not in response.text and "Traceback" not in response.text

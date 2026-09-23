@@ -9,7 +9,7 @@ from pathlib import Path
 
 APP = Path(__file__).resolve().parents[1] / "app"
 ADAPTERS = Path(__file__).resolve().parents[2] / "adapters"
-NAMES = re.compile(r"\b(moimio|career[-_ ]?agent|anthropic|openai)\b", re.IGNORECASE)
+NAMES = re.compile(r"\b(event[-_ ]?demo|career[-_ ]?agent|anthropic|openai)\b", re.IGNORECASE)
 # Places where a vendor or agent name is legitimately data or a mechanism:
 ALLOWED = {
     "routing/models/anthropic.py",  # a routing backend
@@ -53,7 +53,7 @@ def test_adapters_never_name_a_provider():
     offenders = []
     for path in sorted(ADAPTERS.glob("*.py")):
         for line in _code_lines(path):
-            if re.search(r"\b(moimio|career[-_ ]?agent)\b", line, re.IGNORECASE):
+            if re.search(r"\b(event[-_ ]?demo|career[-_ ]?agent)\b", line, re.IGNORECASE):
                 offenders.append(f"{path.name}: {line.strip()}")
     assert offenders == [], offenders
 

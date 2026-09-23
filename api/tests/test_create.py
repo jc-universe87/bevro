@@ -23,7 +23,7 @@ from app.services import tasks as task_service
 from app.services.providers import record_availability
 from tests import fake_agent_builder
 
-RESEARCH = "Research competitors in the church event software market and give me a short weekly report."
+RESEARCH = "Research competitors in the event management software market and give me a short weekly report."
 REVIEW = "Review pull requests and point out risky changes."
 NOTES = "Categorise notes into work, family and admin."
 
@@ -98,7 +98,7 @@ def test_the_model_path_is_structured_and_falls_back_to_rules():
         def structured(self, system, user, schema, name, max_tokens=400):
             asked.append(user)
             assert "code" not in system.lower() or "never write code" in system.lower()
-            return {"name": "Market Watch", "description": "Tracks competitors in church event software.",
+            return {"name": "Market Watch", "description": "Tracks competitors in event management software.",
                     "purpose": "Keep an eye on rivals.", "capabilities": [{"id": "research", "title": "Research"}],
                     "permissions": ["web"], "output_expectation": "report", "complexity": "small"}
 
@@ -198,7 +198,7 @@ def test_the_router_picks_a_created_agent_by_capability(client, seeded, managed,
     made = create(client, seeded, RESEARCH)
     provider = provider_service.get_provider(seeded, uuid.UUID(made["provider_id"]))
     record_availability(seeded, provider, HealthResult(ok=True, state="available"))
-    decision = DeterministicRouter().route(seeded, f"{provider.name}: what are competitors doing in church event software?")
+    decision = DeterministicRouter().route(seeded, f"{provider.name}: what are competitors doing in event management software?")
     assert decision.provider_id == provider.slug
 
 

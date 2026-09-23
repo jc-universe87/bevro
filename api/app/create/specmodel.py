@@ -85,7 +85,10 @@ _STOP = {
 def _name_from(description: str) -> str:
     words = [w for w in re.findall(r"[A-Za-z][A-Za-z'-]*", description) if w.lower() not in _STOP]
     picked = words[:3] if len(words) >= 3 else words[:2] or ["New", "Agent"]
-    return " ".join(w.capitalize() for w in picked)[:60]
+    # A name ending on a possessive ("Watch Our Competitors'") reads as a
+    # mistake, so trailing punctuation is trimmed off the last word.
+    name = " ".join(w.capitalize() for w in picked)[:60]
+    return name.rstrip("'-\u2019 ") or "New Agent"
 
 
 class RulesSpecModel:

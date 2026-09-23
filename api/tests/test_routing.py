@@ -91,7 +91,7 @@ def test_catalogue_is_sanitised_and_filters_unavailable(seeded, tmp_path):
 
     selectable = {e.id for e in build_catalogue(seeded)}
     assert "claude-code" not in selectable  # no worker has reported
-    assert {"research", "moimio", "sales"} <= selectable
+    assert {"research", "event-demo", "sales"} <= selectable
     claude_available(seeded)
     entry = next(e for e in build_catalogue(seeded) if e.id == "claude-code")
     assert entry.requires == ["workspace"] and entry.can_invoke and entry.available
@@ -236,9 +236,9 @@ def test_llm_rejects_disabled_and_unavailable_providers(seeded, two_workspaces):
     with pytest.raises(task_service.NoProviderAvailable, match="Coding help isn't set up"):
         task_service.submit(seeded, "Fix the login bug.")
     assert all(e["id"] != "claude-code" for e in model.calls[0]["catalogue"])  # unavailable providers are not even offered
-    moimio = provider_service.get_by_slug(seeded, "moimio")
-    moimio.enabled = False
-    router, model = llm(RoutingDecision(selected_provider_ids=["moimio"]))
+    event_demo = provider_service.get_by_slug(seeded, "event-demo")
+    event_demo.enabled = False
+    router, model = llm(RoutingDecision(selected_provider_ids=["event-demo"]))
     set_router(router)
     task = task_service.submit(seeded, "Compare the venues.")
     assert task.routing["source"] == "fallback" and "disabled" in task.routing["fallback_reason"] or "unknown" in task.routing["fallback_reason"]

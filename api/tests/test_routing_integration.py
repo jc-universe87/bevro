@@ -28,7 +28,7 @@ pytestmark = pytest.mark.skipif(
 CASES = [
     ("Research the differences between PostgreSQL and MariaDB for this project.", "research", False),
     ("Fix the spacing on the Recent page and run the frontend tests.", "claude-code", True),
-    ("Allocate the participants for the retreat.", "moimio", False),
+    ("Allocate the participants for the retreat.", "event-demo", False),
     ("Write a poem about autumn.", None, False),
     ("Fix the bug.", "claude-code", True),
     ("Compare approaches for implementing MCP support.", "research", False),

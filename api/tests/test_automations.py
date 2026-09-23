@@ -66,10 +66,10 @@ def settle_all(seeded, model=None) -> int:
 # ----------------------------------------------------------------------------- setting up
 
 def test_recurring_intent_is_confirmed_before_anything_is_created(client, seeded):
-    r = client.post("/api/automations/intent", json={"text": "Every Friday, research new church event software competitors.", "timezone": "Europe/London"})
+    r = client.post("/api/automations/intent", json={"text": "Every Friday, research new event management software competitors.", "timezone": "Europe/London"})
     body = r.json()
     assert body["recurring"] is True and body["schedule"] == "Every Friday · 09:00"
-    assert body["instruction"] == "research new church event software competitors" and body["mode"] == "scheduled"
+    assert body["instruction"] == "research new event management software competitors" and body["mode"] == "scheduled"
     # Nothing was created by asking.
     assert client.get("/api/automations").json() == []
 

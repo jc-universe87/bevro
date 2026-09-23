@@ -2,6 +2,8 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.version import __version__
+
 
 class Settings(BaseSettings):
     """Runtime configuration, read from the environment."""
@@ -18,7 +20,7 @@ class Settings(BaseSettings):
     secret_key_file: str = "/data/secret.key"
     # Origins allowed to call the API from a browser (the Vite dev server).
     cors_origins: str = "http://localhost:6140"
-    app_version: str = "0.4.0"
+    app_version: str = __version__
     # Server-side registry of directories coding providers may work in. Optional:
     # without it, coding providers simply have nowhere to work.
     workspaces_file: str = "/srv/config/workspaces.json"
@@ -71,6 +73,10 @@ class Settings(BaseSettings):
     # A web address of your own to post events to. Optional.
     notify_webhook_url: str = ""
     notify_webhook_timeout_seconds: float = 10.0
+    # Shared secret for signing webhook deliveries. With one set, every post
+    # carries an X-Bevro-Signature the receiver can check. Never leaves the
+    # server and is never returned to the browser.
+    notify_webhook_secret: str = ""
 
 
 @lru_cache

@@ -60,22 +60,22 @@ exists and is always an explicit choice.
 A channel answers three questions and nothing else:
 
 ```python
-validate_configuration()   # usable on this installation? if not, why, in words
-health()                   # usable right now?
-deliver(payload, where)    # send this; say plainly how it went
+validate_configuration(where=None)   # usable here? if not, why, in words
+health()                             # usable right now?
+deliver(payload, where)              # send this; say plainly how it went
 ```
 
 | Channel | What it needs | Notes |
 |---|---|---|
 | `in_app` | nothing | always available; the event row is the delivery |
-| `email` | an SMTP server and an address to send to | the first external channel |
-| `webhook` | a web address of your own | small, stable JSON |
+| `email` | an SMTP server, and an address to send to | the first external channel |
+| `webhook` | nothing but an address | small, stable, optionally signed JSON |
 
-A channel that is not configured is **not offered** in the automation editor,
-so nobody can choose something this installation cannot do. If one is
-configured and later removed, an automation that still asks for it records a
-plain "no mail server is set up here" against that notification rather than
-pretending it was sent.
+A channel whose machinery is missing is **not offered** in the automation
+editor, so nobody can choose something this installation cannot do: without a
+mail server, Email does not appear at all. If one is configured and later
+removed, an automation that still asks for it records a plain "no mail server
+is set up here" against that notification rather than pretending it was sent.
 
 ### Setting up email
 
@@ -101,6 +101,7 @@ None of this is required. Bevro starts, runs and notifies without it.
 
 ```
 BEVRO_NOTIFY_WEBHOOK_URL=https://hooks.example.com/bevro
+BEVRO_NOTIFY_WEBHOOK_SECRET=            # optional, but do set it
 ```
 
 Bevro posts exactly this, and will keep posting exactly this:
@@ -117,6 +118,53 @@ Bevro posts exactly this, and will keep posting exactly this:
   "url": "http://localhost:6140/tasks/…"
 }
 ```
+
+Each request also carries:
+
+```
+Content-Type:       application/json
+X-Bevro-Event:      automation.matched
+X-Bevro-Timestamp:  1774000000          (only when signing is on)
+X-Bevro-Signature:  sha256=<hex>        (only when signing is on)
+```
+
+### Checking the signature
+
+With `BEVRO_NOTIFY_WEBHOOK_SECRET` set, the signature is an HMAC-SHA256 over
+the exact bytes `<timestamp>.<body>`. The timestamp is signed as well as sent,
+so yesterday's message cannot be replayed in today's clothes.
+
+```python
+import hashlib, hmac, time
+
+def valid(secret: str, headers, raw_body: bytes) -> bool:
+    timestamp = headers["X-Bevro-Timestamp"]
+    if abs(time.time() - int(timestamp)) > 300:      # five minutes
+        return False
+    expected = "sha256=" + hmac.new(
+        secret.encode(), f"{timestamp}.".encode() + raw_body, hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected, headers.get("X-Bevro-Signature", ""))
+```
+
+Compare against the **raw body**, before any JSON parsing and re-encoding —
+Bevro signs the bytes it sends. The secret never leaves the server and is
+never returned to the browser.
+
+### Somewhere of its own
+
+The settings above are where this installation sends. One automation may
+override them under **When this needs my attention**: an email address, or a
+web address. Leave the field empty and the installation default is used.
+
+That is the whole of it. There is no address book, no per-recipient
+preferences and no groups — if you need those, a webhook into something that
+does have them is the right shape.
+
+An installation with a mail server but no `BEVRO_NOTIFY_EMAIL` can still email
+a single automation that names its own address; Bevro then asks for one when
+the channel is ticked. A webhook needs no installation setup at all: an
+address is the only thing it requires.
 
 ---
 
@@ -176,11 +224,15 @@ my attention**:
 
 ```
 [x] In Bevro
-[ ] Email                 (only shown when email is set up)
+[ ] Email                            (only shown when a mail server is set up)
+    └ you@example.com                (optional: somewhere else)
+[ ] Webhook
+    └ https://example.com/hook       (optional: somewhere else)
 [ ] Tell me each time it finishes    (scheduled work only)
 ```
 
-There is no preference centre, no per-channel quiet hours and no digests.
+The address field appears only once a channel is ticked. There is no
+preference centre, no per-channel quiet hours and no digests.
 
 ---
 
@@ -193,6 +245,7 @@ There is no preference centre, no per-channel quiet hours and no digests.
 | The channel contract | `api/app/delivery/base.py` |
 | What leaves Bevro, and the scrubbing | `api/app/delivery/payload.py` |
 | Email, webhook, in-app | `api/app/delivery/{email,webhook,in_app}.py` |
+| Signing, and the recipe for checking it | `api/app/delivery/webhook.py` (`sign`, `verify`) |
 | Sending, every turn | `api/app/scheduler.py` |
 | The browser's view | `api/app/routers/notifications.py`, `web/src/pages/Notifications.tsx` |
 

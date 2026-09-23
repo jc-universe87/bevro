@@ -15,7 +15,7 @@ class InAppChannel(DeliveryChannel):
     label = "In Bevro"
     external = False
 
-    def validate_configuration(self) -> str | None:
+    def validate_configuration(self, destination: str | None = None) -> str | None:
         return None
 
     def health(self) -> ChannelHealth:

@@ -132,10 +132,11 @@ def test_claude_code_is_registered_as_a_background_provider(seeded):
     assert adapter.execution == "background" and "workspace" in adapter.requires
     from app.schemas.serialise import provider_actions, provider_out
 
-    # Nothing has reported that it can run: no Ask, and a calm note.
+    # Nothing has reported that it can run: no Ask, and a calm note that says
+    # this is optional rather than broken.
     assert provider_actions(provider) == []
     out = provider_out(provider).model_dump()
-    assert out["availability"] == {"state": "unavailable", "note": "Not available on this installation"}
+    assert out["availability"] == {"state": "unavailable", "note": "Optional \u00b7 needs the host worker"}
     assert "adapter" not in out
     mark_available(seeded)
     assert provider_actions(provider) == ["ask"]

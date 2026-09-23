@@ -9,7 +9,7 @@ def test_seed_examples_is_idempotent(db):
     assert provider_service.seed_examples(db) == 3
     assert provider_service.seed_examples(db) == 0
     slugs = {p.slug for p in provider_service.list_providers(db)}
-    assert slugs == {"moimio", "research", "claude-code"}
+    assert slugs == {"event-demo", "research", "claude-code"}
 
 
 def test_register_provider_with_free_form_capabilities(db):
@@ -34,12 +34,12 @@ def test_slug_collisions_are_resolved(db):
 
 
 def test_actions_only_list_what_is_supported(seeded):
-    moimio = provider_service.get_by_slug(seeded, "moimio")
+    event_demo = provider_service.get_by_slug(seeded, "event-demo")
     research = provider_service.get_by_slug(seeded, "research")
-    assert provider_actions(moimio) == ["ask", "open"]
+    assert provider_actions(event_demo) == ["ask", "open"]
     assert provider_actions(research) == ["ask"]
-    moimio.enabled = False
-    assert provider_actions(moimio) == ["open"]
+    event_demo.enabled = False
+    assert provider_actions(event_demo) == ["open"]
 
 
 def test_declared_provider_has_no_ask_action(db):

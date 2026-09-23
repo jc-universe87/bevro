@@ -25,9 +25,9 @@ The provider answers `200` with:
   "artifacts": [
     {
       "type": "deep_link",
-      "title": "Review in Moimio",
+      "title": "Review in the events app",
       "summary": "7 participants need a decision",
-      "external_url": "https://moimio.example/app/events/spring/allocation?filter=review",
+      "external_url": "https://events.example/app/events/spring/allocation?filter=review",
       "metadata": {"event_id": "spring"}
     },
     {

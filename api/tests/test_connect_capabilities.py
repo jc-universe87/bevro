@@ -5,7 +5,7 @@ from app.connect.draft import ProviderDraft
 
 
 def test_inference_needs_clear_words_and_stays_small():
-    caps = infer_capabilities("Moimio Research & Strategy Agent", "Researches changes in the church-software market that matter to Moimio.", weights=(2.0, 2.0))
+    caps = infer_capabilities("Market Research & Strategy Agent", "Researches changes in the software market.", weights=(2.0, 2.0))
     assert [c.id for c in caps] == ["research", "market_analysis", "product_strategy"]
     assert infer_capabilities("Thing", "It does stuff.") == []
     # One passing mention in a long README body is not evidence.
