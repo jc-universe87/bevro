@@ -132,18 +132,41 @@ def make_docker_project(root: Path, *, name: str = "fixture-service") -> Path:
     return project
 
 
+# Directories and files the *interpreter* creates as it runs, which are not
+# part of a project and never a modification of one. CPython writes these
+# unless PYTHONDONTWRITEBYTECODE is set, which a bare CI runner does not set.
+# Nothing else is ignored: a project Bevro touched must still show up.
+INTERPRETER_CACHE_DIRS = frozenset({"__pycache__"})
+INTERPRETER_CACHE_SUFFIXES = (".pyc", ".pyo")
+
+
+def is_interpreter_cache(rel: Path) -> bool:
+    """True for CPython's own bytecode cache, wherever it sits in the tree."""
+    return bool(INTERPRETER_CACHE_DIRS.intersection(rel.parts)) or rel.suffix in INTERPRETER_CACHE_SUFFIXES
+
+
 def snapshot(path: Path) -> dict[str, str]:
-    """rel path -> sha256 of every file (symlinks by target), for byte-for-byte comparisons."""
+    """rel path -> sha256 of every file (symlinks by target), for byte-for-byte comparisons.
+
+    Running a project compiles it, and CPython caches the bytecode beside the
+    source. That is the interpreter's doing, not Bevro's, so it is left out
+    here - and only that. Any real file a project gained, lost or changed is
+    still compared byte for byte.
+    """
     out: dict[str, str] = {}
     for dirpath, dirnames, filenames in os.walk(path):
-        dirnames.sort()
+        # Do not descend into the bytecode cache at all.
+        dirnames[:] = sorted(d for d in dirnames if d not in INTERPRETER_CACHE_DIRS)
         for name in sorted(filenames):
             full = Path(dirpath) / name
-            rel = str(full.relative_to(path))
+            rel = full.relative_to(path)
+            if is_interpreter_cache(rel):
+                continue
+            key = str(rel)
             if full.is_symlink():
-                out[rel] = "link:" + os.readlink(full)
+                out[key] = "link:" + os.readlink(full)
             else:
-                out[rel] = hashlib.sha256(full.read_bytes()).hexdigest()
+                out[key] = hashlib.sha256(full.read_bytes()).hexdigest()
     return out
 
 

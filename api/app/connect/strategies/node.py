@@ -14,6 +14,18 @@ HTTP_FRAMEWORKS = ("express", "fastify", "koa", "hono", "@nestjs/core", "next", 
 _PORT = re.compile(r"^\s*PORT\s*=\s*(\d{2,5})", re.M)
 
 
+def _runs_by_itself(project: Project, rel: str) -> bool:
+    """Does this file claim to be a program rather than something to import?
+
+    An executable bit or a shebang is the author saying "run me". Anything
+    else is read as a module, which is what `main` usually means.
+    """
+    if project.is_executable(rel):
+        return True
+    head = project.read_text(rel, 200) or ""
+    return head.startswith("#!")
+
+
 def inspect_node(project: Project) -> Finding | None:
     text = project.read_text("package.json", 64_000)
     if text is None:
@@ -59,9 +71,23 @@ def inspect_node(project: Project) -> Finding | None:
             rel = str(rel).lstrip("./")
             if project.is_file(rel):
                 finding.entrypoints.append(Entrypoint(argv=["node", rel], label=f"node {rel}", confidence="high", source=f"package.json declares the command '{bin_name}'", mechanism=mechanism))
+    # "main" is where `require()` lands, not a program to run. A library whose
+    # main file only assigns exports does nothing when executed, so it is not a
+    # runtime - it is a module a bridge can call. Only take main as runnable
+    # when the project says it is: an executable file or a shebang, an MCP
+    # server, or a web framework whose main file starts it.
     main = pkg.get("main") or pkg.get("module")
-    if isinstance(main, str) and project.is_file(main.lstrip("./")) and not any(e.argv[-1] == main.lstrip("./") for e in finding.entrypoints):
-        finding.entrypoints.append(Entrypoint(argv=["node", main.lstrip("./")], label=f"node {main.lstrip('./')}", confidence="medium", source="package.json names its main file", mechanism=mechanism))
+    if isinstance(main, str):
+        rel = main.lstrip("./")
+        already = any(e.argv[-1] == rel for e in finding.entrypoints)
+        if project.is_file(rel) and not already:
+            runnable = _runs_by_itself(project, rel) or is_mcp or bool(finding.frameworks & set(HTTP_FRAMEWORKS))
+            if runnable:
+                finding.entrypoints.append(
+                    Entrypoint(argv=["node", rel], label=f"node {rel}", confidence="medium", source="package.json names its main file", mechanism=mechanism)
+                )
+            else:
+                finding.evidence.append(f"package.json names {rel} as what `require()` returns: a module, not a program")
     scripts = pkg.get("scripts") if isinstance(pkg.get("scripts"), dict) else {}
     start = scripts.get("start")
     if isinstance(start, str) and start.strip():

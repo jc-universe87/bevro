@@ -1,5 +1,6 @@
 """Local project discovery: zero-touch, inside approved roots only."""
 
+import json
 import os
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from app.connect.strategies.docker import inspect_docker
 from app.connect.strategies.node import inspect_node
 from app.connect.strategies.python import inspect_python
 from app.connect.targets import classify_target
-from tests.connect_fixtures import make_docker_project, make_node_project, make_python_project, snapshot
+from tests.connect_fixtures import make_docker_project, make_module_only_node_project, make_node_project, make_python_project, snapshot
 
 
 def discover(text: str, roots: list[Path]) -> ProviderDraft:
@@ -55,6 +56,46 @@ def test_parse_roots_expands_and_drops_missing(tmp_path, monkeypatch):
     (tmp_path / "agents").mkdir()
     roots = parse_roots("~/agents:/definitely/not/here, ")
     assert roots == [(tmp_path / "agents").resolve()]
+
+
+# ----------------------------------------------------------------------------- what counts as a change
+
+def test_the_interpreter_cache_is_not_a_change_but_everything_else_is(tmp_path):
+    """"Untouched" must mean the project, not the bytecode Python leaves behind.
+
+    A bare CI runner writes __pycache__ as soon as a project is imported. That
+    is the interpreter's doing. Every real file must still be compared.
+    """
+    root = tmp_path / "agents"
+    project = make_python_project(root)
+    before = snapshot(project)
+
+    # What running the project leaves behind, at any depth.
+    (project / "__pycache__").mkdir()
+    (project / "__pycache__" / "agent.cpython-312.pyc").write_bytes(b"\x00compiled")
+    cache = project / "src" / "fixture_research" / "__pycache__"
+    cache.mkdir(parents=True, exist_ok=True)
+    (cache / "agent.cpython-312.pyc").write_bytes(b"\x00compiled")
+    (project / "src" / "fixture_research" / "agent.pyo").write_bytes(b"\x00optimised")
+    assert snapshot(project) == before
+    assert not any("pycache" in k or k.endswith((".pyc", ".pyo")) for k in snapshot(project))
+
+    # Anything that is actually the project still counts, added or edited.
+    module = project / "src" / "fixture_research" / "agent.py"
+    module.write_text(module.read_text(encoding="utf-8") + "\n# touched\n", encoding="utf-8")
+    assert snapshot(project) != before
+
+    for name, content in (("pyproject.toml", "[project]\nname='x'\n"), ("README.md", "# changed\n"), ("notes.txt", "new file\n")):
+        fresh = make_python_project(tmp_path / f"agents-{name}")
+        baseline = snapshot(fresh)
+        (fresh / name).write_text(content, encoding="utf-8")
+        assert snapshot(fresh) != baseline, name
+
+    # Removing a file is a change too.
+    fresh = make_python_project(tmp_path / "agents-removed")
+    baseline = snapshot(fresh)
+    (fresh / "README.md").unlink()
+    assert snapshot(fresh) != baseline
 
 
 # ----------------------------------------------------------------------------- python
@@ -156,6 +197,53 @@ def test_node_project_metadata(tmp_path):
     assert draft.adapter["config"]["argv"] == ["node", "bin/cli.js"]
     assert "package.json declares the command 'fixture-notes'" in " ".join(draft.evidence)
     assert any("not installed" in w for w in draft.warnings)  # no node_modules; Bevro will not npm install
+
+
+def test_a_node_library_is_not_a_runtime_just_because_node_exists(tmp_path):
+    """"main" is where require() lands, not a program.
+
+    A library whose main file only assigns exports does nothing when run, so
+    it is a module for a bridge to call - not a way in. This must hold
+    whether or not node happens to be installed on the machine.
+    """
+    root = tmp_path / "agents"
+    project = make_module_only_node_project(root)
+    finding = inspect_node(Project(project))
+    assert finding is not None and finding.entrypoints == []
+    assert any("a module, not a program" in e for e in finding.evidence)
+
+    draft = discover(str(project), [root])
+    assert not draft.invocable
+    assert draft.needs_bridge and draft.public()["needs_bridge"] is True
+
+
+def test_a_node_project_that_says_it_is_runnable_is_taken_at_its_word(tmp_path):
+    """A declared command, a start script, or a file that claims to be a program."""
+    root = tmp_path / "agents"
+
+    # A. A declared bin: an ordinary CLI, discovered as before.
+    cli = make_node_project(root, name="declared-cli")
+    finding = inspect_node(Project(cli))
+    assert ["node", "bin/cli.js"] in [e.argv for e in finding.entrypoints]
+    assert discover(str(cli), [root]).invocable
+
+    # B. No bin, but main is executable: the author said "run me".
+    runnable = make_module_only_node_project(root, name="executable-main")
+    (runnable / "index.js").write_text("#!/usr/bin/env node\nconsole.log('working');\n", encoding="utf-8")
+    (runnable / "index.js").chmod(0o755)
+    assert [e.argv for e in inspect_node(Project(runnable)).entrypoints] == [["node", "index.js"]]
+
+    # C. No bin and not executable, but a shebang says the same thing.
+    shebang = make_module_only_node_project(root, name="shebang-main")
+    (shebang / "index.js").write_text("#!/usr/bin/env node\nconsole.log('working');\n", encoding="utf-8")
+    assert [e.argv for e in inspect_node(Project(shebang)).entrypoints] == [["node", "index.js"]]
+
+    # D. A start script is a declared way in, even for a plain module.
+    started = make_module_only_node_project(root, name="start-script")
+    pkg = json.loads((started / "package.json").read_text(encoding="utf-8"))
+    pkg["scripts"] = {"start": "node index.js"}
+    (started / "package.json").write_text(json.dumps(pkg, indent=2), encoding="utf-8")
+    assert [e.argv for e in inspect_node(Project(started)).entrypoints] == [["node", "index.js"]]
 
 
 def test_node_mcp_server_is_drafted_as_mcp(tmp_path):
