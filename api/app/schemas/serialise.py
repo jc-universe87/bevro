@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from adapters.registry import adapter_kinds
@@ -74,15 +75,82 @@ def runtime_summary(provider: Provider, stored: list[str]) -> dict[str, Any] | N
     }
 
 
+def provider_copy(provider: Provider) -> dict[str, str]:
+    """The plain-English layer: what it does, how it connects.
+
+    Built from what the provider declares and the mechanism it is reached
+    through - never from the text the service wrote about its own interface.
+    """
+    from app.connect import copy
+    from app.services.runtime import active_runtime
+
+    kind = str(provider.adapter.get("kind") or "")
+    rt = active_runtime(provider)
+    holds_credential = any(c.get("source") == "bevro" for c in credentials_of(provider, []))
+    return {
+        "what_it_does": copy.what_it_does(provider.name, provider.capabilities, kind=kind, stored=provider.description),
+        "how_it_connects": copy.how_it_connects(
+            kind=kind,
+            host_only=bool(rt is not None and rt.reachability.host_only()),
+            bevro_holds_credential=holds_credential,
+        ),
+    }
+
+
+def provider_summary(provider: Provider) -> str:
+    """The one sentence on the card. Never the service's own prose."""
+    from app.connect import copy
+
+    return copy.summary_for(provider.name, provider.capabilities, stored=provider.description)
+
+
+def _source_target(provider: Provider) -> str | None:
+    """The address this was connected from, as the person typed it.
+
+    Addresses only. A folder is left out even though the person typed it,
+    because a path describes the machine Bevro runs on and this view goes to
+    a browser; "Connected from: a local folder" says enough. A command is
+    left out because its arguments may carry a secret.
+    """
+    source = provider.source or {}
+    target = str(source.get("target") or "")
+    kind = str(source.get("target_kind") or "")
+    if not target or (kind and kind not in ("url", "mcp")) or not re.match(r"^https?://", target):
+        return None
+    # An address may carry credentials in front of the host. Those are not
+    # the person's input being echoed back; they are a secret.
+    return re.sub(r"//[^/@\s]*@", "//", target)[:300]
+
+
+def _connected_from(provider: Provider) -> str | None:
+    """What the person connected from, not how discovery ended up reading it.
+
+    Older records only kept the reading ("http", "mcp"), which is the runtime
+    line's business; both of those were an address to whoever typed one.
+    """
+    source = provider.source or {}
+    kind = str(source.get("target_kind") or source.get("kind") or "")
+    return {"http": "url", "openapi": "url"}.get(kind, kind) or None
+
+
 def provider_details(provider: Provider) -> ProviderDetails:
+    from app.connect.openapi import catalogue_from_json
     from app.services.runtime import active_runtime, runtimes_of
 
     rt = active_runtime(provider)
+    config = provider.adapter.get("config") or {}
+    operations = catalogue_from_json(config.get("operations")) if config.get("operations") else []
     return ProviderDetails(
         id=provider.id,
         active_runtime=rt.advanced() if rt else None,
         runtimes=[{**r.advanced(), "display_name": r.display_name, "availability": r.availability, "active": rt is not None and r.id == rt.id} for r in runtimes_of(provider)],
-        source_kind=(provider.source or {}).get("kind") if provider.source else None,
+        source_kind=_connected_from(provider),
+        source_name=provider.source_name if provider.source_name and provider.source_name != provider.name else None,
+        source_target=_source_target(provider),
+        source_description=provider.source_description or None,
+        operation_count=len(operations) or None,
+        runs_at="This machine" if rt is not None and rt.reachability.host_only() else ("Bevro itself" if rt is not None else None),
+        reachability=rt.reachability.model_dump(mode="json") if rt is not None else None,
     )
 
 
@@ -97,7 +165,8 @@ def provider_out(provider: Provider, secret_names: list[str] | None = None, db: 
         id=provider.id,
         slug=provider.slug,
         name=provider.name,
-        description=provider.description,
+        description=provider_summary(provider),
+        details=provider_copy(provider),
         enabled=provider.enabled,
         capabilities=provider.capabilities,
         app_url=provider.app_url,

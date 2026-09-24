@@ -35,6 +35,10 @@ DESCRIPTOR_PATHS = ("/openapi.json", "/api/openapi.json", "/swagger.json", "/v3/
 # What a compiled catalogue may grow to before it is trimmed. A planner is
 # never shown more than a small slice of this anyway.
 MAX_OPERATIONS = 400
+# Bumped whenever the wording a capability carries changes shape, so that
+# things connected before the change are read again rather than left saying
+# what an older Bevro would have said.
+CAPABILITY_WORDING = 3
 SUMMARY_MAX = 220
 
 
@@ -410,32 +414,48 @@ def _subject_words(ops: list["Operation"]) -> list[str]:
 def capabilities_from_operations(catalogue: list[Operation]) -> list[dict[str, str]]:
     """Group operations into abilities a person would recognise.
 
-    One group per tag the service uses, described in the service's own words
-    - the summary of the group's clearest read operation, falling back to any
-    of them. Forty operations do not become forty capabilities.
+    One group per tag the service uses. The title is a phrase built from what
+    the group's operations actually do - "Review opportunities" rather than
+    "Vacancies" - because a tag is a name in someone's code, and the person
+    reading it did not write that code. `app/connect/phrasing.py` does the
+    English; the group's own words are kept in `description` and `terms`.
+
+    Forty operations do not become forty capabilities.
     """
+    from app.connect import phrasing
     groups: dict[str, list[Operation]] = {}
     for op in catalogue:
         for tag in op.tags or ["general"]:
             if tag.lower() in _STOP_TAGS:
                 continue
             groups.setdefault(tag, []).append(op)
-    capabilities: list[dict[str, str]] = []
-    for tag, ops in sorted(groups.items(), key=lambda kv: -len(kv[1])):
-        if len(capabilities) >= 8:
-            break
+    phrased: list[tuple[float, dict[str, Any]]] = []
+    for tag, ops in groups.items():
         readable = [o for o in ops if o.safety == READ_ONLY and o.summary] or [o for o in ops if o.summary]
         description = readable[0].summary if readable else f"{len(ops)} operations"
+        phrase = phrasing.phrase_for(tag, [o.compact() for o in ops])
         capability: dict[str, Any] = {
             "id": re.sub(r"[^a-z0-9]+", "_", tag.lower()).strip("_") or "general",
-            "title": _titled(tag),
+            # What this group can be asked for, in words: "Review opportunities".
+            "title": phrase.title,
             "description": description[:200],
+            # The same thing in the form a sentence needs: "review opportunities",
+            # kept split so a sentence can conjugate the verb without guessing.
+            "action": phrase.action,
+            "verb": phrase.verb,
+            "subject": phrase.subject,
+            "also": phrase.also,
+            "wording": CAPABILITY_WORDING,
+            # How much of a reason this group is to have connected the thing.
+            "weight": round(phrase.weight, 2),
         }
         terms = [w for w in _subject_words(ops) if w != capability["id"]]
         if terms:
             capability["terms"] = terms
-        capabilities.append(capability)
-    return capabilities
+        phrased.append((phrase.weight, capability))
+    # Worth-first: what someone came for before the machinery it runs on.
+    phrased.sort(key=lambda pair: -pair[0])
+    return [capability for _weight, capability in phrased[:8]]
 
 
 def is_operational(catalogue: list[Operation]) -> bool:

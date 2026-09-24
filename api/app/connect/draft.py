@@ -34,6 +34,16 @@ class DraftCapability(BaseModel):
     # addresses: a tag may say "shortlist" where every URL says
     # "opportunities", and the person may ask for either.
     terms: list[str] = Field(default_factory=list, max_length=6)
+    # What this group does, split so a sentence can conjugate it:
+    # "review" + "opportunities", with a second verb when one was earned.
+    verb: str | None = Field(default=None, max_length=20)
+    subject: str | None = Field(default=None, max_length=60)
+    also: str | None = Field(default=None, max_length=20)
+    action: str | None = Field(default=None, max_length=80)
+    # How much of a reason this group is to have connected the thing at all.
+    weight: float | None = None
+    # Which version of the wording produced this.
+    wording: int | None = None
 
 
 class DraftAuth(BaseModel):
@@ -58,7 +68,15 @@ def _runs_at(rt: RuntimeProfile | None) -> str | None:
 
 class ProviderDraft(BaseModel):
     name: str = Field(max_length=120)
+    # What a person reads. `settled()` makes sure this is that, and not the
+    # service's own integration prose.
     description: str = Field(default="", max_length=2000)
+    # What the thing said about itself, kept whole. Never shown as the
+    # description; available under Advanced details and to reconnect.
+    source_description: str | None = Field(default=None, max_length=4000)
+    # The exact name the thing gave, before the part describing its own
+    # plumbing was trimmed off ("Inventory REST API" -> "Inventory").
+    source_name: str | None = Field(default=None, max_length=200)
     capabilities: list[DraftCapability] = Field(default_factory=list)
     # "http" | "mcp" | "command" | "local" (found, but nothing to run yet)
     mechanism: str
@@ -131,6 +149,41 @@ class ProviderDraft(BaseModel):
         self.auth = DraftAuth(required=creds.required_from_user, secret_name=creds.names[0] if creds.names else None, label=_secret_label(creds.names[0]) if creds.names else None, hint=creds.note)
         return self
 
+    def settled(self) -> "ProviderDraft":
+        """Sort out what a person reads from what the thing said about itself.
+
+        Discovery collects whatever name and description it can find, and for
+        a service that describes itself for integrators those are a page of
+        implementation detail and a name ending in "control API". Both are
+        kept, under their own fields, and what a person reads is *left blank*
+        so that it is worked out fresh each time it is shown - copy generated
+        once and stored goes stale the moment the generator improves.
+
+        Doing this here means no discovery strategy has to remember to.
+        """
+        from app.connect import copy as provider_copy
+
+        if self.source_name is None:
+            self.source_name = self.name
+            self.name = provider_copy.display_name(self.name)
+        if self.source_description is None:
+            found = (self.description or "").strip()
+            if not provider_copy.is_fit_to_show(found):
+                # Evidence, not copy. Kept whole; the card is built from facts.
+                self.source_description = found[:4000] or ""
+                self.description = ""
+        return self
+
+    def summary(self) -> str:
+        """One sentence for the person, wherever the draft is shown."""
+        from app.connect import copy as provider_copy
+
+        return provider_copy.summary_for(
+            self.name,
+            [c.model_dump(exclude_none=True) for c in self.capabilities],
+            stored=self.description,
+        )
+
     @property
     def needs_bridge(self) -> bool:
         """Worth connecting, but nothing in it can take a task as it stands."""
@@ -151,7 +204,11 @@ class ProviderDraft(BaseModel):
             "connected_for": self.connected_for,
             "credentials_label": credentials_label(rt.credentials) if rt else None,
             "name": self.name,
-            "description": self.description,
+            # The same sentence Agents will show once this is connected,
+            # worked out the same way - so what is previewed is what is got.
+            "description": self.summary(),
+            "source_description": self.source_description,
+            "source_name": self.source_name,
             "capabilities": [c.model_dump() for c in self.capabilities],
             "mechanism": self.mechanism,
             "mechanism_label": self.mechanism_label or MECHANISM_LABELS.get(self.mechanism, self.mechanism),

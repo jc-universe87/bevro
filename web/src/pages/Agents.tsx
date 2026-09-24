@@ -24,6 +24,8 @@ function statusNote(p: Provider): string | null {
   return null;
 }
 
+const CONNECTED_FROM: Record<string, string> = { url: "a web address", mcp: "an MCP server", local: "a local folder", command: "a command" };
+
 const CONNECTION_WORDS: Record<string, string> = { api: "API", mcp: "MCP server", command: "Local agent", local: "Local", declared: "Described, not built" };
 
 function CredentialRow({ provider, credential, onChange, autoFocus }: { provider: Provider; credential: Provider["credentials"][number]; onChange: (p: Provider) => void; autoFocus: boolean }) {
@@ -189,6 +191,22 @@ function ManagePanel({ provider, onChange, onRemoved, focusCredential = false, a
   const missing = (provider.credentials ?? []).filter((c) => !c.present);
   return (
     <div className="mt-3 rounded-md border border-line bg-sunken/40 p-3 text-sm" aria-label={`Manage ${provider.name}`}>
+      {(provider.details?.what_it_does || provider.details?.how_it_connects) && (
+        <div className="mb-3 space-y-2">
+          {provider.details?.what_it_does && (
+            <div>
+              <h3 className="text-muted">What it does</h3>
+              <p>{provider.details.what_it_does}</p>
+            </div>
+          )}
+          {provider.details?.how_it_connects && (
+            <div>
+              <h3 className="text-muted">How it connects</h3>
+              <p>{provider.details.how_it_connects}</p>
+            </div>
+          )}
+        </div>
+      )}
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
         <dt className="text-muted">Connection</dt>
         <dd>{provider.enabled ? (provider.availability?.note ?? (missing.length ? `Needs ${missing.map((c) => c.label.toLowerCase()).join(", ")}` : "Available")) : "Paused"}</dd>
@@ -332,12 +350,50 @@ function ManagePanel({ provider, onChange, onRemoved, focusCredential = false, a
             {details.source_kind && (
               <>
                 <dt>Connected from</dt>
-                <dd>{details.source_kind === "local" ? "a local folder" : details.source_kind === "url" ? "a web address" : `a ${details.source_kind}`}</dd>
+                <dd>{CONNECTED_FROM[details.source_kind] ?? `a ${details.source_kind}`}</dd>
+              </>
+            )}
+            {details.source_name && (
+              <>
+                <dt>Calls itself</dt>
+                <dd>{details.source_name}</dd>
+              </>
+            )}
+            {details.source_target && (
+              <>
+                <dt>Address</dt>
+                <dd className="break-all">{details.source_target}</dd>
+              </>
+            )}
+            {details.runs_at && (
+              <>
+                <dt>Runs from</dt>
+                <dd>{details.runs_at}</dd>
+              </>
+            )}
+            {details.reachability && (
+              <>
+                <dt>Reached from</dt>
+                <dd>
+                  Bevro itself: {details.reachability.api ?? "unknown"} · this machine: {details.reachability.worker ?? "unknown"}
+                </dd>
+              </>
+            )}
+            {details.operation_count != null && (
+              <>
+                <dt>Operations</dt>
+                <dd>{details.operation_count}</dd>
               </>
             )}
           </dl>
         ) : (
           <p className="mt-2 text-xs text-muted">Loading…</p>
+        )}
+        {details?.source_description && (
+          <div className="mt-3">
+            <dt className="text-xs text-muted">As the service describes itself</dt>
+            <p className="mt-1 whitespace-pre-line text-xs text-subtle">{details.source_description}</p>
+          </div>
         )}
       </details>
     </div>

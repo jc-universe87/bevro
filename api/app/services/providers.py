@@ -60,6 +60,8 @@ def register_provider(db: Session, data: dict[str, Any]) -> Provider:
         slug=unique_slug(db, slug),
         name=data["name"],
         description=data.get("description") or "",
+        source_description=data.get("source_description") or None,
+        source_name=data.get("source_name") or None,
         enabled=bool(data.get("enabled", True)),
         capabilities=list(data.get("capabilities") or []),
         adapter=dict(data.get("adapter") or {}),
@@ -344,6 +346,73 @@ def worker_on_the_host(db: Session) -> bool:
 
     cutoff = utcnow() - timedelta(seconds=WORKER_TTL_SECONDS)
     return db.execute(sa_select(WorkerHeartbeat.worker_id).where(WorkerHeartbeat.network == "host", WorkerHeartbeat.seen_at >= cutoff).limit(1)).first() is not None
+
+
+def settle_descriptions(db: Session) -> int:
+    """Bring anything connected before all this up to the same standard.
+
+    Three things, each of which leaves what someone wrote alone:
+
+    * the service's own integration prose moves out of `description` and into
+      `source_description`, where Advanced details shows it;
+    * a name that ends by describing its own interface is trimmed, and the
+      exact one it gave is kept;
+    * capabilities described only by their tag are read again from the
+      operation catalogue Bevro already has, so they say what they do.
+
+    Copy Bevro generated is not kept at all: `description` ends up empty and
+    the sentence is worked out fresh each time, which is why improving the
+    wording improves what is already connected.
+    """
+    from app.connect import copy
+
+    settled = 0
+    for provider in list_providers(db, enabled_only=False):
+        changed = False
+
+        if provider.origin == "connected":
+            trimmed = copy.display_name(provider.name)
+            if trimmed != provider.name:
+                # Keep the exact name it gave, then show the shorter one.
+                provider.source_name = provider.source_name or provider.name
+                provider.name = trimmed[:120]
+                changed = True
+
+        if not copy.is_fit_to_show(provider.description):
+            if provider.source_description is None and provider.description:
+                provider.source_description = provider.description[:4000]
+            if provider.description:
+                provider.description = ""
+                changed = True
+        elif provider.source_description is not None and provider.origin == "connected":
+            # A sentence Bevro wrote itself, from a time when it wrote them
+            # down. Derived again on the way out from now on.
+            provider.description = ""
+            changed = True
+
+        if _reread_capabilities(provider):
+            changed = True
+        settled += 1 if changed else 0
+    if settled:
+        db.commit()
+        log.info("brought %s provider(s) up to the current wording", settled)
+    return settled
+
+
+def _reread_capabilities(provider: Provider) -> bool:
+    """Say what each group of operations does, where only its tag was stored."""
+    from app.connect.openapi import CAPABILITY_WORDING, capabilities_from_operations, catalogue_from_json
+
+    config = provider.adapter.get("config") or {}
+    current = all(c.get("wording") == CAPABILITY_WORDING for c in provider.capabilities if isinstance(c, dict))
+    if not config.get("operations") or (current and provider.capabilities):
+        return False
+
+    reread = capabilities_from_operations(catalogue_from_json(config.get("operations")))
+    if not reread:
+        return False
+    provider.capabilities = reread
+    return True
 
 
 def worker_seen_recently(db: Session) -> bool:

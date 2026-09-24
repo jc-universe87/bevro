@@ -21,7 +21,17 @@ class Provider(UUIDPrimaryKey, Timestamped, Base):
 
     slug: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
+    # The exact name the thing gave, when Bevro trimmed the part that only
+    # described its interface ("Inventory REST API" -> "Inventory").
+    source_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # One short sentence a person reads on the card. Never a service's own
+    # integration prose: that goes in `source_description` and is shown under
+    # Advanced details. app/connect/copy.py is where the difference lives.
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # What the thing said about itself when Bevro found it: an OpenAPI
+    # `info.description`, a README paragraph, a manifest line. Evidence, kept
+    # whole so that reconnecting and troubleshooting have something to read.
+    source_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Machine-readable capability declarations, e.g.
     # [{"id": "research", "title": "Research", "description": "..."}]

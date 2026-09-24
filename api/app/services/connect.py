@@ -153,7 +153,7 @@ def _discover_into(row: ConnectDraft, roots: list[Path], secrets: dict[str, str]
     row.state = "found"
     row.error = None
     row.unreachable = False
-    row.draft = draft.model_dump(mode="json")
+    row.draft = draft.settled().model_dump(mode="json")
 
 
 def get_draft(db: Session, draft_id: uuid.UUID) -> ConnectDraft | None:
@@ -299,7 +299,7 @@ def confirm_draft(db: Session, row: ConnectDraft, *, name: str | None, descripti
         raise DraftError("This has already been connected.", 409)
     if row.state != "found" or not row.draft:
         raise DraftError("Nothing has been found to connect yet.", 409)
-    pd = ProviderDraft.model_validate(row.draft)
+    pd = ProviderDraft.model_validate(row.draft).settled()
     if runtime_id:
         if not any(rt.id == runtime_id and rt.invocable for rt in pd.runtimes):
             raise DraftError("That isn't one of the ways Bevro found.", 422)
@@ -348,13 +348,20 @@ def confirm_draft(db: Session, row: ConnectDraft, *, name: str | None, descripti
         db,
         {
             "name": final_name,
+            # What a person reads, and separately what the thing said about
+            # itself. A description the person typed is theirs and is kept.
             "description": (description if description is not None else pd.description).strip()[:2000],
+            "source_description": pd.source_description,
+            "source_name": pd.source_name,
             "enabled": enabled,
             "capabilities": capabilities,
             "adapter": adapter,
             "runtimes": runtimes,
             "active_runtime": active.id if active else None,
-            "source": {"kind": row.target_kind, "target": row.target, **(pd.source or {}), "validated_at": utcnow().isoformat()},
+            # `kind` is how discovery read it ("http", "mcp"...); `target_kind`
+            # is what the person typed ("url", "local", "command"), kept under
+            # its own name so neither overwrites the other.
+            "source": {"kind": row.target_kind, "target": row.target, **(pd.source or {}), "target_kind": row.target_kind, "validated_at": utcnow().isoformat()},
             "app_url": (app_url or pd.app_url) or None,
             "icon": {"kind": "letter", "text": final_name[:1].upper()},
             "origin": "connected",

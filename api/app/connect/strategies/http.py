@@ -207,7 +207,9 @@ def _from_operational(client: httpx.Client, found: openapi.Descriptor, catalogue
     base = found.origin
 
     context, choices, scope_evidence = _resolve_scope(client, base, catalogue, found.entered_path)
-    capabilities = [DraftCapability(id=c["id"], title=c["title"], description=c["description"], terms=c.get("terms") or []) for c in openapi.capabilities_from_operations(catalogue)]
+    # Everything the compiler worked out travels with the draft, so the
+    # preview says exactly what Agents will say once it is connected.
+    capabilities = [DraftCapability.model_validate(c) for c in openapi.capabilities_from_operations(catalogue)]
     usable = [op for op in catalogue if op.safety in (openapi.READ_ONLY, openapi.WORK_EXECUTION)]
 
     auth, auth_config = _auth_from(found.spec)

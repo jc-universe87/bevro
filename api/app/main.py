@@ -10,7 +10,7 @@ from app.config import get_settings
 from app.db import get_sessionmaker
 from app.routers import artifacts, automations, connect, create, notifications, providers, tasks, workspaces
 from app.routing.router import routing_status
-from app.services.providers import seed_examples
+from app.services.providers import seed_examples, settle_descriptions
 from app.services.runtime import ensure_runtimes
 from app.services.workspaces import seed_from_config
 
@@ -24,6 +24,7 @@ async def lifespan(app: FastAPI):
     try:
         seed_examples(db)
         ensure_runtimes(db)
+        settle_descriptions(db)
         seed_from_config(db)
     finally:
         db.close()

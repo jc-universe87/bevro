@@ -19,7 +19,12 @@ class ProviderOut(BaseModel):
     id: uuid.UUID
     slug: str
     name: str
+    # One short sentence for the card. Built by app/connect/copy.py, never a
+    # service's own account of its interface.
     description: str
+    # The plain-English layer behind "More details":
+    # {"what_it_does": "...", "how_it_connects": "..."}
+    details: dict[str, str] = Field(default_factory=dict)
     enabled: bool
     capabilities: list[dict[str, Any]]
     app_url: str | None
@@ -45,12 +50,31 @@ class ProviderOut(BaseModel):
 
 
 class ProviderDetails(BaseModel):
-    """Advanced details: kinds and mechanisms by name. Never paths, commands, secrets or hosts."""
+    """Advanced details: the technical account, for when something is wrong.
+
+    Kinds and mechanisms by name, and the address the person themselves
+    typed, given back to them. Never a path (which describes this machine),
+    never a command (whose arguments may carry a secret), never a secret.
+    """
 
     id: uuid.UUID
     active_runtime: dict[str, Any] | None
     runtimes: list[dict[str, Any]] = Field(default_factory=list)
     source_kind: str | None = None
+    # The exact name the thing gave, when Bevro shows a shorter one.
+    source_name: str | None = None
+    # The address that was typed into Connect, credentials stripped. Never a
+    # folder (a path describes this machine) and never a command.
+    source_target: str | None = None
+    # What the service said about itself when Bevro found it. Kept whole, and
+    # shown only here - it is a fact about the service, not copy for a card.
+    source_description: str | None = None
+    # For a service whose work is typed operations: how many Bevro can use.
+    operation_count: int | None = None
+    # "This machine" when only the worker can reach it, else "Bevro itself".
+    runs_at: str | None = None
+    # {"api": "unavailable", "worker": "available", ...} - who has reached it.
+    reachability: dict[str, Any] | None = None
 
 
 class SecretIn(BaseModel):

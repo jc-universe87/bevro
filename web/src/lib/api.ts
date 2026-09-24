@@ -31,7 +31,10 @@ export interface Provider {
   id: string;
   slug: string;
   name: string;
+  /** One short sentence for the card. Never the service's own interface prose. */
   description: string;
+  /** Plain English, for "More details": what it does, how it connects. */
+  details?: { what_it_does?: string; how_it_connects?: string };
   enabled: boolean;
   capabilities: Capability[];
   app_url: string | null;
@@ -56,6 +59,15 @@ export interface ProviderDetails {
   active_runtime: Record<string, unknown> | null;
   runtimes: { id: string; kind: string; adapter: string; display_name: string; availability: string; active: boolean; credential_strategy: string }[];
   source_kind: string | null;
+  /** The exact name the service gave, when Bevro shows a shorter one. */
+  source_name?: string | null;
+  /** The address or folder that was typed into Connect, credentials stripped. */
+  source_target?: string | null;
+  /** What the service said about itself when Bevro found it. */
+  source_description?: string | null;
+  operation_count?: number | null;
+  runs_at?: string | null;
+  reachability?: { api?: string; worker?: string; api_checked_at?: string | null; worker_checked_at?: string | null } | null;
 }
 
 export type TaskState =
@@ -300,6 +312,8 @@ export interface DraftView {
   bridge_possible?: boolean;
   runs_via: string | null;
   runs_at: string | null;   // "On this machine" when only the worker can reach it
+  /** What the thing said about itself: shown under "How Bevro found this", never as the description. */
+  source_description?: string | null;
   runtime: RuntimeView | null;
   runtime_options: RuntimeView[];
   runtimes_found: number;

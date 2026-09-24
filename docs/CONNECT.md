@@ -261,6 +261,60 @@ own vocabulary rather than Bevro's guess. Those words are used for matching
 only - they are not shown, and not sent to a routing model, which can find
 synonyms by itself.
 
+### What the service says, and what a person reads
+
+A service that describes itself does so for whoever will integrate with it:
+"Thin control API over the X modules. GET routes read. POST routes are
+explicit operations." True, useful, and the wrong thing to put on a card.
+
+So the two are kept apart, and neither is lost:
+
+    source_description   what the thing said about itself, stored whole and
+                         shown under Advanced details
+    description          one short sentence for the card, built by
+                         app/connect/copy.py from the name, the capabilities
+                         and the mechanism - never from the prose
+    details              what it does, how it connects, in plain English
+
+`copy.is_fit_to_show()` is the line between them: length, sentence count and
+vocabulary. Text that mentions endpoints, schemas or HTTP verbs is an
+integration document, however true it is, and goes to `source_description`.
+Copy someone wrote - a built-in's own line, an agent Bevro was asked to
+build, a sentence the person typed - passes and is kept as it is.
+
+The sentence itself is built by `app/connect/phrasing.py`, from evidence
+rather than from nouns. For each group of operations it asks two questions:
+
+    what is being worked on    the group's tag, unless its own routes use a
+                               different word for the same thing - a group
+                               tagged `shortlist` whose every path says
+                               `/opportunities`
+    what is being done to it   the verbs its summaries use, counted, with a
+                               path word worth half a summary word and an
+                               HTTP method worth almost nothing
+
+That gives "review opportunities", "prepare documents", "run searches".
+Groups are then ranked by how much of their work changes or produces
+anything - reading a list is useful, but it is not why anyone connected the
+thing - and the strongest three become a sentence. Two verbs on one subject
+read as one clause ("creates and manages projects"), as does one verb across
+two subjects ("reviews applications and opportunities").
+
+Groups named after the machinery (`profiles`, `workspace`, `health`) are
+ranked below the rest and left out of the sentence. They still appear under
+"Can", where completeness is the point.
+
+A name that ends by describing its own interface is trimmed the same way:
+"Inventory REST API" is Inventory, "Acme Search Service" keeps its Service,
+and the exact name is kept in `source_name` for Advanced details.
+
+Generation is deterministic, so it works with no model configured. Where
+discovery assistance is switched on the model writes the sentence instead,
+and the same fitness rule applies to what it returns. The fallback ladder is:
+something someone wrote, then the sentence built from operations, then the
+plain list of what it works with, then "Connected service" - never the
+integration document.
+
 ### Scope: which profile, workspace or tenant
 
 Operational systems are often scoped. A pasted route may carry that — but a

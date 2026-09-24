@@ -329,6 +329,12 @@ export default function Connect() {
                 <li key={e}>{e}</li>
               ))}
             </ul>
+            {found.source_description && (
+              <div className="mt-3">
+                <p className="text-muted">As it describes itself</p>
+                <p className="mt-1 whitespace-pre-line text-subtle">{found.source_description}</p>
+              </div>
+            )}
           </details>
 
           <div className="mt-6 flex flex-wrap items-center gap-3">
