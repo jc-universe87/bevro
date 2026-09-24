@@ -38,6 +38,7 @@ from app.services import bridges as bridge_service
 from app.services import connect as connect_service
 from app.services import runtime as runtime_service
 from app.services import tasks as task_service
+from app.services import trust as trust_service
 from app.services.providers import list_providers, record_availability, record_heartbeat
 from app.services.secrets import SecretStore
 
@@ -91,6 +92,8 @@ class Worker:
         self.stop = threading.Event()
         self.kinds = background_kinds()
         # Folders this worker may inspect and run things in (BEVRO_LOCAL_ROOTS).
+        # A starting point only: the real answer is read from the trust
+        # grants before each piece of work.
         self.roots = configured_roots()
         try:
             self.secrets: SecretStore | None = SecretStore()
@@ -120,6 +123,10 @@ class Worker:
         log.info("worker %s handling adapter kinds %s; local roots %s", self.worker_id, self.kinds, [str(r) for r in self.roots] or "none")
         last_heartbeat = 0.0
         Session = get_sessionmaker()
+        with Session() as db:
+            # Anything already connected keeps working, and becomes something
+            # the person can see and take back.
+            trust_service.adopt_existing(db)
         last_reap = 0.0
         last_report = -AVAILABILITY_EVERY_SECONDS
         while not self.stop.is_set():
@@ -141,6 +148,10 @@ class Worker:
                         task_service.reap_stale_runs(db)
                     last_reap = now
                 with Session() as db:
+                    # What the person has agreed to, read again each time
+                    # round rather than remembered: a grant revoked a minute
+                    # ago stops being true here, with nothing restarted.
+                    self.roots = trust_service.apply_to_process(db)
                     if connect_service.run_pending(db, self.roots) or connect_service.run_reconnects(db) or bridge_service.run_pending(db, self.roots) or agent_service.run_pending(db, self.roots):
                         continue  # Connect work was handled; look again straight away
                     run_id = acquire(db, self.kinds, self.worker_id)

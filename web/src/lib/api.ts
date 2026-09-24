@@ -54,6 +54,29 @@ export interface Provider {
   updated_at: string;
 }
 
+/** What Bevro is asking permission for: one folder, or one program. */
+export interface TrustAsk {
+  kind: "folder" | "command";
+  label: string;
+  /** The resolved path - where it really is, once shortcuts are followed. */
+  path?: string | null;
+  parent?: string | null;
+  parent_label?: string | null;
+  program?: string | null;
+  is_directory?: boolean;
+  exists?: boolean;
+}
+
+export interface TrustGrant {
+  id: string;
+  kind: "folder" | "command";
+  label: string;
+  target: string;
+  scope: string;
+  granted_at: string | null;
+  granted_by: string;
+}
+
 export interface ProviderDetails {
   id: string;
   active_runtime: Record<string, unknown> | null;
@@ -68,6 +91,7 @@ export interface ProviderDetails {
   operation_count?: number | null;
   runs_at?: string | null;
   reachability?: { api?: string; worker?: string; api_checked_at?: string | null; worker_checked_at?: string | null } | null;
+  location_class?: string | null;
 }
 
 export type TaskState =
@@ -342,10 +366,12 @@ export interface DraftView {
 
 export interface ConnectDraft {
   id: string;
-  state: "looking" | "found" | "failed" | "testing" | "connected";
+  state: "looking" | "trust_required" | "found" | "failed" | "testing" | "connected";
   target_kind: string;
   target_label: string;
   draft: DraftView | null;
+  /** When Bevro needs permission before it looks at something on this machine. */
+  trust?: TrustAsk | null;
   error: string | null;
   test: { ok: boolean; detail: string | null } | null;
   provider_id: string | null;
@@ -455,6 +481,10 @@ export const api = {
     request<Provider>(`/providers/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   checkProvider: (id: string) => request<HealthOut>(`/providers/${id}/check`, { method: "POST" }),
   providerDetails: (id: string) => request<ProviderDetails>(`/providers/${id}/details`),
+  connectAllow: (id: string, scope: "exact" | "parent") =>
+    request<ConnectDraft>(`/connect/drafts/${id}/trust`, { method: "POST", body: JSON.stringify({ scope }) }),
+  access: () => request<{ grants: TrustGrant[]; ceiling: string[] }>("/trust"),
+  revokeGrant: (id: string) => request<void>(`/trust/${id}`, { method: "DELETE" }),
   reconnectProvider: (id: string) => request<Provider>(`/providers/${id}/reconnect`, { method: "POST" }),
   putSecret: (id: string, name: string, value: string) =>
     request<Provider>(`/providers/${id}/secrets/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ value }) }),

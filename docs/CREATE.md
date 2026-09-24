@@ -121,7 +121,7 @@ data/agents/<provider-id>/
 Runtime data, gitignored: the public repository holds the mechanism, never a
 generated agent. Bevro's own managed folders are approved roots by their
 nature, so nobody has to list their home directory to let Bevro run something
-it wrote itself; the person's own projects still require `BEVRO_LOCAL_ROOTS`.
+it wrote itself; the person's own projects are allowed once, when asked.
 
 ## Validation, then ordinary discovery
 

@@ -122,6 +122,21 @@ def _source_target(provider: Provider) -> str | None:
     return re.sub(r"//[^/@\s]*@", "//", target)[:300]
 
 
+def _location_class(provider: Provider) -> str | None:
+    """What kind of address this turned out to be. Never asked, never acted
+    on: a private address is as welcome as a public one. Worth being able to
+    see when something is not behaving."""
+    from app.connect.targets import TargetError, classify_target
+
+    target = str((provider.source or {}).get("target") or "")
+    if not target:
+        return None
+    try:
+        return classify_target(target).location_class
+    except TargetError:
+        return None
+
+
 def _connected_from(provider: Provider) -> str | None:
     """What the person connected from, not how discovery ended up reading it.
 
@@ -146,6 +161,7 @@ def provider_details(provider: Provider) -> ProviderDetails:
         runtimes=[{**r.advanced(), "display_name": r.display_name, "availability": r.availability, "active": rt is not None and r.id == rt.id} for r in runtimes_of(provider)],
         source_kind=_connected_from(provider),
         source_name=provider.source_name if provider.source_name and provider.source_name != provider.name else None,
+        location_class=_location_class(provider),
         source_target=_source_target(provider),
         source_description=provider.source_description or None,
         operation_count=len(operations) or None,

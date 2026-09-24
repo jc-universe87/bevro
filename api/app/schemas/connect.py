@@ -17,15 +17,24 @@ class DiscoverIn(BaseModel):
 
 class DraftOut(BaseModel):
     id: uuid.UUID
-    # "looking" | "found" | "failed" | "testing" | "connected"
+    # "looking" | "trust_required" | "found" | "failed" | "testing" | "connected"
     state: str
     target_kind: str
     target_label: str
     draft: dict[str, Any] | None = None
+    # When state is "trust_required": what Bevro is asking about, in the words
+    # the question needs - including the resolved path, so that what is agreed
+    # to is what will be used.
+    trust: dict[str, Any] | None = None
     error: str | None = None
     test: dict[str, Any] | None = None
     provider_id: uuid.UUID | None = None
     created_at: datetime
+
+
+class TrustIn(BaseModel):
+    # "exact" this folder; "parent" the folder above it, chosen deliberately.
+    scope: str = Field(default="exact", pattern="^(exact|parent|tree)$")
 
 
 class BridgeStatusOut(BaseModel):

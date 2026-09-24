@@ -75,6 +75,9 @@ class ProviderDetails(BaseModel):
     runs_at: str | None = None
     # {"api": "unavailable", "worker": "available", ...} - who has reached it.
     reachability: dict[str, Any] | None = None
+    # local_machine | private_network | vpn_overlay | public_network | unknown.
+    # Worked out, shown here only, and never acted on.
+    location_class: str | None = None
 
 
 class SecretIn(BaseModel):

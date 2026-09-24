@@ -166,9 +166,11 @@ python -m my_agent                a command
 Bevro looks (never touches), shows what it found — name, description,
 capabilities, how it will be reached — asks for a key only if one is needed,
 and connects. The agent appears under **Agents** and is routable at once.
-Local projects and commands are inspected and run by the host worker inside
-folders you approve (`BEVRO_LOCAL_ROOTS=~/agents` in `.env`); the project
-itself is left byte-for-byte as it was. **Advanced setup** is the escape hatch
+Local projects and commands are inspected and run by the host worker, which
+asks you once - in the browser, about that one folder or program - and
+remembers the answer under **Settings → Access & trust**, where you can take
+it back. Nothing is configured in advance, and the project itself is left
+byte-for-byte as it was. **Advanced setup** is the escape hatch
 for anything discovery cannot work out. See [docs/CONNECT.md](docs/CONNECT.md).
 
 If a project has useful code but no way in at all, Connect offers **Make it
@@ -302,9 +304,11 @@ Bevro is **local-first and has no login**. Every port is published on
 - Provider credentials are encrypted at rest and never returned by any
   endpoint. Where a provider already gets a credential from its own
   environment, Bevro records only *where it comes from*, never the value.
-- Local discovery and execution are confined to folders you list in
-  `BEVRO_LOCAL_ROOTS`, checked after symlinks resolve. Commands run without a
-  shell.
+- Local discovery and execution are confined to folders you have allowed,
+  checked after symlinks resolve and checked again each time rather than
+  trusted from when they were connected. Commands run without a shell. On a
+  shared installation `BEVRO_LOCAL_ROOTS` sets a boundary that nothing you
+  allow can leave.
 - Coding agents run as you, in directories you approve, with per-workspace
   permissions. Bevro adds guard rails — **it is not a sandbox**, and says so.
 - The browser never sees paths, adapter configuration, secrets, raw output or

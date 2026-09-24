@@ -113,16 +113,18 @@ All API settings are environment variables prefixed `BEVRO_` (see
 | `BEVRO_ROUTER_BACKEND` | `openai` | `openai` (any OpenAI-compatible server) or `anthropic` |
 | `BEVRO_ROUTER_MODEL` / `_API_KEY` / `_BASE_URL` | *(empty)* | model, key and endpoint for `llm` mode |
 | `BEVRO_ROUTER_TIMEOUT_SECONDS` | `8` | how long Home waits for a routing answer before the rules take over |
-| `BEVRO_LOCAL_ROOTS` | *(empty)* | folders Connect may inspect and run agents in, on the machine doing the work (`:`-separated, `~` allowed). Read by the worker from `.env`; deliberately not passed into the API container. See [CONNECT.md](CONNECT.md) |
+| `BEVRO_LOCAL_ROOTS` | *(empty)* | **optional boundary** for hardened installations (`:`-separated, `~` allowed). Empty - the ordinary case - means folders are allowed one at a time, in the browser, when Bevro asks. Set, it both allows the folders named and stops anything outside them being allowed by anyone. Read by the worker from `.env`; deliberately not passed into the API container. See [CONNECT.md](CONNECT.md) |
 | `BEVRO_INTEGRATIONS_DIR` | `/data/integrations` | Bevro-side storage for connected providers that need somewhere to run (never inside their project) |
 | `BEVRO_DISCOVERY_ASSIST` | `auto` | in `llm` routing mode, let the routing model refine a discovered agent's description from sanitised evidence; `off` keeps discovery fully local |
 
 The worker reads the same variables with host values (`scripts/worker.sh`
 sets `localhost:6142`, `./data/...`, `./config/workspaces.json`).
 
-**Connecting local agents** needs two things on the host: `BEVRO_LOCAL_ROOTS`
-in `.env` (for example `~/agents`) and the worker running
+**Connecting local agents** needs the worker running on the host
 (`./scripts/worker.sh`), because the API in Docker cannot see your folders.
+Nothing else: paste the path, and Bevro asks once for permission to look at
+that folder. `scripts/worker.sh` also fixes `localhost:6142` and `./data/...`
+to host values.
 Web addresses and MCP servers over HTTP need neither. The Connect tests use
 temporary fixture projects under `api/tests/connect_fixtures.py` and never a
 private project.

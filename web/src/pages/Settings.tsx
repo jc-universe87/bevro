@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import Logo from "../components/Logo";
 import PageHeader, { Page } from "../components/PageHeader";
-import { api, type DeliveryChannelInfo, type Meta, type Workspace } from "../lib/api";
+import { api, type DeliveryChannelInfo, type Meta, type TrustGrant, type Workspace } from "../lib/api";
 import { CLEAR_HISTORY_DETAIL, CLEAR_HISTORY_QUESTION } from "./Recent";
 import { useTheme, type Theme } from "../lib/theme";
 
@@ -19,6 +19,7 @@ export default function Settings() {
   const [meta, setMeta] = useState<Meta | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [channels, setChannels] = useState<DeliveryChannelInfo[]>([]);
+  const [access, setAccess] = useState<{ grants: TrustGrant[]; ceiling: string[] } | null>(null);
   const [confirm, setConfirm] = useState<"history" | "notifications" | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -47,6 +48,7 @@ export default function Settings() {
     api.meta().then(setMeta).catch(() => setMeta(null));
     api.listWorkspaces().then(setWorkspaces).catch(() => setWorkspaces([]));
     api.deliveryChannels().then(setChannels).catch(() => setChannels([]));
+    api.access().then(setAccess).catch(() => setAccess(null));
   }, []);
 
   return (
@@ -96,11 +98,56 @@ export default function Settings() {
         </ul>
       </section>
 
+      <section aria-labelledby="access-heading" className="py-6 border-b border-line">
+        <h2 id="access-heading" className="font-medium mb-1">
+          Access &amp; trust
+        </h2>
+        <p className="bv-hint mb-3">
+          What you have allowed Bevro to use on this machine. Taking one back stops it being used from then on; anything it
+          already did stays in Recent.
+        </p>
+        {!access || access.grants.length === 0 ? (
+          <p className="bv-hint">Nothing yet. Bevro asks the first time it needs something here.</p>
+        ) : (
+          <ul className="divide-y divide-line border-t border-b border-line" aria-label="Allowed">
+            {access.grants.map((g) => (
+              <li key={g.id} className="flex flex-wrap items-baseline justify-between gap-2 py-2.5">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">{g.label}</div>
+                  <div className="break-all text-xs text-muted">{g.kind === "folder" ? g.target : `Program: ${g.target}`}</div>
+                  <div className="text-xs text-subtle">
+                    {g.kind === "folder" ? (g.scope === "tree" ? "This folder and everything in it" : "This folder") : "May be run"}
+                    {g.granted_at ? ` · allowed ${new Date(g.granted_at).toLocaleDateString()}` : ""}
+                    {g.granted_by === "migration" ? " · from before Bevro asked" : ""}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="bv-link text-sm"
+                  onClick={async () => {
+                    await api.revokeGrant(g.id).catch(() => undefined);
+                    setAccess(await api.access().catch(() => access));
+                  }}
+                >
+                  Take back
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {access && access.ceiling.length > 0 && (
+          <p className="bv-hint mt-3">
+            This installation is limited to {access.ceiling.length === 1 ? "one folder" : `${access.ceiling.length} folders`} set by whoever
+            installed it. Anything allowed here has to be inside {access.ceiling.length === 1 ? "it" : "them"}.
+          </p>
+        )}
+      </section>
+
       <section aria-labelledby="projects-heading" className="py-6 border-b border-line">
         <h2 id="projects-heading" className="font-medium mb-1">
           Projects
         </h2>
-        <p className="bv-hint mb-3">Where coding agents are allowed to work. Set up on the server.</p>
+        <p className="bv-hint mb-3">Where coding agents are allowed to work.</p>
         {workspaces.length === 0 ? (
           <p className="bv-hint">None yet.</p>
         ) : (

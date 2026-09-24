@@ -64,7 +64,11 @@ def test_adapters_never_name_a_provider():
 # conventions (/health, /openapi.json, the loopback probe) are not that.
 SERVICE_ROUTE = re.compile(r"[\"']/(?:api/v\d|p)/")
 ADDRESS = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
-OWN_ADDRESSES = {"127.0.0.1", "0.0.0.0", "255.255.255.255", "1.2.3.4"}
+# Bevro's own loopback, and the standard network ranges an address can be
+# classified against. A range defined by an RFC is a fact about the internet;
+# a host is a fact about one installation, and that is what this is looking
+# for.
+OWN_ADDRESSES = {"127.0.0.1", "0.0.0.0", "255.255.255.255", "1.2.3.4", "100.64.0.0", "10.0.0.0", "172.16.0.0", "192.168.0.0", "169.254.0.0"}
 
 
 def _without_comments_or_docstrings(path: Path):

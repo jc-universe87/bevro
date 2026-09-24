@@ -121,6 +121,18 @@ export default function Connect() {
     }
   };
 
+  const allow = async (scope: "exact" | "parent") => {
+    if (!draft) return;
+    setBusy(true);
+    setError(null);
+    try {
+      adopt(await api.connectAllow(draft.id, scope));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Bevro couldn't reach the server.");
+      setBusy(false);
+    }
+  };
+
   const secrets = () => (draft?.draft?.auth.secret_name && secret.trim() ? { [draft.draft.auth.secret_name]: secret.trim() } : {});
 
   const test = async () => {
@@ -199,6 +211,38 @@ export default function Connect() {
           <span className="bv-pulse inline-block h-2 w-2 rounded-full bg-accent" aria-hidden="true" />
           Looking at {draft.target_label}…
         </p>
+      )}
+
+      {draft?.state === "trust_required" && draft.trust && (
+        <section aria-label="Permission needed" className="mt-6 border-t border-line pt-5">
+          <h2 className="font-medium">
+            {draft.trust.kind === "command" ? "This runs software on this machine." : "This is a project on this machine."}
+          </h2>
+          <p className="mt-1 text-sm text-muted">
+            {draft.trust.kind === "command"
+              ? `Allow Bevro to use ${draft.trust.label}?`
+              : `Allow Bevro to look inside this folder and work in it?`}
+          </p>
+          {draft.trust.kind === "folder" && draft.trust.path && (
+            <p className="mt-2 break-all font-mono text-sm">{draft.trust.path}</p>
+          )}
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button type="button" className="bv-btn-primary" onClick={() => allow("exact")} disabled={busy}>
+              Allow
+            </button>
+            <button type="button" className="bv-btn-quiet" onClick={() => { stopPolling(); setDraft(null); setTarget(""); }} disabled={busy}>
+              Cancel
+            </button>
+            {draft.trust.kind === "folder" && draft.trust.parent_label && (
+              <button type="button" className="bv-link text-sm" onClick={() => allow("parent")} disabled={busy}>
+                Allow everything in {draft.trust.parent_label} instead
+              </button>
+            )}
+          </div>
+          <p className="bv-hint mt-3">
+            Only this {draft.trust.kind === "command" ? "program" : "folder"}, and only until you take it back under Settings.
+          </p>
+        </section>
       )}
 
       {draft?.state === "failed" && (
@@ -292,7 +336,7 @@ export default function Connect() {
             found.runs_via && (
               <p className="mt-4 text-sm">
                 <span className="text-muted">Runs via:</span> {found.runs_via}
-                {found.runs_at && <span className="text-subtle"> · {found.runs_at}</span>}
+                {found.runs_at && readiness(found) !== "Runs on this machine" && <span className="text-subtle"> · {found.runs_at}</span>}
                 <span className="text-subtle"> · {readiness(found)}</span>
                 {found.confidence !== "high" && !unsure && <span className="text-subtle"> · {found.confidence_label}</span>}
               </p>

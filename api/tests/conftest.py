@@ -151,6 +151,17 @@ def client(db: Session):
 
 
 @pytest.fixture(autouse=True)
+def no_leftover_roots():
+    """What a process may touch is process state, set by the worker from the
+    trust grants. One test's answer must not become the next one's."""
+    from adapters import localroots
+
+    localroots.set_effective_roots(None)
+    yield
+    localroots.set_effective_roots(None)
+
+
+@pytest.fixture(autouse=True)
 def fast_providers(monkeypatch):
     """Example providers pause for realism; tests do not need that."""
     import providers.event_demo as event_demo

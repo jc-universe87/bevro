@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import ConnectDraft
-from app.schemas.connect import BridgeStatusOut, ConfirmIn, DiscoverIn, DraftOut, TestIn
+from app.schemas.connect import BridgeStatusOut, ConfirmIn, DiscoverIn, DraftOut, TestIn, TrustIn
 from app.schemas.providers import ProviderOut
 from app.schemas.serialise import provider_out
 from app.services import connect as connect_service
@@ -31,6 +31,7 @@ def _out(row: ConnectDraft, db: Session | None = None) -> DraftOut:
         target_kind=row.target_kind,
         target_label=connect_service.target_label(row),
         draft=connect_service.draft_public(row, db),
+        trust=row.trust,
         error=row.error,
         test=row.test,
         provider_id=row.provider_id,
@@ -57,6 +58,16 @@ def discover(body: DiscoverIn, db: Session = Depends(get_db)) -> DraftOut:
 @router.get("/drafts/{draft_id}", response_model=DraftOut)
 def get_draft(draft_id: uuid.UUID, db: Session = Depends(get_db)) -> DraftOut:
     return _out(_load(db, draft_id), db)
+
+
+@router.post("/drafts/{draft_id}/trust", response_model=DraftOut)
+def allow(draft_id: uuid.UUID, body: TrustIn, db: Session = Depends(get_db)) -> DraftOut:
+    """The person says Bevro may look at this. Discovery carries on by itself."""
+    try:
+        row = connect_service.grant_for_draft(db, _load(db, draft_id), scope=body.scope)
+    except connect_service.DraftError as exc:
+        raise HTTPException(exc.status, str(exc)) from None
+    return _out(row, db)
 
 
 @router.post("/drafts/{draft_id}/test", response_model=DraftOut)

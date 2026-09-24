@@ -415,6 +415,73 @@ the service can actually be reached. A reconnect the API cannot do is handed
 to the worker and waited for, and it refreshes what the service says it can
 do as well as how it is reached.
 
+## Asking once, about one thing
+
+Bevro used to decide what it could look at from an environment variable that
+had to list every folder in advance, and a restart to change. That is a
+reasonable ceiling for someone hardening a shared installation and a poor way
+to add your own project, so the question moved to the moment of connecting.
+
+Paste a path. The worker - the process that can actually see the filesystem -
+resolves it, and if nobody has agreed to it yet the draft comes back as
+`trust_required` with what a person needs to decide:
+
+```json
+{"kind": "folder", "label": "alpha", "path": "/home/someone/projects/alpha",
+ "parent_label": "projects", "exists": true, "is_directory": true}
+```
+
+The browser asks:
+
+> **This is a project on this machine.**
+> Allow Bevro to look inside this folder and work in it?
+> `/home/someone/projects/alpha`
+> [Allow] [Cancel]  ·  Allow everything in projects instead
+
+The path shown is the *resolved* one, with symlinks followed, so what is
+agreed to is what will be used. Saying yes writes a `TrustGrant` and the same
+draft carries straight on - no second question, no restart.
+
+Three rules hold it up:
+
+* **narrow by default** - a folder, not its parent. A parent is a separate,
+  deliberate choice.
+* **canonical** - symlinks are resolved before a grant is written, so a link
+  added afterwards grants nothing it points at.
+* **checked at use** - the worker reads the grants before it looks at or runs
+  anything, which is what makes *Take back* in Settings take effect on the
+  next use rather than the next restart.
+
+Nothing is granted inside the machine's own folders (`/etc`, `/proc`, `/usr`
+...), inside the places credentials live (`~/.ssh`, `~/.aws` ...), or at a
+root broad enough to mean the whole machine.
+
+A command is the same question about a program: *"This runs software on this
+machine. Allow Bevro to use python3?"* The program is named; its arguments
+never are, because an argument may be a secret.
+
+### An address is never asked about
+
+Permission is about this machine, and nothing on the network is on this
+machine. A loopback address, a LAN address, a private overlay address and a
+public HTTPS address all go through one flow and none of them asks anything.
+Which of Bevro's processes can reach them is settled by trying, not by asking
+(`docs/RUNTIMES.md`).
+
+Bevro does work out what kind of address it was - `local_machine`,
+`private_network`, `vpn_overlay`, `public_network` - but only so that
+Advanced details can say so. Nothing behaves differently because of it.
+
+### BEVRO_LOCAL_ROOTS, now
+
+Still there, and now a ceiling rather than a list:
+
+* **unset** (the ordinary self-hosted case): what the person agrees to in the
+  browser is the whole policy.
+* **set**: the folders named are allowed without anyone being asked, *and*
+  nothing outside them can be granted by anyone. A grant made before the
+  boundary was set stops counting the moment it is.
+
 ## Where local things run: the worker and approved roots
 
 The API usually lives in Docker and cannot see your home directory. Anything
@@ -423,21 +490,18 @@ is done by the **worker** on the host (`./scripts/worker.sh`), the same
 process that runs Claude Code. Connect hands the worker a pending draft and
 polls; the person just sees *Looking at market-research…*.
 
-The worker only looks inside **approved roots**:
+The worker only looks inside folders that have been allowed - the ones the
+person agreed to while connecting, plus anything an administrator named in
+`BEVRO_LOCAL_ROOTS`, plus Bevro's own directories. Nothing has to be listed
+in advance.
 
-```sh
-# .env
-BEVRO_LOCAL_ROOTS=~/agents
-```
-
-`:`-separated, `~` allowed. Empty means local Connect is off (addresses and
-MCP servers still work). Paths are resolved with symlinks followed *before*
-the check, so a link out of a root is refused; `..` is refused; relative
-paths are refused; a bare name (`market-research`) is looked up directly
-under each root. The same rule is applied again at run time by the `command`
-and `mcp` adapters, so a stored working directory outside the roots never
-runs. An API started on the host with `BEVRO_LOCAL_ROOTS` set discovers
-locally itself and needs no worker for that step.
+Paths are resolved with symlinks followed *before* the check, so a link out
+of an allowed folder is refused; `..` is refused; relative paths are refused;
+a bare name (`market-research`) is looked up directly under each allowed
+folder. The same rule is applied again at run time by the `command` and `mcp`
+adapters, so a stored working directory that is no longer allowed never runs.
+An API started on the host, where it can see the filesystem, does this step
+itself and needs no worker.
 
 If no worker has reported recently, Connect says so at once instead of
 waiting.
@@ -471,8 +535,10 @@ It is the escape hatch, not the normal path.
 - **No shell.** Commands are split without a shell and refused if they
   contain `; | & < > $ ( ) { }` backticks or newlines. The request is always
   one argument. Nothing typed on Home can be interpreted.
-- **Roots.** Local reads and runs happen only inside `BEVRO_LOCAL_ROOTS`,
-  checked after resolving symlinks, and checked again at run time.
+- **Permission.** Local reads and runs happen only inside folders someone
+  agreed to, checked after resolving symlinks and checked again at run time
+  rather than trusted from discovery. `BEVRO_LOCAL_ROOTS`, where an
+  administrator sets it, is the boundary those agreements cannot leave.
 - **Nothing leaves the server that should not.** Drafts are serialised
   through `public()`; the router catalogue carries no adapter block; secrets
   are Fernet-encrypted and never returned; the assist model sees a sanitised

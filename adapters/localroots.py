@@ -1,8 +1,14 @@
 """Approved local roots: the only directories Bevro may inspect or run things in.
 
-Read from BEVRO_LOCAL_ROOTS on the machine doing the work (the worker, or an
-API started on the host). Nothing in a browser request can add a root. A path
-is accepted only if, after resolving symlinks, it sits inside one of them.
+Where the list comes from is the process's business, not this module's. The
+worker sets it from the trust grants the person made, refreshing it before it
+looks at or runs anything, which is what makes revoking one take effect
+without a restart. Where nothing has been set it falls back to
+BEVRO_LOCAL_ROOTS, which is how a hardened installation pins the boundary and
+how tests set one up.
+
+Nothing in a browser request reaches this. A path is accepted only if, after
+resolving symlinks, it sits inside one of the roots.
 """
 
 from __future__ import annotations
@@ -40,9 +46,28 @@ def managed_roots() -> list[Path]:
     return [root for name in MANAGED_ENV_VARS for root in parse_roots(os.environ.get(name))]
 
 
+# What this process has been told it may touch. None means "nobody has said",
+# and the environment answers instead.
+_effective: list[Path] | None = None
+
+
+def set_effective_roots(roots: list[Path] | None) -> None:
+    """What this process may touch, as decided by whoever knows.
+
+    The worker calls this from the trust grants before each piece of work.
+    Passing None hands the question back to the environment.
+    """
+    global _effective
+    _effective = None if roots is None else list(roots)
+
+
+def effective_roots() -> list[Path] | None:
+    return None if _effective is None else list(_effective)
+
+
 def configured_roots() -> list[Path]:
-    """Everywhere Bevro may look: the person's approved folders, and its own."""
-    roots = parse_roots(os.environ.get(ENV_VAR))
+    """Everywhere Bevro may look: what it was told, plus its own folders."""
+    roots = list(_effective) if _effective is not None else parse_roots(os.environ.get(ENV_VAR))
     for root in managed_roots():
         if root not in roots:
             roots.append(root)

@@ -137,7 +137,7 @@ secrets.
 ## Safety
 
 - The project path must already be inside the approved local roots
-  (`BEVRO_LOCAL_ROOTS`).
+  (the folders that have been allowed).
 - The builder is given a workspace whose **write** root is the bridge folder
   and whose **read** root is the project: `Workspace.read_paths` expresses this
   generically, and the coding adapter passes it to the tool as a read-only

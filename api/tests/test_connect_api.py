@@ -221,7 +221,10 @@ def test_worker_handles_pending_drafts_on_the_host(seeded, local_roots, monkeypa
 def test_paths_outside_the_roots_are_refused_by_the_api(client, seeded, local_roots, tmp_path):
     (tmp_path / "private").mkdir()
     r = client.post("/api/connect/discover", json={"target": str(tmp_path / "private")})
-    assert r.json()["state"] == "failed" and "outside the approved" in r.json()["error"]
+    # Refused, and said in words about this installation rather than about
+    # the variable that configured it.
+    assert r.json()["state"] == "failed"
+    assert "administrator" in r.json()["error"] and "BEVRO_LOCAL_ROOTS" not in r.json()["error"]
     r = client.post("/api/connect/discover", json={"target": str(local_roots / ".." / "private")})
     assert r.json()["state"] == "failed"
     assert str(tmp_path) not in r.text

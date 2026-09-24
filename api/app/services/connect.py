@@ -31,10 +31,11 @@ from app.connect.draft import ProviderDraft
 from app.connect.service import get_discovery_service
 from app.connect.strategies.base import DiscoveryContext, DiscoveryFailed, NotReachable
 from app.connect.strategies.mcp import refine_stdio
-from app.connect.targets import TargetError, classify_target
+from app.connect.targets import ConnectTarget, TargetError, classify_target
 from app.models import ConnectDraft, Provider
 from app.models._common import utcnow
 from app.services import providers as provider_service
+from app.services import trust as trust_service
 from app.services.secrets import SecretStore
 
 log = logging.getLogger("bevro.connect")
@@ -97,16 +98,18 @@ def start_discovery(db: Session, target_text: str, secrets: dict[str, str] | Non
     row = ConnectDraft(target_kind=target.kind, target=target.value, state="pending")
     db.add(row)
     db.flush()
-    # Folders are only readable on the host, so they go to the worker unless this
-    # process has roots of its own. A command is classified from its text alone.
-    if target.kind == "local" and not can_discover_locally():
+    # Anything on this machine - a folder, a program - is the worker's to look
+    # at. Whether it exists, where it really is once symlinks are followed,
+    # and whether the person has agreed to it are all host facts, and the API
+    # inside a container has no business guessing at any of them.
+    if target.kind in LOCAL_KINDS and not can_discover_locally():
         if provider_service.worker_seen_recently(db):
-            row.state = "pending"  # the worker will pick it up
+            row.state = "pending"  # the worker will look, and ask if it has to
         else:
             row.state = "failed"
             row.error = WORKER_NEEDED_MESSAGE
     else:
-        _discover_into(row, local_roots(), secrets or {})
+        _discover_into(row, local_roots(), secrets or {}, db=db)
         # An address this process cannot reach may still be reachable from the
         # host, which sits on networks a container does not. The worker looks
         # next; to the person it is all one "Looking…".
@@ -119,11 +122,17 @@ def start_discovery(db: Session, target_text: str, secrets: dict[str, str] | Non
     return row
 
 
-def _discover_into(row: ConnectDraft, roots: list[Path], secrets: dict[str, str], *, location: str = API) -> None:
+def _discover_into(row: ConnectDraft, roots: list[Path], secrets: dict[str, str], *, location: str = API, db: Session | None = None) -> None:
     # The API has already tried, and failed, if this draft was handed on.
     ruled_out = API if row.unreachable and location != API else None
     try:
         target = classify_target(row.target)
+        # Something on this machine is not looked at until the person has said
+        # it may be. The question is asked once, about that one thing.
+        if db is not None and target.kind in LOCAL_KINDS:
+            if _ask_first(db, row, target):
+                return
+            roots = trust_service.apply_to_process(db)
         draft = get_discovery_service().discover(target, DiscoveryContext(roots=roots, secrets=secrets))
     except NotReachable as exc:
         # Not "it is not there" - "it is not there *from here*".
@@ -156,6 +165,77 @@ def _discover_into(row: ConnectDraft, roots: list[Path], secrets: dict[str, str]
     row.draft = draft.settled().model_dump(mode="json")
 
 
+def _ask_first(db: Session, row: ConnectDraft, target: ConnectTarget) -> bool:
+    """Does this need permission before anything is looked at or run?
+
+    True when the draft now holds a question rather than a result. What is
+    put in front of the person is the *resolved* path - where the thing
+    actually is once symlinks are followed - so that what they agree to is
+    what they will get.
+    """
+    facts = trust_service.look_at_command(target.argv) if target.kind == "command" else trust_service.look_at(_where(db, target))
+    if not facts.get("exists"):
+        row.state = "failed"
+        row.error = facts.get("reason") or "Bevro couldn't find that on this machine."
+        row.draft = None
+        return True
+    if facts.get("reason"):
+        row.state = "failed"
+        row.error = facts["reason"]
+        row.draft = None
+        return True
+    granted = trust_service.allows_command(db, target.argv) if target.kind == "command" else trust_service.allows_folder(db, facts["path"])
+    if granted:
+        return False
+    row.state = "trust_required"
+    row.trust = facts
+    row.error = None
+    row.draft = None
+    log.info("%s needs permission before Bevro looks at it", target.kind)
+    return True
+
+
+def _where(db: Session, target: ConnectTarget) -> str:
+    """The path a local target means, including a bare name under a folder
+    the person has already approved."""
+    from adapters.localroots import find_by_name
+
+    if target.value.startswith(("/", "~")):
+        return target.value
+    found = find_by_name(target.value, trust_service.folder_roots(db))
+    return str(found) if found else target.value
+
+
+def grant_for_draft(db: Session, row: ConnectDraft, *, scope: str = "exact") -> ConnectDraft:
+    """The person said yes. Write it down and carry on looking."""
+    if row.state != "trust_required" or not row.trust:
+        raise DraftError("There is nothing waiting to be allowed here.", 409)
+    facts = dict(row.trust)
+    kind = str(facts.get("kind") or trust_service.FOLDER)
+    target = str(facts.get("path") or facts.get("program") or "")
+    if scope == "parent" and kind == trust_service.FOLDER:
+        target, scope = str(facts.get("parent") or target), "tree"
+    try:
+        # The worker resolved this path on the machine it is on; the API
+        # records that decision rather than making it again.
+        trust_service.grant(
+            db,
+            kind,
+            target,
+            scope="tree" if scope in ("tree", "parent") else "exact",
+            label=facts.get("parent_label") if scope == "parent" else facts.get("label"),
+            already_resolved=True,
+        )
+    except trust_service.TrustError as exc:
+        raise DraftError(str(exc), 422) from None
+    row.state = "pending"  # the worker looks again, now that it may
+    row.trust = None
+    row.error = None
+    db.commit()
+    db.refresh(row)
+    return row
+
+
 def get_draft(db: Session, draft_id: uuid.UUID) -> ConnectDraft | None:
     row = db.get(ConnectDraft, draft_id)
     if row is None:
@@ -184,7 +264,7 @@ def run_pending(db: Session, roots: list[Path]) -> int:
         if row is None:
             continue
         if row.state == "pending":
-            _discover_into(row, roots, {}, location=WORKER)
+            _discover_into(row, trust_service.apply_to_process(db), {}, location=WORKER, db=db)
         elif row.state == "testing":
             _test_on_host(row, roots)
         handled += 1

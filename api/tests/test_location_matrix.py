@@ -294,8 +294,17 @@ def test_every_kind_of_target_goes_through_the_same_door(client, seeded, monkeyp
 
     # Where a draft can be driven from is stated, never asked: the only
     # choice a person is ever offered is between ways *in*, not places.
-    assert {"runtime_options", "choice_needed"} <= set(body["draft"])
-    assert all("runs_at" not in option for option in body["draft"]["runtime_options"])
+    # The only things a person is ever asked are which way *in* to use, and
+    # whether Bevro may touch something on this machine - never which of
+    # Bevro's own processes should do it.
+    for target in ("http://service.local/", "~/agents/something"):
+        body = client.post("/api/connect/discover", json={"target": target}).json()
+        if body["state"] == "trust_required":
+            assert set(body["trust"]) & {"path", "program"}, body["trust"]
+            assert "worker" not in json.dumps(body["trust"]).lower()
+        elif body["draft"]:
+            assert {"runtime_options", "choice_needed"} <= set(body["draft"])
+            assert all("runs_at" not in option for option in body["draft"]["runtime_options"])
     assert connect_service.can_discover_locally() in (True, False)  # decided by configuration, not by asking
 
 

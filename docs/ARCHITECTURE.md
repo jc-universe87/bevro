@@ -53,7 +53,7 @@ See [CONNECT.md](CONNECT.md).
 | **Artifact** | A result attached to a task (and usually a run): note, report, file, table, diff, deep link, or an unknown type shown as "Open result". |
 | **Adapter** | Bevro's implementation of one runtime mechanism: `local`, `http`, `mcp`, `command`, `claude_code`. Each maps into the same contract (`health`, `invoke`, `status`, `cancel`, `collect_artifacts`). Lives in `adapters/`, imports nothing from the API. |
 | **ProviderDraft** | What Connect's discovery found, before the person confirms it. Server-side in `connect_drafts`; the browser sees a safe view (no adapter block, no paths). |
-| **Local roots** | `BEVRO_LOCAL_ROOTS`: the only folders the host may inspect or run things in for Connect. Checked after resolving symlinks, at discovery and again at run time. |
+| **Trust grant** | One folder or program the person allowed Bevro to use on this machine, written down when they said yes. Narrow by default, canonical, and read again at use time rather than trusted from discovery. `BEVRO_LOCAL_ROOTS` is the optional boundary a grant may not leave. |
 | **Workspace** | An approved directory a coding provider may work in, with permissions. Configured server-side; the browser sees names, never paths. |
 | **Worker** | An optional host process that executes `background` runs (today: Claude Code), reporting progress, heartbeats and availability to PostgreSQL. |
 

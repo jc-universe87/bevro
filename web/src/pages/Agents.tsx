@@ -24,6 +24,14 @@ function statusNote(p: Provider): string | null {
   return null;
 }
 
+const ADDRESS_KIND: Record<string, string> = {
+  local_machine: "on this machine",
+  private_network: "on a private network",
+  vpn_overlay: "on a private overlay network",
+  public_network: "on the public internet",
+  unknown: "a name Bevro hasn't resolved",
+};
+
 const CONNECTED_FROM: Record<string, string> = { url: "a web address", mcp: "an MCP server", local: "a local folder", command: "a command" };
 
 const CONNECTION_WORDS: Record<string, string> = { api: "API", mcp: "MCP server", command: "Local agent", local: "Local", declared: "Described, not built" };
@@ -363,6 +371,12 @@ function ManagePanel({ provider, onChange, onRemoved, focusCredential = false, a
               <>
                 <dt>Address</dt>
                 <dd className="break-all">{details.source_target}</dd>
+              </>
+            )}
+            {details.location_class && (
+              <>
+                <dt>Kind of address</dt>
+                <dd>{ADDRESS_KIND[details.location_class] ?? details.location_class}</dd>
               </>
             )}
             {details.runs_at && (

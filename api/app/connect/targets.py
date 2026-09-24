@@ -40,12 +40,54 @@ class ConnectTarget:
     hints: tuple[str, ...] = field(default_factory=tuple)
 
     @property
+    def location_class(self) -> str:
+        """Roughly where this lives, worked out rather than asked.
+
+        Nobody is ever shown this question, and nothing behaves differently
+        because of the answer: a private address is not less welcome than a
+        public one, and which of Bevro's processes can reach either is
+        settled by trying. It is here because it is worth being able to say
+        under Advanced details what kind of address something turned out to
+        be.
+        """
+        if self.kind in ("local", "command"):
+            return "local_machine"
+        return location_of(self.value)
+
+    @property
     def label(self) -> str:
         """What the browser may see: never an absolute path."""
         if self.kind == "local":
             name = self.value.rstrip("/").rsplit("/", 1)[-1]
             return name or self.value
         return self.value
+
+
+def location_of(url: str) -> str:
+    """local_machine | private_network | vpn_overlay | public_network | unknown.
+
+    Addresses only. A name Bevro has not resolved is unknown rather than
+    public: guessing would be worse than saying so.
+    """
+    import ipaddress
+
+    host = (urlsplit(url).hostname or "").strip("[]")
+    if not host:
+        return "unknown"
+    if host in ("localhost", "localhost.localdomain") or host.endswith(".localhost"):
+        return "local_machine"
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return "unknown" if host.endswith((".local", ".internal", ".lan", ".home")) else "public_network"
+    if address.is_loopback:
+        return "local_machine"
+    # 100.64/10 is the range carrier-grade NAT and private overlays use.
+    if address.version == 4 and address in ipaddress.ip_network("100.64.0.0/10"):
+        return "vpn_overlay"
+    if address.is_private or address.is_link_local:
+        return "private_network"
+    return "public_network"
 
 
 def split_command(text: str) -> list[str]:
