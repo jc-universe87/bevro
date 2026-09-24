@@ -155,7 +155,8 @@ def test_unknown_folder_gets_no_runtime_and_advanced_setup(client, seeded, local
 def test_reconnect_refreshes_runtimes_from_the_source(client, seeded, local_roots, http_agent):
     a = connect(client, http_agent)
     provider = provider_service.get_provider(seeded, uuid.UUID(a["id"]))
-    assert provider.source == {"kind": "url", "target": http_agent}
+    assert provider.source["kind"] == "url" and provider.source["target"] == http_agent
+    assert provider.source["validated_at"]  # when Bevro last proved this source
     provider.runtimes = []
     seeded.flush()
     r = client.post(f"/api/providers/{a['id']}/reconnect")

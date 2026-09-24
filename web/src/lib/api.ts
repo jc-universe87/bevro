@@ -303,6 +303,10 @@ export interface DraftView {
   runtime_options: RuntimeView[];
   runtimes_found: number;
   choice_needed: boolean;
+  /** A scoped service with several to pick from: which profile, workspace, tenant. */
+  scope_choices?: { value: string; label: string }[];
+  /** The one it is already scoped to, in words: "Johannes Kim". */
+  connected_for?: string | null;
   credentials_label: string | null;
   name: string;
   description: string;
@@ -430,7 +434,7 @@ export const api = {
   rebuildProvider: (id: string) => request<{ ok: boolean; detail: string | null }>(`/providers/${id}/rebuild`, { method: "POST" }),
   connectTest: (id: string, secrets: Record<string, string> = {}) =>
     request<ConnectDraft>(`/connect/drafts/${id}/test`, { method: "POST", body: JSON.stringify({ secrets }) }),
-  connectConfirm: (id: string, body: { name?: string; description?: string; capability_summary?: string; secrets?: Record<string, string>; app_url?: string | null; runtime_id?: string }) =>
+  connectConfirm: (id: string, body: { name?: string; description?: string; capability_summary?: string; secrets?: Record<string, string>; app_url?: string | null; runtime_id?: string; scope?: string }) =>
     request<Provider>(`/connect/drafts/${id}/confirm`, { method: "POST", body: JSON.stringify(body) }),
   updateProvider: (id: string, body: { enabled?: boolean; name?: string; description?: string }) =>
     request<Provider>(`/providers/${id}`, { method: "PATCH", body: JSON.stringify(body) }),

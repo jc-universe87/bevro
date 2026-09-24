@@ -72,6 +72,21 @@ class ProviderDraft(BaseModel):
     active_runtime: str | None = None
     # Two different mechanisms were close: the person picks under "I found two ways to connect this."
     choice_needed: bool = False
+    # Where this came from, in enough detail to find it again: the address
+    # that was typed, the origin, the path under it, where the machine
+    # description lives, and any scope that was resolved. Server-side only,
+    # and kept on the provider so reconnect never has to guess.
+    source: dict[str, Any] = Field(default_factory=dict)
+    # When a service is scoped (a profile, a workspace) and has several, the
+    # person chooses before connecting: [{"value": "johannes", "label": "Johannes Kim"}]
+    scope_choices: list[dict[str, str]] = Field(default_factory=list)
+
+    @property
+    def connected_for(self) -> str | None:
+        """The one thing this connection is scoped to, in words. None if unscoped."""
+        context = (self.adapter.get("config") or {}).get("context") or {}
+        values = [str(v) for v in context.values() if v]
+        return values[0] if len(values) == 1 else None
 
     @property
     def runtime(self) -> RuntimeProfile | None:
@@ -115,6 +130,8 @@ class ProviderDraft(BaseModel):
             "runtime_options": [r.public() for r in self.runtimes if r.invocable] if self.choice_needed else [],
             "runtimes_found": len(self.runtimes),
             "choice_needed": self.choice_needed,
+            "scope_choices": self.scope_choices,
+            "connected_for": self.connected_for,
             "credentials_label": credentials_label(rt.credentials) if rt else None,
             "name": self.name,
             "description": self.description,

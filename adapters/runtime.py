@@ -31,6 +31,7 @@ def _utcnow() -> datetime:
 
 class RuntimeKind(StrEnum):
     HTTP = "http"                        # a web service with its own API (already up, or startable)
+    OPENAPI = "openapi"                  # a described service whose work is several typed operations
     MCP_HTTP = "mcp_http"                # MCP over Streamable HTTP
     MCP_STDIO = "mcp_stdio"              # MCP over a subprocess
     CLI = "cli"                          # a command that takes a request and prints/writes a result
@@ -48,6 +49,7 @@ class RuntimeKind(StrEnum):
 # a new runtime kind is a new entry here plus an adapter that implements the contract.
 ADAPTER_FOR_KIND: dict[str, str] = {
     RuntimeKind.HTTP: "http",
+    RuntimeKind.OPENAPI: "openapi",
     RuntimeKind.MCP_HTTP: "mcp",
     RuntimeKind.MCP_STDIO: "mcp",
     RuntimeKind.CLI: "command",

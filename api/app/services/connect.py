@@ -225,7 +225,32 @@ def _test_on_host(row: ConnectDraft, roots: list[Path]) -> None:
 
 # --------------------------------------------------------------------------- confirm
 
-def confirm_draft(db: Session, row: ConnectDraft, *, name: str | None, description: str | None, capability_summary: str | None, secrets: dict[str, str], app_url: str | None, enabled: bool = True, runtime_id: str | None = None) -> Provider:
+def _scoped_to(pd: ProviderDraft, chosen: str) -> ProviderDraft:
+    """Fix this connection to one profile, workspace or tenant.
+
+    The name of the parameter comes from the service's own operations, so
+    nothing here knows what kind of thing is being chosen.
+    """
+    from app.connect.openapi import catalogue_from_json
+
+    config = pd.adapter.get("config") or {}
+    catalogue = catalogue_from_json(config.get("operations"))
+    parameter = next((n for op in catalogue for n in op.scope_parameters()), None)
+    if parameter is None:
+        return pd
+    context = {**(config.get("context") or {}), parameter: chosen}
+    pd.adapter = {**pd.adapter, "config": {**config, "context": context}}
+    pd.source = {**(pd.source or {}), "connection_context": context}
+    pd.scope_choices = []
+    pd.invocable = True
+    for rt in pd.runtimes:
+        if str(rt.adapter.get("kind")) == "openapi":
+            rt.adapter = {**rt.adapter, "config": {**(rt.adapter.get("config") or {}), "context": context}}
+            rt.availability = "ready"
+    return pd
+
+
+def confirm_draft(db: Session, row: ConnectDraft, *, name: str | None, description: str | None, capability_summary: str | None, secrets: dict[str, str], app_url: str | None, enabled: bool = True, runtime_id: str | None = None, scope: str | None = None) -> Provider:
     if row.state == "connected":
         raise DraftError("This has already been connected.", 409)
     if row.state != "found" or not row.draft:
@@ -237,6 +262,12 @@ def confirm_draft(db: Session, row: ConnectDraft, *, name: str | None, descripti
         pd.with_runtimes(pd.runtimes, runtime_id, False)
     elif pd.choice_needed:
         raise DraftError("Choose how Bevro should connect to it first.", 422)
+    if pd.scope_choices:
+        if not scope:
+            raise DraftError("Choose which one this connection is for first.", 422)
+        if scope not in [c.get("value") for c in pd.scope_choices]:
+            raise DraftError("That isn't one of the ones Bevro found.", 422)
+        pd = _scoped_to(pd, scope)
     if not pd.adapter.get("kind"):
         raise DraftError("Bevro found this, but has no way to run it. Use Advanced setup.", 409)
     capabilities = [c.model_dump(exclude_none=True) for c in pd.capabilities]
@@ -279,7 +310,7 @@ def confirm_draft(db: Session, row: ConnectDraft, *, name: str | None, descripti
             "adapter": adapter,
             "runtimes": runtimes,
             "active_runtime": active.id if active else None,
-            "source": {"kind": row.target_kind, "target": row.target},
+            "source": {"kind": row.target_kind, "target": row.target, **(pd.source or {}), "validated_at": utcnow().isoformat()},
             "app_url": (app_url or pd.app_url) or None,
             "icon": {"kind": "letter", "text": final_name[:1].upper()},
             "origin": "connected",

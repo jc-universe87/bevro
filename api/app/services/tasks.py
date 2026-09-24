@@ -288,7 +288,47 @@ def build_request(db: Session, run: ProviderRun, *, secret_store: SecretStore | 
     # Bevro-side storage for providers that need somewhere to run. Never the provider's own project.
     data["integration_dir"] = f"{settings.integrations_dir.rstrip('/')}/{provider.id}"
     secrets = secret_store.resolve(db, provider.id) if secret_store else {}
+    _plan_operations(provider, task.original_request, data)
     return InvocationRequest(task_id=str(task.id), run_id=str(run.id), request=task.original_request, input=data, secrets=secrets)
+
+
+def _plan_operations(provider: Provider, request: str, data: dict[str, Any]) -> None:
+    """For a service whose work is several typed operations, decide which.
+
+    Planning belongs here rather than in the adapter: choosing may use the
+    routing model, and adapters deliberately know nothing about Bevro's
+    configuration. The adapter still validates whatever it is handed.
+    """
+    from app.services import runtime as runtime_service
+
+    rt = runtime_service.active_runtime(provider)
+    if rt is None or str(rt.adapter.get("kind")) != "openapi":
+        return
+    from adapters.openapi import PlanError
+    from app.operations import planner
+
+    config = rt.adapter.get("config") or {}
+    try:
+        chosen, allowed = planner.plan(request, config, model=_planning_model())
+    except PlanError as exc:
+        # The adapter turns this into the same plain answer, in one place.
+        data["operation_plan_error"] = str(exc)
+        return
+    data["operation_plan"] = chosen.model_dump()
+    data["allowed_safety"] = sorted(allowed)
+
+
+def _planning_model():
+    """The same small model routing uses, when one is configured."""
+    settings = get_settings()
+    if settings.router_mode.lower() != "llm":
+        return None
+    try:
+        from app.routing.models import get_routing_model
+
+        return get_routing_model(settings)
+    except Exception:  # noqa: BLE001 - planning without a model still works
+        return None
 
 
 def record_progress(run_id: uuid.UUID, text: str) -> None:

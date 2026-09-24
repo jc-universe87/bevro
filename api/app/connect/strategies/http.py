@@ -20,6 +20,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from adapters.runtime import CredentialStrategy, Credentials, RuntimeKind
+from app.connect import openapi
 from app.connect.capabilities import capability_from_tool, infer_capabilities
 from app.connect.draft import DraftAuth, DraftCapability, ProviderDraft
 from app.connect.inspect import humanise
@@ -73,10 +74,20 @@ class HttpDiscoveryStrategy:
             if isinstance(manifest, dict) and manifest.get("name"):
                 return _from_manifest(manifest, bases[0], url)
             health_path = _find_health(client, bases[0])
-            for candidate in bases:
-                spec = _get_json(client, [candidate], OPENAPI_PATHS)
-                if isinstance(spec, dict) and ("openapi" in spec or "swagger" in spec):
-                    return _from_openapi(spec, candidate, health_path)
+            # A service describes itself somewhere: under the path that was
+            # typed, or at its origin. A page that answers 200 with its HTML
+            # shell is not a description, so the document is checked, not the
+            # status code.
+            found = _find_descriptor(client, url)
+            if found is not None:
+                catalogue = openapi.compile_catalogue(found.spec)
+                prompt_draft = _from_openapi(found.spec, found.origin, health_path)
+                # A single operation that takes natural language is the simple
+                # case. Anything else is a system of typed operations, and is
+                # read as one.
+                if not prompt_draft.invocable and openapi.is_operational(catalogue):
+                    return _from_operational(client, found, catalogue, health_path)
+                return prompt_draft
             # 3. Maybe it is an MCP server after all; one initialize is all it costs.
             if target.kind != "mcp":
                 draft = _probe_mcp(url, context, headers)
@@ -87,6 +98,188 @@ class HttpDiscoveryStrategy:
             if not reached:
                 raise DiscoveryFailed("Nothing answered at that address. Check that it is running and reachable from this machine.")
             return _from_bare(url, title, health_path)
+
+
+def _find_descriptor(client: httpx.Client, entered_url: str) -> openapi.Descriptor | None:
+    """The service's own machine description, if it really publishes one.
+
+    A single-page application answers every path with its HTML shell, so
+    `/p/someone/openapi.json` can return 200 and mean nothing. Both the
+    content type and the shape of the document have to agree before it is
+    believed.
+    """
+    for candidate in openapi.descriptor_candidates(entered_url):
+        try:
+            response = client.get(candidate)
+        except httpx.HTTPError:
+            continue
+        if response.status_code != 200:
+            continue
+        content_type = response.headers.get("content-type", "").lower()
+        if "json" not in content_type and not candidate.endswith((".yaml", ".yml")):
+            continue  # an HTML page saying 200 is not a description
+        try:
+            body = response.json()
+        except ValueError:
+            continue
+        if not openapi.looks_like_a_descriptor(body):
+            continue
+        return openapi.Descriptor(
+            url=candidate,
+            spec=body,
+            origin=openapi.origin_of(entered_url),
+            entered_path=openapi.path_of(entered_url),
+        )
+    return None
+
+
+def _resolve_scope(client: httpx.Client, base: str, catalogue: list[openapi.Operation], entered_path: str) -> tuple[dict[str, str], list[dict[str, str]], list[str]]:
+    """Which profile, workspace or tenant this connection is for.
+
+    The route someone pasted may carry it - "/p/someone/" suggests someone -
+    but a guess from a URL is only a candidate. It counts when the API's own
+    listing of those things contains it. Nothing here knows what "/p/" means.
+
+    Returns (context, choices, evidence). `choices` is filled only when the
+    service has several and the route did not say which.
+    """
+    context: dict[str, str] = {}
+    choices: list[dict[str, str]] = []
+    evidence: list[str] = []
+    candidates = openapi.scope_candidates(entered_path)
+    for listing in openapi.listing_operations(catalogue)[:3]:
+        scoped = next((n for op in catalogue for n in op.scope_parameters()), None)
+        if scoped is None:
+            continue
+        try:
+            response = client.get(base + listing.path)
+        except httpx.HTTPError:
+            continue
+        if response.status_code != 200 or "json" not in response.headers.get("content-type", "").lower():
+            continue
+        try:
+            payload = response.json()
+        except ValueError:
+            continue
+        known = openapi.identifiers_in(payload, scoped)
+        if not known:
+            continue
+        labels = openapi.labels_in(payload, scoped)
+        confirmed = next((c for c in reversed(candidates) if c in known), None)
+        if confirmed is not None:
+            context[scoped] = confirmed
+            evidence.append(f"The address names {labels.get(confirmed, confirmed)}, and the service confirms it")
+        elif len(known) == 1:
+            context[scoped] = known[0]
+            evidence.append(f"One {scoped.replace('_id', '').replace('_', ' ')} exists, so this connection uses it")
+        else:
+            choices = [{"value": k, "label": labels.get(k, k)} for k in known[:20]]
+            evidence.append(f"The service has {len(known)} to choose from")
+        break
+    return context, choices, evidence
+
+
+def _from_operational(client: httpx.Client, found: openapi.Descriptor, catalogue: list[openapi.Operation], health_path: str | None) -> ProviderDraft:
+    """A service whose work is several typed operations, not one prompt."""
+    info = found.spec.get("info") if isinstance(found.spec.get("info"), dict) else {}
+    name = str(info.get("title") or "Service")[:120]
+    description = " ".join(str(info.get("description") or "").split())[:2000]
+    base = found.origin
+
+    context, choices, scope_evidence = _resolve_scope(client, base, catalogue, found.entered_path)
+    capabilities = [DraftCapability(id=c["id"], title=c["title"], description=c["description"]) for c in openapi.capabilities_from_operations(catalogue)]
+    usable = [op for op in catalogue if op.safety in (openapi.READ_ONLY, openapi.WORK_EXECUTION)]
+
+    auth, auth_config = _auth_from(found.spec)
+    config: dict[str, Any] = {
+        "base_url": base,
+        "descriptor_url": found.url,
+        "app_url": base + found.entered_path,
+        "operations": openapi.catalogue_to_json(catalogue),
+        "context": context,
+        "health_path": health_path,
+        **auth_config,
+    }
+    evidence = [
+        f"Describes itself with OpenAPI at {found.url.replace(base, '') or '/'}",
+        f"{len(catalogue)} operations, grouped into {len(capabilities)} things it can do",
+        *scope_evidence,
+    ]
+    warnings: list[str] = []
+    if choices:
+        warnings.append("Choose which one this connection is for before connecting.")
+    if not usable:
+        warnings.append("Bevro found no operation it could safely run here.")
+
+    runtime = http_runtime(
+        "openapi",
+        kind=RuntimeKind.OPENAPI,
+        adapter={"kind": "openapi", "config": config},
+        display_name="Connected over the network",
+        # Not runnable until it is known which one this connection is for.
+        availability="ready" if usable and not choices else "not_invocable",
+        confidence="high",
+        credentials=Credentials(
+            strategy=CredentialStrategy.BEVRO_MANAGED if auth.required else CredentialStrategy.NONE,
+            names=[auth.secret_name] if auth.secret_name else [],
+            required_from_user=auth.required,
+        ),
+        evidence=evidence,
+        warnings=warnings,
+        target=base,
+    )
+    draft = ProviderDraft(
+        name=name,
+        description=description,
+        capabilities=capabilities,
+        mechanism="http",
+        mechanism_label="Connected over the network",
+        adapter={"kind": "openapi", "config": config},
+        invocation_label=f"{len(usable)} operations Bevro may use",
+        availability="ready" if usable else "needs_start",
+        confidence="high",
+        evidence=evidence,
+        warnings=warnings,
+        app_url=base + found.entered_path,
+        auth=auth,
+        invocable=bool(usable) and not choices,
+        source={
+            "kind": "http",
+            "entered_url": base + found.entered_path,
+            "origin": base,
+            "ui_base_path": found.entered_path,
+            "descriptor_url": found.url,
+            "connection_context": context,
+            "discovery_method": "openapi",
+        },
+    )
+    draft.scope_choices = choices
+    return draft.with_runtimes([runtime], active_id="openapi")
+
+
+def _auth_from(spec: dict[str, Any]) -> tuple[DraftAuth, dict[str, Any]]:
+    """What the service says it needs, if anything."""
+    schemes = ((spec.get("components") or {}).get("securitySchemes") or {}) if isinstance(spec.get("components"), dict) else {}
+    paths = spec.get("paths") if isinstance(spec.get("paths"), dict) else {}
+    wants = bool(spec.get("security")) or any(
+        isinstance(op, dict) and op.get("security") for item in paths.values() if isinstance(item, dict) for op in item.values()
+    )
+    if not wants:
+        return DraftAuth(), {}
+    for _name, scheme in schemes.items():
+        if not isinstance(scheme, dict):
+            continue
+        if scheme.get("type") == "http" and str(scheme.get("scheme", "")).lower() == "bearer":
+            return (
+                DraftAuth(required=True, secret_name="api_key", label="API token", hint="Sent as a bearer token. Stored encrypted; never shown again."),
+                {"auth": {"type": "bearer", "secret": "api_key"}},
+            )
+        if scheme.get("type") == "apiKey" and scheme.get("in") == "header" and scheme.get("name"):
+            return (
+                DraftAuth(required=True, secret_name="api_key", label="API key", hint=f"Sent in the {scheme['name']} header. Stored encrypted; never shown again."),
+                {"auth": {"type": "header", "name": str(scheme["name"]), "secret": "api_key"}},
+            )
+    return DraftAuth(), {}
 
 
 def _get_json(client: httpx.Client, bases: list[str], paths: str | tuple[str, ...]) -> Any:

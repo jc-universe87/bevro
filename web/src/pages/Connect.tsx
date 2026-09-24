@@ -34,6 +34,8 @@ export default function Connect() {
   const [summary, setSummary] = useState("");
   const [secret, setSecret] = useState("");
   const [runtimeId, setRuntimeId] = useState<string | null>(null);
+  // Which profile, workspace or tenant this connection is for, when asked.
+  const [scope, setScope] = useState<string | null>(null);
   const [testNote, setTestNote] = useState<string | null>(null);
   const [bridge, setBridge] = useState<BridgeStatus | null>(null);
   const pollRef = useRef<number | null>(null);
@@ -141,6 +143,7 @@ export default function Connect() {
     try {
       const body: Parameters<typeof api.connectConfirm>[1] = { secrets: secrets() };
       if (draft.draft.choice_needed && runtimeId) body.runtime_id = runtimeId;
+      if (scope) body.scope = scope;
       if (name.trim() && name.trim() !== draft.draft.name) body.name = name.trim();
       if (summary.trim() !== capabilityText(draft.draft)) body.capability_summary = summary.trim();
       const provider = await api.connectConfirm(draft.id, body);
@@ -247,6 +250,28 @@ export default function Connect() {
               </>
             )}
           </div>
+
+          {found.scope_choices && found.scope_choices.length > 0 ? (
+            <fieldset className="mt-4">
+              <legend className="text-sm text-muted mb-1">
+                I found {found.scope_choices.length}. Which should this connection use?
+              </legend>
+              <div className="space-y-1">
+                {found.scope_choices.map((c) => (
+                  <label key={c.value} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="radio" name="scope" value={c.value} checked={scope === c.value} onChange={() => setScope(c.value)} className="accent-[var(--bv-accent)]" />
+                    {c.label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          ) : (
+            found.connected_for && (
+              <p className="mt-4 text-sm">
+                <span className="text-muted">Connected for:</span> {found.connected_for}
+              </p>
+            )
+          )}
 
           {found.choice_needed && found.runtime_options.length > 1 ? (
             <fieldset className="mt-4">

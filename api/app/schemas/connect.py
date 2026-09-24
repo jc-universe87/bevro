@@ -52,3 +52,6 @@ class ConfirmIn(BaseModel):
     enabled: bool = True
     # When discovery found more than one way and asked: the chosen runtime's id.
     runtime_id: str | None = Field(default=None, max_length=40)
+    # When a scoped service has several and asked: which profile, workspace
+    # or tenant this connection is for.
+    scope: str | None = Field(default=None, max_length=120)

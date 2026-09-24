@@ -107,7 +107,7 @@ def confirm(draft_id: uuid.UUID, body: ConfirmIn, db: Session = Depends(get_db))
             secrets=body.secrets,
             app_url=(body.app_url or "").strip() or None,
             enabled=body.enabled,
-            runtime_id=body.runtime_id,
+            runtime_id=body.runtime_id, scope=body.scope,
         )
     except connect_service.DraftError as exc:
         raise HTTPException(exc.status, str(exc)) from None

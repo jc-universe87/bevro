@@ -216,6 +216,89 @@ A service *may* publish `/.well-known/bevro.json` to skip inference:
 
 It is a fast path, never a requirement.
 
+## Two kinds of HTTP service
+
+A web service Bevro connects to is one of two shapes, and they need different
+treatment:
+
+**A prompt service** has one operation that takes natural language. Bevro
+finds it, and a task is one call.
+
+**An operational service** has no such endpoint. It has typed operations —
+list the cases, create a job, run it, fetch the report — and a piece of work
+is two or three of them in order. Most real systems are this shape.
+
+### Finding the API when you pasted the UI
+
+People paste the page they are looking at. A single-page application answers
+*every* path with its HTML shell and a 200, so `/p/someone/openapi.json` can
+look like a hit and be a web page. Bevro therefore:
+
+1. keeps the exact address that was typed;
+2. looks for a description under that path **and** at the origin;
+3. checks the content type *and* the shape of the document — a description
+   has to declare `openapi`/`swagger` and carry `paths`, or it is not one.
+
+### The operation catalogue
+
+The description is compiled once, at discovery, into a compact catalogue kept
+with the runtime: operation id, method, path, summary, tags, parameters, a
+flattened request body, what comes back, and a safety class. A real
+descriptor can be hundreds of kilobytes; the catalogue is a fraction of that,
+and the original is never read again.
+
+### Capabilities, not endpoints
+
+Sixty-eight operations do not become sixty-eight capabilities. Operations are
+grouped by the service's own tags and described in the service's own words,
+so Agents shows a handful of things a person would recognise. Operation ids,
+verbs and schemas stay server-side.
+
+### Scope: which profile, workspace or tenant
+
+Operational systems are often scoped. A pasted route may carry that — but a
+guess from a URL is only a candidate. Bevro takes the segments of the entered
+path, finds the service's own listing of whatever its operations are scoped
+by (`{profile_id}` → `GET /profiles`), and keeps the candidate **only if the
+service lists it**. If exactly one exists it is used; if several exist and
+the route said nothing, Bevro asks:
+
+```
+I found 2. Which should this connection use?
+  ( ) Alex Morgan
+  (•) Sam Lee
+```
+
+Nothing here knows what `/p/` means, or what a profile is.
+
+### Safety, from the service's own words
+
+Each operation is classified `read_only`, `work_execution`, `state_change`,
+`external_action` or `unknown` — from what the service *says*, not from its
+method. A POST the description calls "read-only" is read-only. An operation
+that *records* that an external action happened is a record, not Bevro going
+and doing it. Only something that actually reaches out — "sends a message",
+"external action" — needs approval.
+
+A request permits reading always, running work when it asks for work, and
+changing state when it says so. Contacting anyone outside is never planned.
+
+### Planning
+
+A task becomes an `OperationPlan`: a few steps, each naming an operation, its
+arguments, and what to carry forward. Where a routing model is configured it
+*proposes* one, shown only a short shortlist of relevant operations. Without
+a model, one read is matched by its words, and a create → run → read chain is
+worked out from the shape of the paths alone.
+
+Whatever the source, Bevro validates every step against the catalogue before
+anything is called: the operation must exist, arguments must fit the schema,
+enums must hold, and the safety class must be one this request allowed. A
+plan cannot invent a URL, a method or a host.
+
+The whole plan is **one** ProviderRun. Results become ordinary artifacts — a
+table, a report, a few fields — plus a link back into the service.
+
 ## When there is no way in
 
 If a project has useful code but nothing that can take a task — no API, no MCP

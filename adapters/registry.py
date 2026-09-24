@@ -50,4 +50,4 @@ def _ensure_builtin() -> None:
         return
     _loaded = True
     # Importing registers each built-in adapter.
-    from adapters import claude_code, command, http, local, mcp  # noqa: F401
+    from adapters import claude_code, command, http, local, mcp, openapi  # noqa: F401
