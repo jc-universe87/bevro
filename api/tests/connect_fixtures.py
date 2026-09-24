@@ -229,9 +229,17 @@ def make_managed_project(root: Path, *, port: int, name: str = "fixture-desk", w
         (project / "desk" / "__init__.py").write_text("", encoding="utf-8")
         (project / "desk" / "cli.py").write_text('import argparse\np = argparse.ArgumentParser()\np.add_argument("--prompt")\nif __name__ == "__main__":\n    print(p.parse_args().prompt)\n', encoding="utf-8")
     if with_unit:
+        # A credentials file where a deployment would keep one: outside the
+        # project, really there, and never read by Bevro.
+        held = root.parent / "etc" / "fixture-desk"
+        held.mkdir(parents=True, exist_ok=True)
+        (held / "credentials").write_text("FIXTURE_UPSTREAM_KEY=fixture-secret-never-read\n", encoding="utf-8")
         (project / "deploy").mkdir()
         (project / "deploy" / "fixture-desk.service").write_text(
-            "[Unit]\nDescription=Fixture desk\n[Service]\nType=oneshot\nEnvironmentFile=/etc/fixture-desk/credentials\nWorkingDirectory=/srv/fixture-desk\nExecStart=/srv/fixture-desk/.venv/bin/python -m desk.cli\n", encoding="utf-8"
+            "[Unit]\nDescription=Fixture desk\n[Service]\nType=oneshot\n"
+            f"EnvironmentFile={held / 'credentials'}\n"
+            "WorkingDirectory=/srv/fixture-desk\nExecStart=/srv/fixture-desk/.venv/bin/python -m desk.cli\n",
+            encoding="utf-8",
         )
     return project
 
@@ -296,4 +304,73 @@ def make_empty_project(root: Path, *, name: str = "fixture-nothing") -> Path:
     (project / "pyproject.toml").write_text('[project]\nname = "fixture-nothing"\ndescription = "Just some data"\n', encoding="utf-8")
     (project / "data.csv").write_text("a,b\n1,2\n", encoding="utf-8")
     (project / "README.md").write_text("# Nothing Much\n\nA folder of data.\n", encoding="utf-8")
+    return project
+
+
+def make_serviced_project(
+    root: Path,
+    *,
+    name: str = "fixture-serviced",
+    secret: str = "OPENAI_API_KEY",
+    # True: the unit points at a credentials file that is really there,
+    # outside the project, as a deployed service's would be.
+    credentials_file: bool = True,
+    # Or name one exactly - to test a reference to something that is gone.
+    environment_file: str | None = None,
+    inline_environment: bool = False,
+    optional_file: bool = False,
+    dotenv: bool = False,
+) -> Path:
+    """A project whose real deployment is a systemd unit, with a CLI beside it.
+
+    The shape the brief is about: the command line has nothing - no .env, and
+    nothing in the environment - while the installed unit is handed what it
+    needs by the system. Which of those the unit uses is the parameter.
+    """
+    project = root / name
+    project.mkdir(parents=True)
+    (project / "pyproject.toml").write_text(
+        f'[project]\nname = "{name}"\ndescription = "Watches things and writes about them"\ndependencies = ["openai", "python-dotenv"]\n',
+        encoding="utf-8",
+    )
+    (project / "README.md").write_text(
+        f"# {name}\n\nWatches things and writes about them.\n\nNeeds `{secret}`.\n", encoding="utf-8"
+    )
+    package = project / name.replace("-", "_")
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "__main__.py").write_text(
+        f'import os, sys\nSECRETS = ("{secret}",)\nprint("looked at:", sys.argv[1:], bool(os.environ.get("{secret}")))\n',
+        encoding="utf-8",
+    )
+    if dotenv:
+        # Declared *and* loaded: Bevro only believes a project reads its own
+        # .env when the code says so.
+        (project / ".env").write_text(f"{secret}=fixture-secret-never-read\n", encoding="utf-8")
+        (package / "__main__.py").write_text(
+            "from dotenv import load_dotenv\n"
+            "import os, sys\n"
+            "load_dotenv()\n"
+            f'SECRETS = ("{secret}",)\n'
+            f'print("looked at:", sys.argv[1:], bool(os.environ.get("{secret}")))\n',
+            encoding="utf-8",
+        )
+
+    if credentials_file and environment_file is None:
+        # Somewhere a deployment would put it: outside the project, and
+        # never read by Bevro - these tests assert that it is not.
+        held = root.parent / "etc" / name
+        held.mkdir(parents=True, exist_ok=True)
+        (held / "credentials").write_text(f"{secret}=fixture-secret-never-read\n", encoding="utf-8")
+        environment_file = str(held / "credentials")
+
+    lines = ["[Unit]", f"Description={name} scheduled run", "[Service]", "Type=oneshot"]
+    if environment_file:
+        lines.append(f"EnvironmentFile={'-' if optional_file else ''}{environment_file}")
+    if inline_environment:
+        lines.append(f"Environment={secret}=fixture-secret-never-read")
+        lines.append("Environment=PYTHONUNBUFFERED=1")
+    lines += [f"WorkingDirectory={project}", f"ExecStart=/usr/bin/python3 -m {name.replace('-', '_')} run"]
+    (project / "deploy").mkdir()
+    (project / "deploy" / f"{name}.service").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return project

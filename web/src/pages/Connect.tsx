@@ -351,7 +351,12 @@ export default function Connect() {
             </ul>
           )}
 
-          {!found.auth.required && found.auth.hint && <p className="mt-2 text-sm text-muted">{found.auth.hint}</p>}
+          {!found.auth.required && found.auth.hint && (
+            <div className="mt-4">
+              <p className="text-sm text-muted">Credentials</p>
+              <p className="text-sm">{found.auth.hint}</p>
+            </div>
+          )}
 
           {found.auth.required && (
             <div className="mt-5">

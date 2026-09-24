@@ -170,3 +170,98 @@ test("Settings lists what has been allowed, and offers to take it back", async (
   expect(within(allowed).getAllByRole("button", { name: "Take back" })).toHaveLength(2);
   expect(allowed.textContent).not.toMatch(/BEVRO_LOCAL_ROOTS/);
 });
+
+/**
+ * Credentials belong to a way in, not to a project.
+ *
+ * A project's installed service may be handed its credentials by the system
+ * while the same project's command line has nothing. Bevro says who has it,
+ * and asks for nothing it can already get.
+ */
+function draftWith(auth: { required: boolean; secret_name: string | null; label: string | null; hint: string | null }) {
+  return {
+    id: "d2",
+    state: "found",
+    target_kind: "local",
+    target_label: "watcher",
+    trust: null,
+    error: null,
+    test: null,
+    provider_id: null,
+    created_at: "",
+    draft: {
+      name: "Watcher",
+      description: "Watches things.",
+      capabilities: [{ id: "research", title: "Research" }],
+      runs_via: "Runs from this project",
+      runs_at: null,
+      availability: "needs_worker",
+      confidence: "high",
+      confidence_label: "Confident",
+      invocable: true,
+      needs_bridge: false,
+      choice_needed: false,
+      runtime_options: [],
+      runtimes_found: 2,
+      evidence: [],
+      warnings: [],
+      auth,
+      app_url: null,
+      note: null,
+      mechanism: "local",
+      mechanism_label: "Local",
+      invocation_label: null,
+      credentials_label: null,
+      scope_choices: [],
+      connected_for: null,
+      source_description: null,
+    },
+  };
+}
+
+test("a credential the installed service already has is explained, not asked for", async () => {
+  mockApi({
+    "POST /api/connect/discover": draftWith({
+      required: false,
+      secret_name: null,
+      label: null,
+      hint: "Uses credentials provided by the installed system service.",
+    }),
+  });
+  render(
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={["/connect"]}>
+      <App />
+    </MemoryRouter>,
+  );
+  await userEvent.type(await screen.findByLabelText(/Connect an agent/), "/home/someone/watcher");
+  await userEvent.keyboard("{Enter}");
+
+  const found = await screen.findByLabelText("Found");
+  expect(within(found).getByText("Credentials")).toBeInTheDocument();
+  expect(within(found).getByText("Uses credentials provided by the installed system service.")).toBeInTheDocument();
+  // No field, and nothing asked for.
+  expect(within(found).queryByText("Authentication required")).not.toBeInTheDocument();
+  expect(found.querySelector('input[type="password"]')).toBeNull();
+});
+
+test("a credential nothing here has is still asked for", async () => {
+  mockApi({
+    "POST /api/connect/discover": draftWith({
+      required: true,
+      secret_name: "OPENAI_API_KEY",
+      label: "OpenAI credential",
+      hint: "Passed to the agent as OPENAI_API_KEY when it runs. Stored encrypted; never shown again.",
+    }),
+  });
+  render(
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={["/connect"]}>
+      <App />
+    </MemoryRouter>,
+  );
+  await userEvent.type(await screen.findByLabelText(/Connect an agent/), "/home/someone/watcher");
+  await userEvent.keyboard("{Enter}");
+
+  const found = await screen.findByLabelText("Found");
+  expect(within(found).getByText("Authentication required")).toBeInTheDocument();
+  expect(found.querySelector('input[type="password"]')).not.toBeNull();
+});

@@ -467,6 +467,15 @@ def reconnect_provider(db: Session, provider: Provider) -> Provider:
     the person pressed a button and is owed an answer, not a background job
     they have to go looking for.
     """
+    # A project on this machine is the worker's to look at again, for the same
+    # reason it was the worker's to find: the API in a container cannot see it.
+    source = provider.source or {}
+    kind = str(source.get("target_kind") or source.get("kind") or "")
+    if kind in LOCAL_KINDS and not can_discover_locally():
+        if not provider_service.worker_seen_recently(db):
+            raise DraftError(WORKER_NEEDED_MESSAGE, 409)
+        log.info("reconnect: %s is on this machine; asking the worker", provider.slug)
+        return _reconnect_through_worker(db, provider, "it is on this machine")
     try:
         return _reconnect_here(db, provider)
     except NotReachable as exc:
@@ -488,8 +497,6 @@ def _reconnect_here(db: Session, provider: Provider, *, location: str = API, rul
         target = classify_target(target_text)
     except TargetError as exc:
         raise DraftError(str(exc)) from exc
-    if target.kind in LOCAL_KINDS and target.kind == "local" and not can_discover_locally():
-        raise DraftError("Reconnecting a local project needs the API to see the folder. Use Test under Manage, or connect it again.", 409)
     try:
         draft = get_discovery_service().discover(target, DiscoveryContext(roots=local_roots()))
     except NotReachable:
@@ -574,8 +581,9 @@ def run_reconnects(db: Session) -> int:
         if provider is None:
             continue
         try:
-            # It is here because the API could not reach it: both halves of
-            # that are facts the runtimes should carry away.
+            # What the person has allowed, read again first: reconnecting is
+            # looking at something, and looking needs permission.
+            trust_service.apply_to_process(db)
             _reconnect_here(db, provider, location=WORKER, ruled_out=API)
         except (NotReachable, DiscoveryFailed, DraftError, TargetError) as exc:
             provider.source = {**(provider.source or {}), "reconnect_error": str(exc)}

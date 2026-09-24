@@ -488,20 +488,25 @@ def credential_status(provider: Provider, stored: list[str]) -> dict[str, str]:
     that carries its own .env is known from the adapter profile.
     """
     from adapters.runtime import NATIVE_STRATEGIES
-    from app.services.runtime import active_runtime
+    from app.services.runtime import active_runtime, runtimes_of
 
     reported = (provider.availability or {}).get("credentials") or {}
     config = provider.adapter.get("config") or {}
     self_configured = {str(n) for n in config.get("self_configured") or []}
     rt = active_runtime(provider)
     native = rt is not None and rt.credentials.strategy in NATIVE_STRATEGIES
+    # Any way into this provider having it is enough for the provider to have
+    # it. Which ways in can and cannot is a fact about each of them, kept on
+    # each of them, and shown under Advanced details - but nobody is asked
+    # for a credential this machine already holds.
+    by_a_runtime = {name for profile in runtimes_of(provider) for name in profile.credentials.supplied}
     out: dict[str, str] = {}
     for name in required_secrets(provider):
         if name in stored:
             out[name] = "bevro"
         elif reported.get(name) in ("host", "project"):
             out[name] = str(reported[name])
-        elif name in self_configured or native:
+        elif name in self_configured or name in by_a_runtime or native:
             out[name] = "project"
         else:
             out[name] = "missing"

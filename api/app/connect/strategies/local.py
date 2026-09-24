@@ -112,10 +112,13 @@ def cli_credentials(project: Project, primary: Finding | None) -> tuple[Credenti
     source = credential_source(project, primary, secret)
     if source == "project":
         note = f"Uses its own {label} from the project's .env; Bevro never reads it."
-        return Credentials(strategy=CredentialStrategy.PROJECT_DOTENV, names=[secret], note=note), [secret], [f"Uses its own {label} (the project loads its .env)"]
+        return Credentials(strategy=CredentialStrategy.PROJECT_DOTENV, names=[secret], supplied=[secret], note=note), [secret], [f"Uses its own {label} (the project loads its .env)"]
     if source == "host":
         note = f"Uses the {label} already set on this machine."
-        return Credentials(strategy=CredentialStrategy.INHERITED_ENVIRONMENT, names=[secret], note=note), [], [f"Uses the {label} already set on this machine"]
+        return Credentials(strategy=CredentialStrategy.INHERITED_ENVIRONMENT, names=[secret], supplied=[secret], note=note), [], [f"Uses the {label} already set on this machine"]
+    # Nothing this way in can reach. Whether anyone has to be asked depends on
+    # the other ways in, which are not known yet - `settle_credentials` below
+    # decides once they all are.
     note = f"Passed to the agent as {secret} when it runs. Stored encrypted; never shown again."
     return Credentials(strategy=CredentialStrategy.BEVRO_MANAGED, names=[secret], required_from_user=True, note=note), [], []
 
@@ -309,11 +312,59 @@ def _adopt_service(found: ProviderDraft, rid: str, kind: RuntimeKind, display_na
 def _systemd_runtime(unit: SystemdUnit, rid: str, secret_names: list[str]) -> RuntimeProfile:
     state = "active" if unit.active else "installed but not running" if unit.installed else "shipped with the project, not installed here"
     evidence = [f"systemd unit {unit.name}: {state}"]
-    creds = Credentials(strategy=CredentialStrategy.SYSTEMD_ENVIRONMENT, names=secret_names, note="Its systemd unit carries its own credentials.") if unit.environment_file else Credentials(strategy=CredentialStrategy.RUNTIME_MANAGED, names=secret_names)
+    creds = _systemd_credentials(unit, secret_names)
+    if creds.supplied:
+        evidence.append(_credential_evidence(unit, creds))
     if unit.unit_type == "oneshot" or not unit.active:
         note = "It's managed by systemd as a scheduled or one-off job, which Bevro can't hand tasks to." if unit.unit_type == "oneshot" else "Its systemd unit isn't running, so there is nothing to reach."
         return managed_only_runtime(rid, kind=RuntimeKind.SYSTEMD, display_name="Runs as a local service (systemd)", evidence=evidence, note=note, credentials=creds, target=unit.name)
     return managed_only_runtime(rid, kind=RuntimeKind.SYSTEMD, display_name="Runs as a local service (systemd)", evidence=evidence, note="Its systemd service is running but doesn't expose a way to hand it tasks.", credentials=creds, target=unit.name)
+
+
+def _systemd_credentials(unit: SystemdUnit, secret_names: list[str]) -> Credentials:
+    """What this unit hands its own process, from what it declares.
+
+    A unit file is configuration and may be read. A file it points at is
+    not, and is never opened - the reference is what counts, and a
+    credentials file Bevro may not even stat is the clearest evidence there
+    is that something is looking after this properly.
+    """
+    if not secret_names:
+        return Credentials(strategy=CredentialStrategy.RUNTIME_MANAGED)
+    named = [n for n in secret_names if n in unit.environment_names]
+    files = [ref for ref in unit.environment_files if ref.likely_present]
+    if files:
+        # A file the unit loads supplies whatever the project asks for: which
+        # names are in it cannot be known without opening it, and opening it
+        # is the one thing Bevro will not do.
+        return Credentials(
+            strategy=CredentialStrategy.SYSTEMD_ENVIRONMENT_FILE,
+            names=secret_names,
+            supplied=list(secret_names),
+            note="Uses credentials provided by the installed system service.",
+        )
+    if named:
+        return Credentials(
+            strategy=CredentialStrategy.SYSTEMD_ENVIRONMENT,
+            names=secret_names,
+            supplied=named,
+            note="Its systemd unit sets them itself.",
+        )
+    dangling = [ref for ref in unit.environment_files if not ref.likely_present and not ref.optional]
+    if dangling:
+        return Credentials(
+            strategy=CredentialStrategy.UNKNOWN,
+            names=secret_names,
+            note="Its systemd unit points at a credentials file that isn't there.",
+        )
+    return Credentials(strategy=CredentialStrategy.RUNTIME_MANAGED, names=secret_names)
+
+
+def _credential_evidence(unit: SystemdUnit, creds: Credentials) -> str:
+    """Said without naming the file: where it is is the machine's business."""
+    if creds.strategy == CredentialStrategy.SYSTEMD_ENVIRONMENT_FILE:
+        return f"{unit.name} loads its credentials from a file of its own"
+    return f"{unit.name} sets {', '.join(creds.supplied)} itself"
 
 
 def _entrypoint_runtime(project: Project, primary: Finding | None, entry: Entrypoint, creds: Credentials, self_configured: list[str], rid: str, lang: str) -> RuntimeProfile:

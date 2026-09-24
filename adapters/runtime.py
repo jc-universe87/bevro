@@ -71,7 +71,8 @@ class CredentialStrategy(StrEnum):
     INHERITED_ENVIRONMENT = "inherited_environment"  # the worker's environment carries it
     PROJECT_DOTENV = "project_dotenv"            # the project loads its own .env
     DOCKER_ENVIRONMENT = "docker_environment"    # compose environment / env_file
-    SYSTEMD_ENVIRONMENT = "systemd_environment"  # a unit's EnvironmentFile
+    SYSTEMD_ENVIRONMENT = "systemd_environment"  # a unit's own Environment= lines
+    SYSTEMD_ENVIRONMENT_FILE = "systemd_environment_file"  # a unit's EnvironmentFile=
     EXTERNAL_SECRET_STORE = "external_secret_store"
     BEVRO_MANAGED = "bevro_managed"              # Bevro stores it encrypted and injects it
     NONE = "none"
@@ -81,17 +82,64 @@ class CredentialStrategy(StrEnum):
 # Strategies where the provider or its runtime already looks after the secret:
 # Bevro must neither read it nor ask for it.
 NATIVE_STRATEGIES = frozenset(
-    {CredentialStrategy.RUNTIME_MANAGED, CredentialStrategy.PROJECT_DOTENV, CredentialStrategy.DOCKER_ENVIRONMENT, CredentialStrategy.SYSTEMD_ENVIRONMENT, CredentialStrategy.EXTERNAL_SECRET_STORE}
+    {
+        CredentialStrategy.RUNTIME_MANAGED,
+        CredentialStrategy.PROJECT_DOTENV,
+        CredentialStrategy.DOCKER_ENVIRONMENT,
+        CredentialStrategy.SYSTEMD_ENVIRONMENT,
+        CredentialStrategy.SYSTEMD_ENVIRONMENT_FILE,
+        CredentialStrategy.EXTERNAL_SECRET_STORE,
+    }
 )
 
 
 class Credentials(BaseModel):
+    """What one way in needs, and whether that way in can get it.
+
+    This belongs to the runtime rather than to the provider, because the
+    answer differs between them. A project's installed service may have its
+    credentials handed to it by the system; the same project's command line,
+    run by the worker, may have nothing. Three different things - "this way
+    in cannot get it", "nothing here has it" and "another way in already
+    has it" - are otherwise impossible to tell apart.
+    """
+
     strategy: CredentialStrategy = CredentialStrategy.NONE
     # Secret names the runtime needs (environment variable names, or "api_key"). Names only.
     names: list[str] = Field(default_factory=list)
+    # Of those, the ones this runtime gets by itself. Names only, always: a
+    # value is never read, stored or passed on from here.
+    supplied: list[str] = Field(default_factory=list)
     # True only when the runtime cannot get the secret any other way and Bevro can inject it.
     required_from_user: bool = False
+    # True when this way in cannot get what it needs but another way into the
+    # same provider can. Nobody is asked; this one is simply the worse way in.
+    supplied_elsewhere: bool = False
     note: str | None = None  # one plain sentence for the person
+
+    @property
+    def missing(self) -> list[str]:
+        """What this way in needs and has no way of getting."""
+        have = set(self.supplied)
+        return [name for name in self.names if name not in have]
+
+    @property
+    def status(self) -> str:
+        """none | configured | incomplete - about this runtime, not the provider."""
+        if not self.names:
+            return "none"
+        return "incomplete" if self.missing else "configured"
+
+    @property
+    def owner(self) -> str:
+        """Who holds what this needs: the runtime, Bevro, or nobody yet."""
+        if not self.names:
+            return "none"
+        if not self.missing:
+            return "runtime"
+        if self.supplied_elsewhere:
+            return "other_runtime"
+        return "bevro" if self.strategy == CredentialStrategy.BEVRO_MANAGED else "unknown"
 
 
 class InputMode(StrEnum):
@@ -327,6 +375,12 @@ class RuntimeProfile(BaseModel):
                 "label": credentials_label(self.credentials),
                 "required_from_user": self.credentials.required_from_user,
                 "names": list(self.credentials.names),
+                # Names only, always. What this way in can get by itself, and
+                # what it cannot, so the two are never confused for each other.
+                "supplied": list(self.credentials.supplied),
+                "missing": list(self.credentials.missing),
+                "status": self.credentials.status,
+                "owner": self.credentials.owner,
                 "note": self.credentials.note,
             },
             "abilities": self.abilities.model_dump(),
@@ -346,6 +400,8 @@ class RuntimeProfile(BaseModel):
             "outputs": [o.value for o in self.outputs],
             "credential_strategy": self.credentials.strategy.value,
             "credential_names": list(self.credentials.names),
+            "credential_status": self.credentials.status,
+            "credential_owner": self.credentials.owner,
             "priority": self.priority,
             "health": self.health.state.value,
             "consecutive_failures": self.health.consecutive_failures,
@@ -358,6 +414,7 @@ CREDENTIAL_LABELS = {
     CredentialStrategy.PROJECT_DOTENV: "Managed by provider",
     CredentialStrategy.DOCKER_ENVIRONMENT: "Managed by provider",
     CredentialStrategy.SYSTEMD_ENVIRONMENT: "Managed by provider",
+    CredentialStrategy.SYSTEMD_ENVIRONMENT_FILE: "Provided by the installed service",
     CredentialStrategy.EXTERNAL_SECRET_STORE: "Managed by provider",
     CredentialStrategy.BEVRO_MANAGED: "Managed by Bevro",
     CredentialStrategy.NONE: "None needed",
@@ -368,6 +425,9 @@ CREDENTIAL_LABELS = {
 def credentials_label(credentials: Credentials) -> str:
     if credentials.required_from_user:
         return "Missing"
+    if credentials.supplied_elsewhere:
+        # It is not missing - the project has it - but not by this way in.
+        return "Provided by another way in"
     return CREDENTIAL_LABELS.get(credentials.strategy, "Unknown")
 
 

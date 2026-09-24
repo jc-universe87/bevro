@@ -69,7 +69,10 @@ def test_multiple_runtimes_found_and_the_running_service_wins(running_agent):
     assert active.credentials.strategy in ("runtime_managed", "docker_environment")
     assert "fixture-secret-never-read" not in str(draft.model_dump()) and "the-agents-own-secret" not in str(draft.model_dump())
     unit = next(rt for rt in draft.runtimes if rt.kind == "systemd")
-    assert not unit.invocable and unit.credentials.strategy == "systemd_environment"
+    # The unit loads a file of its own, which is a more particular thing to
+    # know than "systemd looks after it" - and the file itself is never read.
+    assert not unit.invocable and unit.credentials.strategy == "systemd_environment_file"
+    assert unit.credentials.status == "configured" and unit.credentials.owner == "runtime"
     public = draft.public()
     assert public["runs_via"] == active.display_name and public["credentials_label"] == "Managed by provider"
     assert str(root) not in str(public)

@@ -50,6 +50,55 @@ never sees the runtime; the execution layer never looks at capabilities.
 
 ### Credential strategy
 
+Whether a credential is available is a fact about **one way in**, not about
+the provider. A project's installed service may be handed an environment by
+the system while the same project's command line, run by the worker, has
+nothing at all. Three things look identical from a single runtime and are
+not:
+
+    this way in cannot get it       the command line: no .env, nothing in
+                                    the environment
+    nothing here has it             and so somebody has to be asked, once
+    another way in already has it   the installed service, whose unit hands
+                                    it an environment of its own
+
+So `Credentials` carries `names` (what this way in needs) and `supplied`
+(what it can get by itself), and derives `status` - `none`, `configured`,
+`incomplete` - and `owner` - `runtime`, `bevro`, `other_runtime`, `unknown`.
+`settle_credentials()` runs once, where every way in is known, and clears the
+question wherever some other runtime supplies it. Ranking then prefers the
+way in that has what it needs, so a service with its credentials beats a
+command line without them.
+
+#### Reading a systemd unit
+
+`probes.systemd_units()` reads the unit files a project ships *and*, for an
+installed unit, its fragment and drop-ins as systemd reports them. From those
+it takes:
+
+* `Environment=NAME=value` - **the names only**. A unit file is
+  configuration and may be read; a value in one is still a value.
+* `EnvironmentFile=` - the reference, and what `stat` alone says about it:
+
+        present    it is there
+        protected  something is there and Bevro may not look at it
+        missing    the directory can be read and the file is not in it
+        optional   the unit wrote "-", so its absence means nothing
+
+**Bevro never opens an EnvironmentFile.** Not the values, not the names, not
+one byte. A credentials file owned by root with mode 600 reads as
+`protected`, and that is evidence *for* the credential being looked after
+rather than against it - which is the whole point, because
+`os.path.exists()` on such a file returns False.
+
+`systemctl show -p Environment` is deliberately not used: it prints merged
+values, and Bevro has no reason to have them in memory.
+
+If the unit or the file it names disappears, the runtime becomes
+`incomplete` at the next discovery or reconnect, and either another way in
+supplies the credential or the person is asked.
+
+
 How this runtime normally gets its secrets:
 
 | Strategy | Meaning | Bevro's part |
@@ -58,14 +107,17 @@ How this runtime normally gets its secrets:
 | `inherited_environment` | the worker's environment carries it (the way a person runs it by hand) | pass the environment through |
 | `project_dotenv` | the project loads its own `.env` (dotenv) and that file defines the name | nothing — the *name* is checked, the value never read |
 | `docker_environment` | Compose `environment` / `env_file` | nothing |
-| `systemd_environment` | a unit's `EnvironmentFile` | nothing |
+| `systemd_environment` | a unit's own `Environment=NAME=...` lines | nothing — the *name* is taken, the value never |
+| `systemd_environment_file` | a unit's `EnvironmentFile=`, which Bevro never opens | nothing |
 | `external_secret_store` | a vault the runtime talks to | nothing |
 | `bevro_managed` | Bevro stores it encrypted and injects it at run time | ask once, inject as an environment variable or header |
 | `none` / `unknown` | | |
 
-Bevro prefers the native strategy and asks the person only when the selected
-runtime genuinely cannot get the secret otherwise **and** Bevro can inject it
-(`required_from_user`). At run time the same precedence is applied by the
+Bevro prefers the native strategy and asks the person only when **no** way
+into the provider can get the secret **and** Bevro can inject it
+(`required_from_user`). A way in that cannot get something another way in
+has is marked `supplied_elsewhere`: still incomplete, still said so under
+Advanced details, and not a question for anybody. At run time the same precedence is applied by the
 adapter: a value Bevro holds (an explicit override) → the worker's
 environment → the project's own `.env` → *Credential required*. Bevro never
 reads a secret value to learn how a runtime works.

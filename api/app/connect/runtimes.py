@@ -20,6 +20,16 @@ from adapters.runtime import CredentialStrategy, Credentials, HealthState, Input
 
 CONF = {"high": 0, "medium": 1, "low": 2}
 
+# Ways of getting a credential that belong to the runtime rather than to Bevro.
+SELF_SUPPLYING = (
+    CredentialStrategy.RUNTIME_MANAGED,
+    CredentialStrategy.DOCKER_ENVIRONMENT,
+    CredentialStrategy.SYSTEMD_ENVIRONMENT,
+    CredentialStrategy.SYSTEMD_ENVIRONMENT_FILE,
+    CredentialStrategy.PROJECT_DOTENV,
+    CredentialStrategy.INHERITED_ENVIRONMENT,
+)
+
 # Base score by how native and how safe the mechanism is.
 BASE_SCORE = {
     RuntimeKind.PROCESS: 100,
@@ -66,10 +76,17 @@ def score(rt: RuntimeProfile) -> int:
     strategy = rt.credentials.strategy
     if rt.credentials.required_from_user:
         value -= 6
-    elif strategy in (CredentialStrategy.RUNTIME_MANAGED, CredentialStrategy.DOCKER_ENVIRONMENT, CredentialStrategy.SYSTEMD_ENVIRONMENT, CredentialStrategy.PROJECT_DOTENV, CredentialStrategy.INHERITED_ENVIRONMENT):
+    elif strategy in SELF_SUPPLYING:
         value += 4
     elif strategy == CredentialStrategy.UNKNOWN:
         value -= 4
+    # What actually decides it: whether this way in has what it needs. A
+    # command line that cannot reach the key is a worse way in than the
+    # service that is handed it, whatever else they have in common.
+    if rt.credentials.status == "configured":
+        value += 8
+    elif rt.credentials.status == "incomplete":
+        value -= 8
     # A connection Bevro had built for a project that had none is the last
     # resort: anything the project offers itself, of comparable standing, wins.
     if (rt.adapter.get("config") or {}).get("bridge"):
@@ -80,6 +97,41 @@ def score(rt: RuntimeProfile) -> int:
     if rt.health.in_cooldown():
         value -= 25
     return value
+
+
+def settle_credentials(runtimes: list[RuntimeProfile]) -> list[RuntimeProfile]:
+    """Decide, across all the ways in, whether anyone has to be asked.
+
+    Three things that look the same from one runtime and are not:
+
+        this way in cannot get it     the command line, with nothing in the
+                                      environment and no .env
+        nothing here has it           and so somebody has to be asked
+        another way in already has it the installed service, whose unit
+                                      hands it an environment of its own
+
+    Only the second is a question for a person. Where some other runtime
+    supplies a name, the ones that cannot are marked as such - they still
+    cannot, and Advanced details still says so - but nobody is asked for
+    something this machine already has.
+    """
+    supplied: set[str] = {name for rt in runtimes for name in rt.credentials.supplied}
+    if not supplied:
+        return runtimes
+    for rt in runtimes:
+        creds = rt.credentials
+        if not creds.required_from_user or not creds.missing:
+            continue
+        if not all(name in supplied for name in creds.missing):
+            continue
+        # Said in the words of whichever way in actually has it - "Uses
+        # credentials provided by the installed system service" - because
+        # that is the useful half. Where it leaves this one is a technical
+        # fact, and lives under Advanced details with everything else.
+        holder = next((other for other in runtimes if set(creds.missing) <= set(other.credentials.supplied)), None)
+        note = (holder.credentials.note if holder is not None else None) or "Another way into this project already has what it needs."
+        rt.credentials = creds.model_copy(update={"required_from_user": False, "supplied_elsewhere": True, "note": note})
+    return runtimes
 
 
 def rank(runtimes: list[RuntimeProfile]) -> list[RuntimeProfile]:
