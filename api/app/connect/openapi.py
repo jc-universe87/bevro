@@ -38,7 +38,7 @@ MAX_OPERATIONS = 400
 # Bumped whenever the wording a capability carries changes shape, so that
 # things connected before the change are read again rather than left saying
 # what an older Bevro would have said.
-CAPABILITY_WORDING = 3
+CAPABILITY_WORDING = 5
 SUMMARY_MAX = 220
 
 

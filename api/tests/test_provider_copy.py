@@ -398,3 +398,139 @@ def test_no_summary_reads_like_the_document_it_came_from(spec):
     assert copy.is_fit_to_show(summary), summary
     for word in ("api", "endpoint", "openapi", "get ", "post ", "json", "crud"):
         assert word not in summary.lower(), (spec["info"]["title"], word)
+
+
+# --------------------------------------------------------------------------- saying a word twice
+#
+# "Tracks monitors" is not a description. Neither is "manages management" or
+# "runs runs": the word that named the thing has been reused as the word for
+# doing something to it, and the phrase says nothing twice. These are the
+# shapes that produces, each built from an ordinary service.
+
+def _group(tag: str, operations: list[tuple[str, str, str]]) -> list[dict]:
+    """One group of operations as the phrasing engine sees it."""
+    return [
+        {"method": method, "path": path, "summary": summary, "safety": "state_change" if method == "post" else "read_only"}
+        for method, path, summary in operations
+    ]
+
+
+COLLISIONS = [
+    (
+        "monitors",
+        [("get", "/api/v1/monitors", "Every monitor and its state"), ("post", "/api/v1/monitors", "Create a monitor"), ("post", "/api/v1/monitors/{id}/check", "Run the check now")],
+    ),
+    (
+        "management",
+        [("get", "/api/v1/management", "Management overview"), ("post", "/api/v1/management/{id}", "Manage the entry")],
+    ),
+    (
+        "reports",
+        [("get", "/api/v1/reports", "Every report"), ("post", "/api/v1/reports", "Report on the period")],
+    ),
+    (
+        "runs",
+        [("get", "/api/v1/runs", "Runs, newest first"), ("post", "/api/v1/runs/{id}/execute", "Run the pending stages")],
+    ),
+    (
+        "processes",
+        [("get", "/api/v1/processes", "Every process"), ("post", "/api/v1/processes/{id}", "Process the item")],
+    ),
+    (
+        "searches",
+        [("get", "/api/v1/searches", "Every search"), ("post", "/api/v1/searches", "Search for matches")],
+    ),
+    (
+        "tracking",
+        [("get", "/api/v1/tracking", "Tracking state"), ("post", "/api/v1/tracking/{id}", "Track the item")],
+    ),
+    # Nothing here says what any of it is for, so the method is the only
+    # evidence there is - and it must not be allowed to say the word twice.
+    ("creations", [("post", "/api/v1/creations", "Create a creation")]),
+    ("listings", [("get", "/api/v1/listings", "Every listing"), ("get", "/api/v1/listings/{id}", "List one")]),
+    ("executions", [("get", "/api/v1/executions", "Every execution"), ("post", "/api/v1/executions", "Execute it")]),
+]
+
+
+@pytest.mark.parametrize(("tag", "operations"), COLLISIONS, ids=[tag for tag, _ops in COLLISIONS])
+def test_a_phrase_never_says_the_subject_twice(tag, operations):
+    from app.connect import phrasing
+
+    phrase = phrasing.phrase_for(tag, _group(tag, operations))
+    verb, subject = phrase.action.split(" ", 1)
+
+    assert verb != subject, phrase.action
+    assert phrasing._singular(verb) != phrasing._singular(subject.split(" ")[0]), phrase.action
+    # ...and not a near miss either: "tracks monitors", "manages management".
+    assert not phrasing._says_the_same(phrase.verb, phrase.subject), phrase.action
+    evidence = dict((n, w) for n, _b, _t, w in phrasing.VERB_FORMS)[phrase.verb]
+    head = phrase.subject.split(" ")[0]
+    assert head not in evidence and phrasing._singular(head) not in evidence, phrase.action
+
+
+def test_the_thing_s_own_name_does_not_get_to_choose_the_verb():
+    """A service saying "monitor" about something it calls a monitor has said
+    what it is, not what is done with it. Left to vote, every group would
+    describe itself in a circle."""
+    from app.connect import phrasing
+
+    phrase = phrasing.phrase_for("monitors", _group("monitors", COLLISIONS[0][1]))
+    assert phrase.verb != "track", phrase.action
+    assert "monitor" in phrase.subject
+
+
+# --------------------------------------------------------------------------- machinery and what it is for
+
+MACHINERY_GROUPS = [
+    # tag, operations, the concept the service reveals behind its machinery
+    (
+        "runs",
+        [
+            ("get", "/api/v1/runs", "Runs, newest first"),
+            ("post", "/api/v1/runs", "Create a run; no search is executed yet"),
+            ("post", "/api/v1/runs/{id}/execute", "Execute the pending stages"),
+            ("get", "/api/v1/runs/{id}/report", "The committed report"),
+        ],
+        "report",
+    ),
+    (
+        "jobs",
+        [
+            ("get", "/api/v1/jobs", "Every job"),
+            ("post", "/api/v1/jobs/{id}/execute", "Execute the job"),
+            ("get", "/api/v1/jobs/{id}/results", "The results of the job"),
+        ],
+        "result",
+    ),
+    (
+        "workflows",
+        [
+            ("get", "/api/v1/workflows", "Every workflow"),
+            ("post", "/api/v1/workflows/{id}/start", "Start the workflow"),
+            ("get", "/api/v1/workflows/{id}/analysis", "The analysis it produced"),
+        ],
+        "analysis",
+    ),
+]
+
+
+@pytest.mark.parametrize(("tag", "operations", "concept"), MACHINERY_GROUPS, ids=[tag for tag, _ops, _c in MACHINERY_GROUPS])
+def test_a_word_for_the_machinery_gives_way_to_what_the_machinery_is_for(tag, operations, concept):
+    """A service calls something a "run" because that is what its code does
+    with it. The person asked for whatever the run was of, and the service
+    usually says so somewhere."""
+    from app.connect import phrasing
+
+    phrase = phrasing.phrase_for(tag, _group(tag, operations))
+    assert concept in phrase.subject, phrase.action
+    assert phrase.subject not in phrasing.MACHINERY, phrase.action
+
+
+def test_machinery_is_still_used_when_the_service_offers_nothing_better():
+    """Saying the plain thing beats saying nothing: a service whose runs are
+    only ever runs is described as having runs."""
+    from app.connect import phrasing
+
+    phrase = phrasing.phrase_for("runs", _group("runs", [("get", "/api/v1/runs", "Every run"), ("post", "/api/v1/runs", "Create a run")]))
+    assert "run" in phrase.subject
+    assert not phrasing._says_the_same(phrase.verb, phrase.subject), phrase.action

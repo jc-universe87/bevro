@@ -45,6 +45,25 @@ VERB_FORMS: list[tuple[str, str, str, frozenset[str]]] = [
     ("report", "report on", "reports on", frozenset("report reports reporting summarise summarises summarize summarizes statistics stats counts count metrics breakdown funnel analytics analyse analyses analyze analyzes".split())),
     ("show", "show", "shows", frozenset("list lists listing get gets show shows read reads fetch fetches return returns view views display displays retrieve every all".split())),
 ]
+# The words that *are* each action, as against the words that merely point at
+# it. "Statistics" is a reason to think a group reports; "reports" is the
+# word "report" wearing a noun's clothes. A subject of the second kind makes
+# the phrase say one thing twice - "tracks monitors", "finds searches" - and
+# a subject of the first kind does not: "reports on statistics" is fine.
+OWN_FORMS: dict[str, frozenset[str]] = {
+    "find": frozenset("find finds finding search searches searching lookup lookups".split()),
+    "review": frozenset("review reviews reviewing evaluation evaluations assessment assessments".split()),
+    "convert": frozenset("convert converts converting conversion conversions transform transforms transformation".split()),
+    "prepare": frozenset("prepare prepares preparing preparation preparations".split()),
+    "run": frozenset("run runs running execution executions process processes processing".split()),
+    "send": frozenset("send sends sending notification notifications".split()),
+    "track": frozenset("track tracks tracking monitor monitors monitoring".split()),
+    "create": frozenset("create creates creating creation creations".split()),
+    "manage": frozenset("manage manages managing management update updates updating edit edits editing".split()),
+    "report": frozenset("report reports reporting".split()),
+    "show": frozenset("show shows showing view views listing listings".split()),
+}
+
 _BY_NAME = {name: (base, third, words) for name, base, third, words in VERB_FORMS}
 KNOWN_VERBS = frozenset(_BY_NAME)
 _PRIORITY = {name: position for position, (name, *_rest) in enumerate(VERB_FORMS)}
@@ -57,6 +76,19 @@ SUPPORTING = frozenset(
     """profile profiles workspace workspaces artifact artifacts health settings setting config configuration
     auth authentication session sessions token tokens admin meta status system internal debug default general
     user users account accounts version versions""".split()
+)
+
+# Nouns for the machinery of doing work rather than for the work. A service
+# calls something a "run" because that is what its code does with it; the
+# person asked for whatever the run was of. Used to rank, never to exclude:
+# when there is nothing better to say, saying this is better than saying
+# nothing.
+MACHINERY = frozenset("run runs execution executions job jobs workflow workflows process processes batch batches pipeline pipelines queue queues".split())
+
+# ...and the words a person is more likely to have in mind. A service that
+# mentions any of these is naming what its machinery is for.
+PURPOSE = frozenset(
+    "search searches result results report reports analysis analyses activity activities summary summaries insight insights finding findings".split()
 )
 
 # Path segments that name no subject at all.
@@ -108,7 +140,7 @@ def _subject_from(tag: str, operations: list[dict[str, Any]]) -> str:
     service actually calls the thing.
     """
     tag_word = _SAME_THING.get(tag.lower(), tag.lower().replace("_", " ").strip())
-    counted: dict[str, int] = {}
+    counted: dict[str, float] = {}
     for operation in operations:
         seen: set[str] = set()
         for segment in str(operation.get("path") or "").split("/"):
@@ -119,18 +151,62 @@ def _subject_from(tag: str, operations: list[dict[str, Any]]) -> str:
             if len(word) < 4 or word in seen:
                 continue
             seen.add(word)
-            counted[word] = counted.get(word, 0) + 1
+            counted[word] = counted.get(word, 0) + 1.0
+        # A summary is prose rather than a name, so it counts for less - but
+        # it is where a service says what its machinery is actually for.
+        for word in _words_of(operation.get("summary")):
+            if word in PURPOSE:
+                counted[word] = counted.get(word, 0) + 0.5
+
     if not counted:
         return tag_word
     # The service's own name for the group wins whenever its routes use it
-    # too. Only when the routes never say it - a group tagged `shortlist`
-    # whose every path says `/opportunities` - do they get to overrule it.
-    if counted.get(tag_word, 0) * 2 >= len(operations):
+    # too - unless that name is for the machinery, in which case something
+    # that says what the machinery is for is worth more.
+    if counted.get(tag_word, 0) * 2 >= len(operations) and tag_word not in MACHINERY:
         return tag_word
-    best, count = max(counted.items(), key=lambda pair: (pair[1], -len(pair[0])))
-    if count * 2 >= len(operations) and best not in SUPPORTING:
-        return best
+
+    best = max(counted, key=lambda word: (_as_a_subject(word, counted[word]), -len(word)))
+    if _as_a_subject(best, counted[best]) <= 0:
+        return tag_word
+    if best == tag_word or counted[best] * 2 >= len(operations) or best in PURPOSE:
+        return _plural(best)
     return tag_word
+
+
+def _as_a_subject(word: str, count: float) -> float:
+    """How much this word is worth as the thing a person is asking about."""
+    if word in SUPPORTING:
+        return -1.0
+    score = count
+    if word in PURPOSE:
+        score += 2.0
+    if word in MACHINERY:
+        score -= 3.0
+    # A word that is only ever a verb names no thing: "execute", "validate".
+    if not _could_be_a_noun(word):
+        score -= 3.0
+    return score
+
+
+def _could_be_a_noun(word: str) -> bool:
+    """Could someone ask for this thing, or is it only ever something done?
+
+    "Documents" and "monitors" name collections; "execute" and "validate"
+    name no thing at all. A plural is the giveaway, and a handful of words
+    are plainly both.
+    """
+    if word in PURPOSE or word.endswith("s"):
+        return True
+    return not any(word in words for _n, _b, _t, words in VERB_FORMS)
+
+
+def _plural(word: str) -> str:
+    if word.endswith("s") or " " in word:
+        return word
+    if word.endswith("y") and word[-2:-1] not in "aeiou":
+        return word[:-1] + "ies"
+    return word + ("es" if word.endswith(("s", "x", "ch", "sh")) else "s")
 
 
 def _verbs_from(operations: list[dict[str, Any]], subject: str) -> tuple[str, str | None]:
@@ -141,14 +217,20 @@ def _verbs_from(operations: list[dict[str, Any]], subject: str) -> tuple[str, st
     evidenced equally, the one a person is more likely to have come for wins.
     """
     votes: dict[str, float] = {}
+    # A service that says "monitor" about a thing it calls a monitor has told
+    # Bevro what the thing is, not what is done with it. Its own name never
+    # votes for the verb, or every group would describe itself in a circle.
+    itself = {subject, _singular(subject), _plural(_singular(subject))}
     for operation in operations:
         for word in _words_of(operation.get("summary")):
-            if word == subject:
+            if word in itself:
                 continue
             for name, _base, _third, evidence in VERB_FORMS:
                 if word in evidence:
                     votes[name] = votes.get(name, 0.0) + 1.0
         for segment in _words_of(str(operation.get("path") or "").replace("/", " ")):
+            if segment in itself:
+                continue
             for name, _base, _third, evidence in VERB_FORMS:
                 if segment in evidence:
                     votes[name] = votes.get(name, 0.0) + 0.5
@@ -161,7 +243,14 @@ def _verbs_from(operations: list[dict[str, Any]], subject: str) -> tuple[str, st
     for name in [n for n in votes if _says_the_same(n, subject)]:
         votes.pop(name)
     if not votes:
-        return ("create" if any(str(op.get("method")).upper() == "POST" for op in operations) else "show"), None
+        # Nothing said what this is for, so the method is all there is. The
+        # same rule still applies: whatever is chosen must not be the subject
+        # said again, or a group called "creations" would create creations.
+        makes = any(str(op.get("method")).upper() == "POST" for op in operations)
+        for fallback in (("create", "manage", "show") if makes else ("show", "manage", "create")):
+            if not _says_the_same(fallback, subject):
+                return fallback, None
+        return "show", None
     ranked = sorted(votes.items(), key=lambda pair: (-pair[1], _PRIORITY[pair[0]]))
     best, best_votes = ranked[0]
     # A runner-up worth saying is one the service kept mentioning too.
@@ -180,9 +269,32 @@ def _verbs_from(operations: list[dict[str, Any]], subject: str) -> tuple[str, st
 
 
 def _says_the_same(verb: str, subject: str) -> bool:
+    """Is this verb just the subject again, in the place a verb should be?
+
+    "Runs runs" is the obvious case. "Tracks monitors" and "manages
+    management" are the same mistake wearing different endings: the word
+    that named the thing is the word being used to describe doing something
+    to it, so the phrase says nothing twice. A verb whose own evidence
+    includes the subject is describing the subject.
+    """
     base, third, _words = _BY_NAME[verb]
-    head = subject.split(" ")[0]
-    return head in (base, third, f"{base}s", base.rstrip("e"))
+    head = subject.split(" ")[0].lower()
+    own = OWN_FORMS.get(verb, frozenset())
+    for form in {head, _singular(head)}:
+        if form in own or form in (base, third, f"{base}s", base.rstrip("e")):
+            return True
+        # "manage" and "management"; "process" and "processing".
+        if len(base) >= 4 and (form.startswith(base) or base.startswith(form[:max(4, len(form) - 3)])):
+            return True
+    return False
+
+
+def _singular(word: str) -> str:
+    if word.endswith("ies") and len(word) > 4:
+        return word[:-3] + "y"
+    if word.endswith("sses") or word.endswith("ches") or word.endswith("shes"):
+        return word[:-2]
+    return word[:-1] if word.endswith("s") and not word.endswith("ss") else word
 
 
 def _weight_of(tag: str, operations: list[dict[str, Any]], verb: str) -> float:
