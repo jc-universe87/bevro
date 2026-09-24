@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from adapters.runtime import RuntimeProfile, credentials_label
+from adapters.runtime import WORKER, RuntimeProfile, credentials_label
 
 Confidence = Literal["high", "medium", "low"]
 Availability = Literal["ready", "needs_worker", "needs_start", "not_invocable"]
@@ -30,6 +30,10 @@ class DraftCapability(BaseModel):
     id: str = Field(max_length=80)
     title: str = Field(max_length=80)
     description: str | None = Field(default=None, max_length=200)
+    # Other words this service uses for the same ability, taken from its own
+    # addresses: a tag may say "shortlist" where every URL says
+    # "opportunities", and the person may ask for either.
+    terms: list[str] = Field(default_factory=list, max_length=6)
 
 
 class DraftAuth(BaseModel):
@@ -38,6 +42,18 @@ class DraftAuth(BaseModel):
     secret_name: str | None = None
     label: str | None = None
     hint: str | None = None
+
+
+def _runs_at(rt: RuntimeProfile | None) -> str | None:
+    """Where this will be driven from, said only when it is worth saying.
+
+    Bevro reaching a service itself is the ordinary case and needs no
+    explanation. A service only the host can see is worth saying out loud,
+    because it means the worker has to be running for it to work at all.
+    """
+    if rt is None:
+        return None
+    return "On this machine" if rt.reachability.host_only() or rt.reachability.usable_from() == [WORKER] else None
 
 
 class ProviderDraft(BaseModel):
@@ -78,7 +94,7 @@ class ProviderDraft(BaseModel):
     # and kept on the provider so reconnect never has to guess.
     source: dict[str, Any] = Field(default_factory=dict)
     # When a service is scoped (a profile, a workspace) and has several, the
-    # person chooses before connecting: [{"value": "johannes", "label": "Johannes Kim"}]
+    # person chooses before connecting: [{"value": "eu-west", "label": "EU West"}]
     scope_choices: list[dict[str, str]] = Field(default_factory=list)
 
     @property
@@ -126,6 +142,7 @@ class ProviderDraft(BaseModel):
         return {
             "needs_bridge": self.needs_bridge,
             "runs_via": rt.display_name if rt else None,
+            "runs_at": _runs_at(rt),
             "runtime": rt.public() if rt else None,
             "runtime_options": [r.public() for r in self.runtimes if r.invocable] if self.choice_needed else [],
             "runtimes_found": len(self.runtimes),

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -310,9 +310,50 @@ def runs_in_background(provider: Provider) -> bool:
     return execution_of(provider) == "background"
 
 
+WORKER_TTL_SECONDS = 180
+
+
+def record_heartbeat(db: Session, worker_id: str, kinds: list[str], *, network: str = "host") -> None:
+    """A worker saying it is running, and where it sits."""
+    from app.models import WorkerHeartbeat
+
+    row = db.get(WorkerHeartbeat, worker_id)
+    if row is None:
+        row = WorkerHeartbeat(worker_id=worker_id)
+        db.add(row)
+    row.seen_at = utcnow()
+    row.kinds = list(kinds)
+    row.network = network
+    # A worker killed outright leaves its row behind. One sweep per heartbeat
+    # keeps the table the size of the workers actually running.
+    from sqlalchemy import delete as sa_delete
+
+    db.execute(sa_delete(WorkerHeartbeat).where(WorkerHeartbeat.seen_at < utcnow() - timedelta(seconds=WORKER_TTL_SECONDS * 4)))
+    db.commit()
+
+
+def worker_on_the_host(db: Session) -> bool:
+    """Is a worker running on the machine itself right now?
+
+    This is the question behind "can an address the container cannot reach be
+    tried from somewhere else", so it is asked of the workers themselves.
+    """
+    from sqlalchemy import select as sa_select
+
+    from app.models import WorkerHeartbeat
+
+    cutoff = utcnow() - timedelta(seconds=WORKER_TTL_SECONDS)
+    return db.execute(sa_select(WorkerHeartbeat.worker_id).where(WorkerHeartbeat.network == "host", WorkerHeartbeat.seen_at >= cutoff).limit(1)).first() is not None
+
+
 def worker_seen_recently(db: Session) -> bool:
-    """Has a worker reported on any background provider lately? Used by Connect
-    to know whether a local path can be handed to the host at all."""
+    """Is there a worker to hand something to?
+
+    A worker says so itself. Availability reports are still read as a second
+    answer, so an older worker that does not send heartbeats keeps working.
+    """
+    if worker_on_the_host(db):
+        return True
     for provider in list_providers(db):
         if not runs_in_background(provider):
             continue

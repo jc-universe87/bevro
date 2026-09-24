@@ -432,7 +432,40 @@ def execute_run(db: Session, run_id: uuid.UUID, *, secret_store: SecretStore | N
     begin_run(db, run)
     request = build_request(db, run, secret_store=secret_store)
     result, artifacts = execute(run.provider, request, context, execution=run.execution)
+    if _hand_to_worker(db, run, result):
+        return run
     return finish_run(db, run, result, artifacts)
+
+
+def _hand_to_worker(db: Session, run: ProviderRun, result: InvocationResult) -> bool:
+    """Could not be reached from here, but somewhere else could reach it?
+
+    The same address answers on the host and not in a container often enough
+    that "I could not reach it" is a statement about this process, not about
+    the provider. Where another of Bevro's processes can, the work moves
+    there rather than failing - the person asked for work, not for a lesson
+    in networking.
+    """
+    if run.execution != "inline" or result.failure != FailureKind.PROVIDER_UNAVAILABLE:
+        return False
+    runtime_service.apply_reachability(
+        run.provider,
+        {rt.id: rt.reachability.with_result(runtime_service.API, False) for rt in runtime_service.runtimes_of(run.provider) if runtime_service.is_network(rt)},
+    )
+    db.flush()
+    if not provider_service.worker_seen_recently(db):
+        return False
+    if runtime_service.execution_of(run.provider, True) != "background":
+        return False
+    run.execution = "background"
+    run.state = RunState.PENDING
+    run.started_at = None
+    # Committed here, not left to the caller: the worker is a different
+    # process and can only pick up what is already written down.
+    db.commit()
+    record_progress(run.id, "Trying from this machine")
+    log.info("run %s could not be reached from the API; handed to the worker", run.id)
+    return True
 
 
 def execute(provider: Provider, request: InvocationRequest, context: InvocationContext | None = None, *, execution: str | None = None) -> tuple[InvocationResult, list]:

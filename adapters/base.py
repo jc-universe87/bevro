@@ -166,6 +166,11 @@ class ProviderAdapter(Protocol):
     # "inline": quick, run by the API process itself.
     # "background": may take minutes; a worker process picks it up.
     execution: str = "inline"
+    # True when the provider is reached over the network rather than run as a
+    # process. Such a provider can be invoked from either the API container or
+    # the host worker - whichever can actually reach it - so the worker must be
+    # willing to pick one up even though the usual execution is "inline".
+    network: bool = False
     # Things Bevro must supply in `input` before a run can start, e.g. {"workspace"}.
     # Bevro asks the user for whatever it cannot infer.
     requires: frozenset[str] = frozenset()

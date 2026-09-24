@@ -38,6 +38,7 @@ from adapters.base import (
     ProviderSpec,
     ResultState,
 )
+from adapters import urlsafety
 from adapters.registry import register_adapter
 from adapters.runtime import BaseRuntimeAdapter
 
@@ -359,11 +360,25 @@ def _cell(value: Any) -> Any:
     return "" if value is None else value
 
 
+def _safe_base(config: dict[str, Any]) -> str:
+    """The service's own address, if Bevro is allowed to fetch it.
+
+    Checked again at the moment of use, in whichever process is using it. A
+    stored address is not a licence, and the policy has one home.
+    """
+    base = str(config.get("base_url") or "").rstrip("/")
+    if not base:
+        raise urlsafety.UnsafeUrl("No address recorded for this connection.")
+    urlsafety.check(base)
+    return base
+
+
 class OpenApiAdapter(BaseRuntimeAdapter):
     """Runs a validated OperationPlan against a described HTTP service."""
 
     kind = "openapi"
     execution = "inline"
+    network = True
     requires: tuple[str, ...] = ()
 
     def __init__(self, transport: httpx.BaseTransport | None = None) -> None:
@@ -378,9 +393,12 @@ class OpenApiAdapter(BaseRuntimeAdapter):
         starts work is not a test.
         """
         config = provider.adapter_config
-        base = str(config.get("base_url") or "").rstrip("/")
-        if not base:
-            return HealthResult(ok=False, state="unavailable", detail="No address recorded for this connection.")
+        try:
+            base = _safe_base(config)
+        except urlsafety.UnsafeUrl as exc:
+            # An address Bevro would refuse to fetch is not a healthy one,
+            # even when there happens to be nothing here worth fetching.
+            return HealthResult(ok=False, state="unavailable", detail=str(exc))
         try:
             with self._client(config, secrets or {}) as client:
                 descriptor = str(config.get("descriptor_url") or "")
@@ -434,9 +452,10 @@ class OpenApiAdapter(BaseRuntimeAdapter):
 
     def invoke(self, provider: ProviderSpec, request: InvocationRequest, context: InvocationContext | None = None) -> InvocationResult:
         config = provider.adapter_config
-        base = str(config.get("base_url") or "").rstrip("/")
-        if not base:
-            return self._failed("This connection has no address recorded.", FailureKind.CONFIGURATION_PROBLEM)
+        try:
+            base = _safe_base(config)
+        except urlsafety.UnsafeUrl as exc:
+            return self._failed(str(exc), FailureKind.CONFIGURATION_PROBLEM)
 
         # Planning happens before the adapter is called; if it could not find
         # a way to answer, that is the answer.
@@ -514,7 +533,7 @@ class OpenApiAdapter(BaseRuntimeAdapter):
             headers["Authorization"] = f"Bearer {token}"
         elif token and auth.get("type") == "header" and auth.get("name"):
             headers[str(auth["name"])] = token
-        return httpx.Client(timeout=TIMEOUT_SECONDS, transport=self._transport, follow_redirects=True, headers=headers)
+        return urlsafety.client(timeout=TIMEOUT_SECONDS, transport=self._transport, headers=headers)
 
     @staticmethod
     def _body(response: httpx.Response) -> tuple[Any, str]:

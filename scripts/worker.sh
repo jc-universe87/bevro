@@ -41,7 +41,11 @@ if ! mkdir -p data/artifacts data/logs 2>/dev/null || [ ! -w data ]; then
 fi
 
 DB_PORT="${BEVRO_DB_PORT:-6142}"
-export BEVRO_DATABASE_URL="${BEVRO_WORKER_DATABASE_URL:-postgresql+psycopg://bevro:bevro@localhost:${DB_PORT}/bevro}"
+# The stack publishes its ports on BEVRO_BIND, which is not always localhost.
+# A wildcard bind is reachable here as 127.0.0.1; a specific address is not.
+DB_HOST="${BEVRO_BIND:-127.0.0.1}"
+case "$DB_HOST" in ""|0.0.0.0|::|"[::]") DB_HOST=127.0.0.1 ;; esac
+export BEVRO_DATABASE_URL="${BEVRO_WORKER_DATABASE_URL:-postgresql+psycopg://bevro:bevro@${DB_HOST}:${DB_PORT}/bevro}"
 export BEVRO_ARTIFACT_DIR="${BEVRO_WORKER_ARTIFACT_DIR:-$ROOT/data/artifacts}"
 export BEVRO_LOG_DIR="${BEVRO_WORKER_LOG_DIR:-$ROOT/data/logs}"
 export BEVRO_WORKSPACES_FILE="${BEVRO_WORKER_WORKSPACES_FILE:-$ROOT/config/workspaces.json}"
@@ -54,12 +58,12 @@ export BEVRO_LOCAL_ROOTS="${BEVRO_LOCAL_ROOTS:-}"
 export PYTHONPATH="$ROOT:$ROOT/api"
 
 # Is the database there? Failing here is much clearer than a stack trace later.
-.venv/bin/python - "$DB_PORT" <<'PY' || fail "can't reach PostgreSQL on port ${DB_PORT}" \
+.venv/bin/python - "$DB_HOST" "$DB_PORT" <<'PY' || fail "can't reach PostgreSQL at ${DB_HOST}:${DB_PORT}" \
   "Start the stack first:" \
   "  docker compose up -d"
 import socket, sys
 try:
-    socket.create_connection(("localhost", int(sys.argv[1])), timeout=3).close()
+    socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=3).close()
 except OSError:
     raise SystemExit(1)
 PY
@@ -67,7 +71,7 @@ PY
 # What this worker will and will not be able to do, in one short block. No
 # values are printed: only whether something is set.
 echo "Bevro worker"
-echo "  database      localhost:${DB_PORT}"
+echo "  database      ${DB_HOST}:${DB_PORT}"
 echo "  writes to     data/artifacts, data/logs"
 if [ -f "$BEVRO_WORKSPACES_FILE" ]; then
   echo "  workspaces    $BEVRO_WORKSPACES_FILE"

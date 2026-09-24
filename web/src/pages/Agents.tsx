@@ -195,7 +195,10 @@ function ManagePanel({ provider, onChange, onRemoved, focusCredential = false, a
         {provider.runtime && (
           <>
             <dt className="text-muted">{(provider.runtime.alternatives ?? 0) > 0 ? "Preferred" : "Runs"}</dt>
-            <dd>{provider.runtime.display_name}</dd>
+            <dd>
+              {provider.runtime.display_name}
+              {provider.runtime.runs_at && <span className="text-subtle"> · {provider.runtime.runs_at}</span>}
+            </dd>
           </>
         )}
         {(provider.runtime?.alternatives ?? 0) > 0 && (

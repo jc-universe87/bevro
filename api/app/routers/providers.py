@@ -309,8 +309,12 @@ def check_provider(provider_id: uuid.UUID, db: Session = Depends(get_db)) -> Hea
         db.commit()
         return HealthOut(ok=result.ok, detail=result.detail)
     if not outcomes:
-        detail = worker_note["note"] or ((provider.availability or {}).get("detail") if worker_ok else None)
-        return HealthOut(ok=worker_ok, detail=detail if worker_ok else (worker_note["note"] or "No worker has reported on this yet."))
+        if not worker_ok:
+            return HealthOut(ok=False, detail=worker_note["note"] or "No worker has reported on this yet.")
+        # Nothing was tried here, so say where it was reached instead of
+        # leaving a bare "Reachable." about a process that never got there.
+        here = "Runs on this machine." if any(rt.reachability.host_only() for rt in deferred) else None
+        return HealthOut(ok=True, detail=worker_note["note"] or (provider.availability or {}).get("detail") or here)
 
     working = [rt for rt, result in outcomes if result.ok]
     total = len(outcomes) + len(deferred)

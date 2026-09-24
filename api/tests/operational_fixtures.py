@@ -14,6 +14,11 @@ on any particular product - they are the *shapes* that exist:
     H  read only     an operational service that can only be asked questions
     I  state change  an operational service that can also change things
     J  external      an operational service that can contact someone
+    K  mcp           an MCP server reached over HTTP
+    L  nothing       an address where no connection is ever made
+
+It also holds the runtime builders the location tests share, so that "which
+process can see this" can be set up without a live service anywhere.
 """
 
 from __future__ import annotations
@@ -200,3 +205,81 @@ def as_config(descriptor: dict[str, Any], *, base_url: str = "http://service.loc
 
 def dumps(value: Any) -> str:
     return json.dumps(value, sort_keys=True)
+
+
+# --------------------------------------------------------------------------- K, L
+
+def mcp_service() -> tuple[httpx.MockTransport, list[str]]:
+    """K: an MCP server over Streamable HTTP, with one asking tool."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(f"{request.method} {request.url.path}")
+        if request.method != "POST" or request.url.path != "/mcp":
+            return httpx.Response(404, json={"detail": "not found"})
+        msg = json.loads(request.content)
+        if msg.get("id") is None:
+            return httpx.Response(202)
+        if msg["method"] == "initialize":
+            return httpx.Response(
+                200,
+                json={"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "Reference Desk", "version": "1"}, "instructions": "Look things up"}},
+                headers={"Mcp-Session-Id": "s1"},
+            )
+        if msg["method"] == "tools/list":
+            tools = [{"name": "ask_desk", "description": "Ask the desk", "inputSchema": {"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}}]
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": msg["id"], "result": {"tools": tools}})
+        if msg["method"] == "tools/call":
+            asked = msg["params"]["arguments"]["question"]
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": msg["id"], "result": {"content": [{"type": "text", "text": f"The desk says: {asked}"}]}})
+        return httpx.Response(400, json={"detail": "unexpected"})
+
+    return httpx.MockTransport(handler), calls
+
+
+def nothing_answers() -> httpx.MockTransport:
+    """L: every connection times out, as a firewalled address does."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("no route from this process")
+
+    return httpx.MockTransport(handler)
+
+
+# --------------------------------------------------------------------------- runtimes
+
+def network_runtime(kind: str = "openapi", *, base: str = "http://service.local", **reach: Any) -> Any:
+    """One way in over a network, with who can see it set explicitly."""
+    from adapters.runtime import ADAPTER_FOR_KIND, Reachability, RuntimeKind, RuntimeProfile
+
+    runtime_kind = RuntimeKind(kind)
+    return RuntimeProfile(
+        id=str(runtime_kind),
+        kind=runtime_kind,
+        display_name="Connected over the network",
+        adapter={"kind": ADAPTER_FOR_KIND[runtime_kind], "config": {"base_url": base}},
+        reachability=Reachability(**reach),
+    )
+
+
+def host_runtime() -> Any:
+    """A command in a folder: the worker's by nature, whoever can reach what."""
+    from adapters.runtime import RuntimeKind, RuntimeProfile
+
+    return RuntimeProfile(
+        id="cli",
+        kind=RuntimeKind.CLI,
+        display_name="Runs on this machine",
+        adapter={"kind": "command", "config": {"argv": ["python", "-m", "thing"], "cwd": "/somewhere"}},
+    )
+
+
+def provider_with(*runtimes: Any) -> Any:
+    """Enough of a provider for the questions about where it runs."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        runtimes=[rt.model_dump(mode="json") for rt in runtimes],
+        active_runtime=runtimes[0].id if runtimes else None,
+        adapter=runtimes[0].adapter if runtimes else {},
+    )

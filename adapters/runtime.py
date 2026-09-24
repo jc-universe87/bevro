@@ -230,6 +230,54 @@ def credentials_differ(failed: "RuntimeProfile", candidate: "RuntimeProfile") ->
     return set(candidate.credentials.names) != set(failed.credentials.names)
 
 
+# Where Bevro can run something from. A runtime's *kind* says how it is
+# reached; its *location* says which of Bevro's processes can do the
+# reaching. They are not the same thing: a web service may be visible to the
+# API container, to the host worker, to both, or to neither.
+API = "api"
+WORKER = "worker"
+
+
+class Reachability(BaseModel):
+    """Which of Bevro's processes can actually get to this runtime.
+
+    "unknown" means nobody has looked yet, which is different from having
+    looked and failed. A runtime is only unusable when every location has
+    been tried and none of them worked.
+    """
+
+    api: str = "unknown"      # available | unavailable | unknown
+    worker: str = "unknown"
+    api_checked_at: datetime | None = None
+    worker_checked_at: datetime | None = None
+
+    def state(self, location: str) -> str:
+        return self.api if location == API else self.worker
+
+    def with_result(self, location: str, ok: bool, now: datetime | None = None) -> "Reachability":
+        moment = now or _utcnow()
+        state = "available" if ok else "unavailable"
+        if location == API:
+            return self.model_copy(update={"api": state, "api_checked_at": moment})
+        return self.model_copy(update={"worker": state, "worker_checked_at": moment})
+
+    def usable_from(self) -> list[str]:
+        """Locations known to work, best guess first."""
+        return [loc for loc in (API, WORKER) if self.state(loc) == "available"]
+
+    def ruled_out(self, location: str) -> bool:
+        return self.state(location) == "unavailable"
+
+    def host_only(self) -> bool:
+        """Is the host the only place left that could reach this?
+
+        True once the API has tried and failed and the worker has not been
+        ruled out - whether or not the worker has been asked yet. That is the
+        point at which the person needs to know the worker must be running.
+        """
+        return self.ruled_out(API) and not self.ruled_out(WORKER)
+
+
 class RuntimeProfile(BaseModel):
     id: str = Field(max_length=40)
     kind: RuntimeKind = RuntimeKind.UNKNOWN
@@ -253,6 +301,9 @@ class RuntimeProfile(BaseModel):
     priority: int = 0
     # What recent runs and checks say about this way of reaching the provider.
     health: RuntimeHealth = Field(default_factory=RuntimeHealth)
+    # Which of Bevro's processes can reach it. Only meaningful for runtimes
+    # reached over a network; a command on the host is the worker's by nature.
+    reachability: Reachability = Field(default_factory=Reachability)
 
     @property
     def adapter_kind(self) -> str:
@@ -267,6 +318,9 @@ class RuntimeProfile(BaseModel):
         return {
             "id": self.id,
             "display_name": self.display_name,
+            # Said only when it is worth saying: a service only the host can
+            # reach needs the worker running, which the person should know.
+            "runs_at": "On this machine" if self.reachability.host_only() else None,
             "availability": self.availability,
             "confidence": self.confidence,
             "credentials": {
@@ -355,7 +409,16 @@ class BaseRuntimeAdapter:
     def health(self, provider: ProviderSpec, secrets: dict[str, str]) -> HealthResult:
         return self.check(provider, secrets)
 
-    def check(self, provider: ProviderSpec, secrets: dict[str, str]) -> HealthResult:  # pragma: no cover - overridden
+    def check(self, provider: ProviderSpec, secrets: dict[str, str]) -> HealthResult:
+        """The older name for health, kept for callers that still use it.
+
+        An adapter writes one or the other. Whichever it wrote is the one
+        that answers, in both directions - otherwise an adapter that only
+        implements `health` would quietly inherit a "yes" here, and a
+        connection test would pass without testing anything.
+        """
+        if type(self).health is not BaseRuntimeAdapter.health:
+            return self.health(provider, secrets)
         return HealthResult(ok=True)
 
     def status(self, provider: ProviderSpec, external_ref: str, secrets: dict[str, str]) -> InvocationResult:

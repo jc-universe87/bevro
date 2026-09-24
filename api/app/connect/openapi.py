@@ -46,7 +46,7 @@ class Descriptor:
 
     url: str
     spec: dict[str, Any]
-    # "http://host:6300" - everything is relative to this.
+    # "http://host:8080" - everything is relative to this.
     origin: str
     # The path the person actually typed, e.g. "/p/someone/". Kept because
     # it may carry scope, and because reconnecting should start where they did.
@@ -382,6 +382,31 @@ def _titled(text: str) -> str:
     return " ".join(w[:1].upper() + w[1:] for w in words if w)
 
 
+# Path segments that name no subject: versions, the word "api", and so on.
+_PLUMBING = frozenset({"api", "v1", "v2", "v3", "rest", "public", "internal", "index"})
+
+
+def _subject_words(ops: list["Operation"]) -> list[str]:
+    """The nouns a service puts in its own addresses for this group.
+
+    A service's tag and its URLs often disagree - "shortlist" over
+    /api/v1/opportunities - and the person asking may use either. Both are
+    the service's own words, so both are worth knowing.
+    """
+    words: list[str] = []
+    for op in ops:
+        for segment in str(op.path or "").split("/"):
+            segment = segment.strip()
+            if not segment or segment.startswith("{"):
+                continue
+            word = re.sub(r"[^a-z0-9]+", " ", segment.lower()).strip()
+            if not word or word in _PLUMBING or len(word) < 4 or re.fullmatch(r"v\d+", word):
+                continue
+            if word not in words:
+                words.append(word)
+    return words[:6]
+
+
 def capabilities_from_operations(catalogue: list[Operation]) -> list[dict[str, str]]:
     """Group operations into abilities a person would recognise.
 
@@ -401,13 +426,15 @@ def capabilities_from_operations(catalogue: list[Operation]) -> list[dict[str, s
             break
         readable = [o for o in ops if o.safety == READ_ONLY and o.summary] or [o for o in ops if o.summary]
         description = readable[0].summary if readable else f"{len(ops)} operations"
-        capabilities.append(
-            {
-                "id": re.sub(r"[^a-z0-9]+", "_", tag.lower()).strip("_") or "general",
-                "title": _titled(tag),
-                "description": description[:200],
-            }
-        )
+        capability: dict[str, Any] = {
+            "id": re.sub(r"[^a-z0-9]+", "_", tag.lower()).strip("_") or "general",
+            "title": _titled(tag),
+            "description": description[:200],
+        }
+        terms = [w for w in _subject_words(ops) if w != capability["id"]]
+        if terms:
+            capability["terms"] = terms
+        capabilities.append(capability)
     return capabilities
 
 

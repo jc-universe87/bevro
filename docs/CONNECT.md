@@ -254,6 +254,13 @@ grouped by the service's own tags and described in the service's own words,
 so Agents shows a handful of things a person would recognise. Operation ids,
 verbs and schemas stay server-side.
 
+Each capability also keeps the service's *other* words for the same thing,
+taken from its own addresses: a tag may say `shortlist` where every URL says
+`/opportunities`. A person may ask with either, and both are the service's
+own vocabulary rather than Bevro's guess. Those words are used for matching
+only - they are not shown, and not sent to a routing model, which can find
+synonyms by itself.
+
 ### Scope: which profile, workspace or tenant
 
 Operational systems are often scoped. A pasted route may carry that — but a
@@ -329,6 +336,30 @@ Offered after discovery, before anything is saved. Always safe:
 | a service found in a project (`needs_start`) | once you have started it, its address is discovered like a URL and the draft is completed |
 
 No real task runs during a test.
+
+## Addresses the container cannot reach
+
+A web service can be running perfectly and still be invisible from inside
+Docker: a Tailscale address, a VPN, a host-only interface, a firewall that
+does not let the Docker bridge back in. That is a fact about the process that
+looked, not about the service, and Connect treats it that way.
+
+1. The API asks once whether anything answers at all. It does not walk a list
+   of paths against a host that is not going to answer any of them.
+2. If nothing answers and a worker is running on the machine, the draft is
+   left pending and the worker looks. To the person it is one *Looking…*.
+3. Whoever found it is recorded on the runtime, along with whoever tried and
+   could not, so the first run does not repeat a wait already known to end in
+   nothing.
+
+The draft then says **Runs via: Connected over the network · On this
+machine**, because that connection needs `./scripts/worker.sh` to be running
+to work at all.
+
+**Test connection** and **Reconnect** follow the same rule: both run wherever
+the service can actually be reached. A reconnect the API cannot do is handed
+to the worker and waited for, and it refreshes what the service says it can
+do as well as how it is reached.
 
 ## Where local things run: the worker and approved roots
 

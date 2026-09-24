@@ -34,6 +34,15 @@ from tests import operational_fixtures as fx
 import uuid
 
 
+@pytest.fixture(autouse=True)
+def reset_discovery():
+    """Put the real discovery service back after each test."""
+    from app.connect.service import set_discovery_service
+
+    yield
+    set_discovery_service(None)
+
+
 def discover(url: str, transport):
     return ConnectionDiscoveryService(use_assist=False).discover(classify_target(url), DiscoveryContext(roots=[], transport=transport))
 

@@ -292,6 +292,7 @@ export default function Connect() {
             found.runs_via && (
               <p className="mt-4 text-sm">
                 <span className="text-muted">Runs via:</span> {found.runs_via}
+                {found.runs_at && <span className="text-subtle"> · {found.runs_at}</span>}
                 <span className="text-subtle"> · {readiness(found)}</span>
                 {found.confidence !== "high" && !unsure && <span className="text-subtle"> · {found.confidence_label}</span>}
               </p>

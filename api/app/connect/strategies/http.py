@@ -19,13 +19,21 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
+from adapters import urlsafety
 from adapters.runtime import CredentialStrategy, Credentials, RuntimeKind
 from app.connect import openapi
 from app.connect.capabilities import capability_from_tool, infer_capabilities
 from app.connect.draft import DraftAuth, DraftCapability, ProviderDraft
 from app.connect.inspect import humanise
 from app.connect.runtimes import http_runtime
-from app.connect.strategies.base import DiscoveryContext, DiscoveryFailed
+from app.connect.strategies.base import DiscoveryContext, DiscoveryFailed, NotReachable
+
+
+class _NoContact(Exception):
+    """Nothing accepted a connection - as opposed to answering badly."""
+
+
+UNREACHABLE_MESSAGE = "Nothing answered at that address. Check that it is running and reachable from this machine."
 from app.connect.targets import ConnectTarget
 
 OPENAPI_PATHS = ("/openapi.json", "/api/openapi.json", "/openapi.yaml")
@@ -61,7 +69,20 @@ class HttpDiscoveryStrategy:
         if token:
             headers["Authorization"] = f"Bearer {token}"
         transport = context.transport or self._transport
-        with httpx.Client(timeout=context.timeout, transport=transport, follow_redirects=True, headers=headers) as client:
+        try:
+            urlsafety.check(url)
+        except urlsafety.UnsafeUrl as exc:
+            raise DiscoveryFailed(str(exc)) from None
+        with urlsafety.client(timeout=context.timeout, transport=transport, headers=headers) as client:
+            # 0. Is anything there at all? Asked once, before any paths are
+            # walked. An address this process cannot reach fails the same way
+            # for every path it is asked about, and discovering that five
+            # times over is a minute the person spends watching nothing.
+            try:
+                reached, title = _root(client, url)
+            except _NoContact:
+                raise NotReachable(UNREACHABLE_MESSAGE) from None
+
             # 1. An address that looks like an MCP endpoint: ask it first.
             if target.kind == "mcp":
                 draft = _probe_mcp(url, context, headers)
@@ -93,10 +114,9 @@ class HttpDiscoveryStrategy:
                 draft = _probe_mcp(url, context, headers)
                 if draft is not None:
                     return draft
-            # 4. Something that does not describe itself, or nothing at all.
-            reached, title = _root(client, url)
+            # 4. Something that does not describe itself, or nothing usable.
             if not reached:
-                raise DiscoveryFailed("Nothing answered at that address. Check that it is running and reachable from this machine.")
+                raise NotReachable(UNREACHABLE_MESSAGE)
             return _from_bare(url, title, health_path)
 
 
@@ -187,7 +207,7 @@ def _from_operational(client: httpx.Client, found: openapi.Descriptor, catalogue
     base = found.origin
 
     context, choices, scope_evidence = _resolve_scope(client, base, catalogue, found.entered_path)
-    capabilities = [DraftCapability(id=c["id"], title=c["title"], description=c["description"]) for c in openapi.capabilities_from_operations(catalogue)]
+    capabilities = [DraftCapability(id=c["id"], title=c["title"], description=c["description"], terms=c.get("terms") or []) for c in openapi.capabilities_from_operations(catalogue)]
     usable = [op for op in catalogue if op.safety in (openapi.READ_ONLY, openapi.WORK_EXECUTION)]
 
     auth, auth_config = _auth_from(found.spec)
@@ -317,8 +337,16 @@ def _find_health(client: httpx.Client, base: str) -> str | None:
 
 
 def _root(client: httpx.Client, url: str) -> tuple[bool, str | None]:
+    """Did anything answer here, and what does it call itself?
+
+    "Answered" and "answered usefully" are separated from "could not be
+    reached at all", because only the last one is a statement about this
+    process rather than about the service.
+    """
     try:
         r = client.get(url, headers={"Accept": "text/html, application/json"})
+    except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+        raise _NoContact() from exc
     except httpx.HTTPError:
         return False, None
     if r.status_code >= 500:

@@ -48,6 +48,7 @@ from adapters.base import (
 )
 from adapters.registry import register_adapter
 from adapters.runtime import BaseRuntimeAdapter
+from adapters import urlsafety
 
 TIMEOUT = 30.0
 log = logging.getLogger("bevro.adapters.http")
@@ -142,14 +143,30 @@ def _parse_result(data: dict[str, Any]) -> InvocationResult:
     )
 
 
+def _safe_base(cfg: dict[str, Any]) -> str:
+    """The service's address, if Bevro is allowed to fetch it at all.
+
+    The same check discovery made, made again at the moment of use and in
+    whichever process is doing the using. A stored address is not a licence:
+    the policy lives in one module and every process reads it from there.
+    """
+    base = str(cfg.get("base_url", "")).rstrip("/")
+    if not base:
+        raise urlsafety.UnsafeUrl("no base_url configured")
+    urlsafety.check(base)
+    return base
+
+
 class HttpAdapter(BaseRuntimeAdapter):
     kind = "http"
+    network = True
 
     def check(self, provider: ProviderSpec, secrets: dict[str, str]) -> HealthResult:
         cfg = provider.adapter_config
-        base = str(cfg.get("base_url", "")).rstrip("/")
-        if not base:
-            return HealthResult(ok=False, detail="no base_url configured")
+        try:
+            base = _safe_base(cfg)
+        except urlsafety.UnsafeUrl as exc:
+            return HealthResult(ok=False, detail=str(exc))
         try:
             r = httpx.get(base + str(cfg.get("health_path") or "/health"), headers=_headers(cfg, secrets), timeout=10.0)
             if r.status_code == 404 and cfg.get("health_path") is None and cfg.get("invoke"):
@@ -161,9 +178,10 @@ class HttpAdapter(BaseRuntimeAdapter):
 
     def invoke(self, provider: ProviderSpec, request: InvocationRequest, context: InvocationContext | None = None) -> InvocationResult:
         cfg = provider.adapter_config
-        base = str(cfg.get("base_url", "")).rstrip("/")
-        if not base:
-            return InvocationResult(state=ResultState.FAILED, error=f"{provider.name} has no address configured.", failure=FailureKind.CONFIGURATION_PROBLEM)
+        try:
+            base = _safe_base(cfg)
+        except urlsafety.UnsafeUrl:
+            return InvocationResult(state=ResultState.FAILED, error=f"{provider.name} has no address Bevro can use.", failure=FailureKind.CONFIGURATION_PROBLEM)
         profile = cfg.get("invoke") if isinstance(cfg.get("invoke"), dict) else None
         try:
             if profile:

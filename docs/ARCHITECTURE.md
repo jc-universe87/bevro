@@ -151,6 +151,23 @@ sentence and actions — Add credential, Retry, Test connection, Manage.
 run; it is the one deliberate way out of the terminal `failed` state, and
 only a person takes it.
 
+## Two processes, two views of the network
+
+The API runs in a container; the worker runs on the machine. That is not only
+about who may read a folder - they also see different networks. A service on a
+Tailscale or host-only address answers the worker and times out for the API.
+
+So a runtime carries **where it can be reached from** separately from **how it
+is reached**: `Reachability(api=..., worker=...)` on the RuntimeProfile, filled
+in only by attempts that actually happened. `execution_of()` reads it to decide
+whether a run goes inline or to the worker, and a run that fails to connect in
+the API is handed over rather than failed. `docs/RUNTIMES.md` has the rules.
+
+The security policy does not change with the location. Both processes fetch
+through `adapters/urlsafety.py`: http and https only, bounded redirects,
+operations called on the service's own origin and never on an address that
+arrived in a payload. There is no relaxed "worker mode".
+
 ## What is deliberately not here
 
 - No queue system, no Redis, no Celery. Quick runs are one function call in

@@ -30,6 +30,8 @@ from adapters.base import HealthResult, NotSupported
 from adapters.registry import execution_mode
 from adapters.runtime import (
     ADAPTER_FOR_KIND,
+    API,
+    WORKER,
     CredentialStrategy,
     Credentials,
     HealthState,
@@ -147,13 +149,54 @@ def execution_of_runtime(provider: Provider, runtime: RuntimeProfile) -> str:
     return execution_mode(adapter, adapter_block(provider, runtime))
 
 
+# Runtimes reached over a network: which process can see them is a question
+# worth asking, because the answer differs. Everything else is decided by the
+# mechanism alone - a command on the host is the worker's by nature.
+NETWORK_KINDS = frozenset({RuntimeKind.HTTP, RuntimeKind.OPENAPI, RuntimeKind.MCP_HTTP, RuntimeKind.DOCKER_COMPOSE, RuntimeKind.SYSTEMD, RuntimeKind.PROCESS})
+
+
+def is_network(runtime: RuntimeProfile) -> bool:
+    return runtime.kind in NETWORK_KINDS and not (runtime.adapter.get("config") or {}).get("argv")
+
+
+def locations_for(provider: Provider, runtime: RuntimeProfile, *, worker_available: bool | None = None) -> list[str]:
+    """Where this runtime could be driven from, least dependent first.
+
+    A mechanism that needs the host is the worker's whatever anyone can
+    reach. A network runtime may be visible to the API, to the worker, to
+    both or to neither - and what was actually tried is remembered on the
+    runtime, so a location already ruled out is not offered again.
+    """
+    if execution_of_runtime(provider, runtime) == "background" and not is_network(runtime):
+        return [WORKER] if worker_available is not False else []
+    if not is_network(runtime):
+        return [API]
+
+    reach = runtime.reachability
+    options: list[str] = []
+    # The API needs no other process, so it is always the first choice when
+    # it has not been ruled out.
+    if not reach.ruled_out(API):
+        options.append(API)
+    if not reach.ruled_out(WORKER) and worker_available is not False:
+        options.append(WORKER)
+    # Somewhere known to work comes before somewhere merely untried.
+    options.sort(key=lambda loc: 0 if reach.state(loc) == "available" else 1)
+    return options
+
+
+def execution_location(provider: Provider, runtime: RuntimeProfile, *, worker_available: bool | None = None) -> str | None:
+    """The one place this runtime should be driven from, or None if nowhere."""
+    options = locations_for(provider, runtime, worker_available=worker_available)
+    return options[0] if options else None
+
+
 def execution_of(provider: Provider, worker_available: bool | None = None) -> str:
     """Where a run for this provider belongs: the API thread, or the worker.
 
-    A way in that needs the host can only be driven by the worker; the worker
-    can drive every mechanism. So a provider with any host runtime goes to the
-    worker - unless it also has a way the API can reach and no worker is
-    about, in which case the API takes it rather than let the work wait.
+    The least dependent location that can actually reach it. A provider whose
+    network runtime the API can see is run here; one the API cannot see goes
+    to the worker, which may be on a network the container is not.
     """
     profiles = [rt for rt in runtimes_of(provider) if rt.invocable]
     if not profiles:
@@ -162,16 +205,38 @@ def execution_of(provider: Provider, worker_available: bool | None = None) -> st
         except NotSupported:
             return "inline"
     modes = {execution_of_runtime(provider, rt) for rt in profiles}
-    if "background" not in modes:
+    if "background" in modes:
+        # Something here needs the host. The worker can drive every mechanism,
+        # so it takes the whole provider and every way in stays available to
+        # fall back to - unless there is no worker, when a way the API can
+        # reach is better than waiting.
+        if "inline" not in modes:
+            return "background"
+        return "inline" if worker_available is False else "background"
+
+    # Everything here is reached over a network, so the only question is who
+    # can see it. The API needs no other process, so it goes first.
+    network = [rt for rt in profiles if is_network(rt)]
+    if any(API in locations_for(provider, rt, worker_available=worker_available) for rt in network):
         return "inline"
-    if "inline" not in modes:
+    if any(WORKER in locations_for(provider, rt, worker_available=worker_available) for rt in network):
         return "background"
-    return "inline" if worker_available is False else "background"
+    return "inline" if not network else "background"
 
 
 def reachable_without_worker(provider: Provider) -> bool:
-    """Is there a usable way in that this process can drive itself?"""
-    return any(execution_of_runtime(provider, rt) == "inline" for rt in runtimes_of(provider) if rt.invocable)
+    """Is there a usable way in that this process can drive itself?
+
+    A network runtime the API has already failed to reach does not count: it
+    is a way in for the worker, not for this process.
+    """
+    for rt in runtimes_of(provider):
+        if not rt.invocable or execution_of_runtime(provider, rt) != "inline":
+            continue
+        if is_network(rt) and rt.reachability.ruled_out(API):
+            continue
+        return True
+    return False
 
 
 def requires_of(provider: Provider) -> frozenset[str]:
@@ -428,20 +493,31 @@ def check_runtime(provider: Provider, runtime: RuntimeProfile, secrets: dict[str
         return HealthResult(ok=False, state="unavailable", detail=f"{type(exc).__name__}")
 
 
-def check_all_runtimes(provider: Provider, secrets: dict[str, str], *, execution: str | None = None) -> tuple[list[tuple[RuntimeProfile, HealthResult]], list[RuntimeProfile]]:
+def check_all_runtimes(provider: Provider, secrets: dict[str, str], *, execution: str | None = None, location: str = API) -> tuple[list[tuple[RuntimeProfile, HealthResult]], list[RuntimeProfile]]:
     """Test every way in this process can reach, and record what each says.
 
     Returns (what was checked, what this process cannot reach from here - a
     folder or a command belongs to the worker on the host). A runtime that
     answers is restored, which is how one that was down comes back.
+
+    `location` says which process is asking. For a runtime reached over a
+    network that is the whole question: the same address can answer here and
+    not there, so the answer is remembered per location rather than as one
+    verdict about the runtime.
     """
     outcomes: list[tuple[RuntimeProfile, HealthResult]] = []
     deferred: list[RuntimeProfile] = []
     updates: dict[str, Any] = {}
+    reach: dict[str, Any] = {}
     for rt in runtimes_of(provider):
         if not rt.invocable:
             continue
         if execution == "inline" and execution_of_runtime(provider, rt) == "background":
+            deferred.append(rt)
+            continue
+        if execution == "inline" and location == API and is_network(rt) and rt.reachability.host_only():
+            # Already known not to answer here. Testing it again would report
+            # "not reachable" about a connection the worker uses every day.
             deferred.append(rt)
             continue
         # A credential Bevro has not been given is not a reason to call the
@@ -451,8 +527,23 @@ def check_all_runtimes(provider: Provider, secrets: dict[str, str], *, execution
         result = check_runtime(provider, rt, secrets)
         outcomes.append((rt, result))
         updates[rt.id] = rt.health.after_success() if result.ok else rt.health.after_failure(result.detail)
+        if is_network(rt):
+            reach[rt.id] = rt.reachability.with_result(location, result.ok)
     apply_health(provider, updates)
+    apply_reachability(provider, reach)
     return outcomes, deferred
+
+
+def apply_reachability(provider: Provider, updates: dict[str, Any]) -> None:
+    """Record which process could reach which network runtime. Caller commits."""
+    if not updates:
+        return
+    profiles = []
+    for rt in runtimes_of(provider):
+        if rt.id in updates:
+            rt = rt.model_copy(update={"reachability": updates[rt.id]})
+        profiles.append(rt)
+    provider.runtimes = [rt.model_dump(mode="json") for rt in profiles]
 
 
 def cancel(provider: Provider, external_ref: str, secrets: dict[str, str]) -> bool:

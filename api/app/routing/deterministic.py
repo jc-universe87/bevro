@@ -93,14 +93,37 @@ def _words(text: str) -> set[str]:
     return {_stem(w) for w in _WORD_RE.findall(text.lower()) if w not in _STOPWORDS}
 
 
-def _mention_score(request_words: set[str], entry: CatalogueEntry) -> int:
-    """How many distinct request words name this provider or one of its capabilities.
-    Names and capability ids/titles only: descriptions are too loose."""
-    vocabulary: set[str] = _words(entry.name)
+def _capability_names(entry: CatalogueEntry) -> set[str]:
+    """What the provider calls each thing it can do: the ids, and nothing else.
+
+    An id is the one word chosen for a capability - "shortlist", "coding" -
+    so a request that uses it is using the provider's own term. The words of
+    a title are ordinary English ("Build, fix and change software") and say
+    much less about what is being asked for.
+    """
+    names: set[str] = set()
+    for cap in entry.capabilities:
+        names |= _words(cap.id.replace("_", " ").replace(".", " "))
+        for term in cap.terms:
+            names |= _words(term)
+    return names
+
+
+def _capability_words(entry: CatalogueEntry) -> set[str]:
+    """The provider's own words for the things it says it can do."""
+    vocabulary: set[str] = set()
     for cap in entry.capabilities:
         vocabulary |= _words(cap.id.replace("_", " ").replace(".", " "))
         vocabulary |= _words(cap.title or "")
-    return len(request_words & vocabulary)
+        for term in cap.terms:
+            vocabulary |= _words(term)
+    return vocabulary
+
+
+def _mention_score(request_words: set[str], entry: CatalogueEntry) -> int:
+    """How many distinct request words name this provider or one of its capabilities.
+    Names and capability ids/titles only: descriptions are too loose."""
+    return len(request_words & (_words(entry.name) | _capability_words(entry)))
 
 
 def _prefer_mentioned(request: str, entries: list[CatalogueEntry]) -> CatalogueEntry:
@@ -137,6 +160,17 @@ class DeterministicRouter:
         scored = sorted(((_mention_score(words, e), e) for e in usable), key=lambda pair: -pair[0])
         if scored and scored[0][0] >= 2:
             return self._select(scored[0][1], f"request names {scored[0][1].id!r} or its capabilities", 0.35)
+        # One word can be enough, but only when it is one agent's own word for
+        # something it does and no other connected agent claims it: "Show me my
+        # shortlist" names a capability that belongs to exactly one of them.
+        # Two words are still required for anything shared, because a word two
+        # agents both use distinguishes nothing - and none of this applies when
+        # the request did match a keyword family: "no agent does that" is a
+        # better answer than a guess built on one word.
+        owners = [e for e in usable if words & _capability_names(e)] if capability is None else []
+        if len(owners) == 1:
+            named = sorted(words & _capability_names(owners[0]))
+            return self._select(owners[0], f"only {owners[0].id!r} declares {', '.join(named)}", 0.3)
         if capability is not None:
             return RoutingDecision(routing_source=RoutingSource.DETERMINISTIC, reason=f"no provider declares {capability!r}")
         return RoutingDecision(routing_source=RoutingSource.DETERMINISTIC, reason="no rule matched the request")

@@ -44,7 +44,7 @@ export interface Provider {
   /** What the connection needs and whether it has it. Values are never sent. */
   credentials: { name: string; label: string; present: boolean; source?: "bevro" | "host" | "project" | "missing" | string; status?: string }[];
   /** How this installation runs, in words. Mechanism stays on the server. */
-  runtime: { display_name: string; availability: string; credentials_label: string; runtimes_found: number; alternatives: number; health: string; built?: boolean; review?: string | null; abilities: Record<string, boolean> } | null;
+  runtime: { display_name: string; runs_at?: string | null; availability: string; credentials_label: string; runtimes_found: number; alternatives: number; health: string; built?: boolean; review?: string | null; abilities: Record<string, boolean> } | null;
   /** For agents Bevro created: what it is for and which version is in use. */
   build?: { purpose: string; version: number; state: string; built_by: string | null; needs: string[]; can_rebuild: boolean } | null;
   created_at: string;
@@ -299,13 +299,14 @@ export interface DraftView {
   /** True when some connected agent could build that connection. */
   bridge_possible?: boolean;
   runs_via: string | null;
+  runs_at: string | null;   // "On this machine" when only the worker can reach it
   runtime: RuntimeView | null;
   runtime_options: RuntimeView[];
   runtimes_found: number;
   choice_needed: boolean;
   /** A scoped service with several to pick from: which profile, workspace, tenant. */
   scope_choices?: { value: string; label: string }[];
-  /** The one it is already scoped to, in words: "Johannes Kim". */
+  /** The one it is already scoped to, in words: "EU West". */
   connected_for?: string | null;
   credentials_label: string | null;
   name: string;

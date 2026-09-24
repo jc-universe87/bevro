@@ -24,12 +24,12 @@ from sqlalchemy.orm import Session
 
 from adapters import ProviderSpec, get_adapter
 from adapters.localroots import parse_roots
-from adapters.runtime import CredentialStrategy
+from adapters.runtime import API, WORKER, CredentialStrategy
 from app.config import get_settings
 from app.connect.capabilities import capabilities_from_summary
 from app.connect.draft import ProviderDraft
 from app.connect.service import get_discovery_service
-from app.connect.strategies.base import DiscoveryContext, DiscoveryFailed
+from app.connect.strategies.base import DiscoveryContext, DiscoveryFailed, NotReachable
 from app.connect.strategies.mcp import refine_stdio
 from app.connect.targets import TargetError, classify_target
 from app.models import ConnectDraft, Provider
@@ -43,6 +43,10 @@ PENDING_TIMEOUT_SECONDS = 90
 WORKER_NEEDED_MESSAGE = (
     "Connecting a local project or command needs the Bevro worker running on this machine "
     "(./scripts/worker.sh), with BEVRO_LOCAL_ROOTS set to the folder that holds your agents."
+)
+UNREACHABLE_HERE_MESSAGE = (
+    "Bevro can't reach that address from inside its container, and the worker isn't running on this "
+    "machine to try from here (./scripts/worker.sh)."
 )
 LOCAL_KINDS = ("local", "command")
 
@@ -73,6 +77,16 @@ def needs_host(pd: ProviderDraft) -> bool:
     return pd.adapter.get("kind") == "command" or (pd.adapter.get("kind") == "mcp" and bool(config.get("argv")))
 
 
+def api_ruled_out(pd: ProviderDraft) -> bool:
+    """An address this process has already tried and could not reach.
+
+    Nothing is wrong with the service; it is simply on a network the
+    container is not. Testing it from here would only fail again.
+    """
+    rt = pd.runtime
+    return rt is not None and rt.reachability.ruled_out(API)
+
+
 # --------------------------------------------------------------------------- discovery
 
 def start_discovery(db: Session, target_text: str, secrets: dict[str, str] | None = None) -> ConnectDraft:
@@ -93,28 +107,53 @@ def start_discovery(db: Session, target_text: str, secrets: dict[str, str] | Non
             row.error = WORKER_NEEDED_MESSAGE
     else:
         _discover_into(row, local_roots(), secrets or {})
+        # An address this process cannot reach may still be reachable from the
+        # host, which sits on networks a container does not. The worker looks
+        # next; to the person it is all one "Looking…".
+        if row.state == "failed" and row.unreachable and provider_service.worker_seen_recently(db):
+            log.info("%s is not reachable from here; the worker will look", row.target_kind)
+            row.state = "pending"
+            row.error = None
     db.commit()
     db.refresh(row)
     return row
 
 
-def _discover_into(row: ConnectDraft, roots: list[Path], secrets: dict[str, str]) -> None:
+def _discover_into(row: ConnectDraft, roots: list[Path], secrets: dict[str, str], *, location: str = API) -> None:
+    # The API has already tried, and failed, if this draft was handed on.
+    ruled_out = API if row.unreachable and location != API else None
     try:
         target = classify_target(row.target)
         draft = get_discovery_service().discover(target, DiscoveryContext(roots=roots, secrets=secrets))
+    except NotReachable as exc:
+        # Not "it is not there" - "it is not there *from here*".
+        row.state = "failed"
+        row.error = str(exc)
+        row.draft = None
+        row.unreachable = True
+        return
     except (DiscoveryFailed, TargetError) as exc:
         row.state = "failed"
         row.error = str(exc)
         row.draft = None
+        row.unreachable = False
         return
     except Exception:  # noqa: BLE001 - discovery must never take the process down
         log.exception("discovery crashed for a %s target", row.target_kind)
         row.state = "failed"
         row.error = "Something went wrong while looking at that. The server log has the details."
         return
+    # Whoever found it can reach it; that is recorded so execution knows -
+    # and so is whoever already tried and could not, so the first run does
+    # not repeat an attempt that is known to time out.
+    for rt in draft.runtimes:
+        rt.reachability = rt.reachability.with_result(location, True)
+        if ruled_out:
+            rt.reachability = rt.reachability.with_result(ruled_out, False)
     row.state = "found"
     row.error = None
-    row.draft = draft.model_dump()
+    row.unreachable = False
+    row.draft = draft.model_dump(mode="json")
 
 
 def get_draft(db: Session, draft_id: uuid.UUID) -> ConnectDraft | None:
@@ -137,15 +176,15 @@ def run_pending(db: Session, roots: list[Path]) -> int:
     from sqlalchemy import text
 
     rows = db.execute(
-        text("SELECT id FROM connect_drafts WHERE state IN ('pending', 'testing') AND target_kind IN ('local', 'command') ORDER BY created_at LIMIT 5 FOR UPDATE SKIP LOCKED")
-    ).all()  # commands appear here only when a draft is being tested on the host
+        text("SELECT id FROM connect_drafts WHERE state IN ('pending', 'testing') ORDER BY created_at LIMIT 5 FOR UPDATE SKIP LOCKED")
+    ).all()  # local folders, commands being tested, and addresses the API could not reach
     handled = 0
     for (draft_id,) in rows:
         row = db.get(ConnectDraft, draft_id)
         if row is None:
             continue
         if row.state == "pending":
-            _discover_into(row, roots, {})
+            _discover_into(row, roots, {}, location=WORKER)
         elif row.state == "testing":
             _test_on_host(row, roots)
         handled += 1
@@ -159,9 +198,9 @@ def test_draft(db: Session, row: ConnectDraft, secrets: dict[str, str]) -> Conne
     if row.state not in ("found",) or not row.draft:
         raise DraftError("There is nothing to test yet.", 409)
     pd = ProviderDraft.model_validate(row.draft)
-    if needs_host(pd) and not can_discover_locally():
+    if (needs_host(pd) and not can_discover_locally()) or api_ruled_out(pd):
         if not provider_service.worker_seen_recently(db):
-            raise DraftError(WORKER_NEEDED_MESSAGE, 409)
+            raise DraftError(UNREACHABLE_HERE_MESSAGE if api_ruled_out(pd) else WORKER_NEEDED_MESSAGE, 409)
         row.state = "testing"
         row.test = None
         db.commit()
@@ -201,8 +240,11 @@ def _test_remote(pd: ProviderDraft, secrets: dict[str, str]) -> dict[str, Any]:
 
 
 def _test_on_host(row: ConnectDraft, roots: list[Path]) -> None:
-    """Commands and stdio MCP servers: validate the folder and the program on the host.
-    A local MCP server is started once to read its tools (the person asked for the test)."""
+    """The test, run from the host rather than the API.
+
+    Commands and stdio MCP servers, because that is where the program is; and
+    addresses the container cannot reach, because that is where they answer.
+    A local MCP server is started once to read its tools (the person asked)."""
     pd = ProviderDraft.model_validate(row.draft or {})
     kind = str(pd.adapter.get("kind") or "")
     row.state = "found"
@@ -215,7 +257,9 @@ def _test_on_host(row: ConnectDraft, roots: list[Path]) -> None:
             row.test = {"ok": True, "detail": f"Started it and read {len(refined.capabilities)} tool(s)."}
             return
         result = adapter.check(spec, {})
-        row.test = {"ok": result.ok, "detail": result.detail or ("The folder and the program are in place." if result.ok else "Not ready.")}
+        # What was proved differs: that a program is there, or that something answered.
+        worked = "Connection works." if kind in ("http", "openapi") else "The folder and the program are in place."
+        row.test = {"ok": result.ok, "detail": result.detail or (worked if result.ok else "Not ready.")}
     except DiscoveryFailed as exc:
         row.test = {"ok": False, "detail": str(exc)}
     except Exception as exc:  # noqa: BLE001
@@ -329,8 +373,24 @@ def confirm_draft(db: Session, row: ConnectDraft, *, name: str | None, descripti
 # --------------------------------------------------------------------------- reconnect
 
 def reconnect_provider(db: Session, provider: Provider) -> Provider:
-    """Discover the stored target again and replace the runtime profiles. Local
-    targets need this process to have roots (or the worker); URLs work anywhere."""
+    """Discover the stored target again and replace the runtime profiles.
+
+    Run wherever the thing can be reached. An address the container cannot
+    see is handed to the worker on the host, and this call waits for it -
+    the person pressed a button and is owed an answer, not a background job
+    they have to go looking for.
+    """
+    try:
+        return _reconnect_here(db, provider)
+    except NotReachable as exc:
+        if not provider_service.worker_seen_recently(db):
+            raise DraftError(UNREACHABLE_HERE_MESSAGE, 409) from None
+        log.info("reconnect: %s is not reachable from here; asking the worker", provider.slug)
+        return _reconnect_through_worker(db, provider, str(exc))
+
+
+def _reconnect_here(db: Session, provider: Provider, *, location: str = API, ruled_out: str | None = None) -> Provider:
+    """The work itself, in whichever process can reach the target."""
     from app.services.runtime import set_runtimes
 
     source = provider.source or {}
@@ -345,6 +405,8 @@ def reconnect_provider(db: Session, provider: Provider) -> Provider:
         raise DraftError("Reconnecting a local project needs the API to see the folder. Use Test under Manage, or connect it again.", 409)
     try:
         draft = get_discovery_service().discover(target, DiscoveryContext(roots=local_roots()))
+    except NotReachable:
+        raise
     except (DiscoveryFailed, TargetError) as exc:
         raise DraftError(str(exc), 409) from exc
     if not draft.runtimes:
@@ -364,11 +426,81 @@ def reconnect_provider(db: Session, provider: Provider) -> Provider:
         from app.connect.runtimes import select
 
         active_id, _choice = select(runtimes)
+    # Who just reached it is worth remembering, exactly as at discovery:
+    # otherwise the next run starts by trying somewhere already known to fail.
+    for rt in draft.runtimes:
+        rt.reachability = rt.reachability.with_result(location, True)
+        if ruled_out:
+            rt.reachability = rt.reachability.with_result(ruled_out, False)
     set_runtimes(provider, runtimes, active_id)
+    # The service's own account of what it can do may have moved on: new
+    # operations, renamed ones. The name stays as the person left it.
+    if draft.capabilities:
+        provider.capabilities = [c.model_dump() for c in draft.capabilities]
     provider.availability = None  # the worker reports afresh
+    provider.source = {k: v for k, v in (provider.source or {}).items() if not k.startswith("reconnect_")}
     db.commit()
     db.refresh(provider)
     return provider
+
+
+# How long the API waits for the host worker to do a reconnect it cannot do
+# itself. Discovery through the worker takes seconds; this is the giving-up
+# point, not the expected wait.
+RECONNECT_WAIT_SECONDS = 30
+
+
+def _reconnect_through_worker(db: Session, provider: Provider, reason: str) -> Provider:
+    """Ask the worker to reconnect this, and wait for it to finish."""
+    import time
+
+    provider.source = {**(provider.source or {}), "reconnect_requested_at": utcnow().isoformat(), "reconnect_reason": reason}
+    db.commit()
+    deadline = time.monotonic() + RECONNECT_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        time.sleep(1.0)
+        db.commit()  # end this transaction so the worker's write is visible
+        db.refresh(provider)
+        source = provider.source or {}
+        if error := source.get("reconnect_error"):
+            provider.source = {k: v for k, v in source.items() if not k.startswith("reconnect_")}
+            db.commit()
+            raise DraftError(str(error), 409)
+        if not source.get("reconnect_requested_at"):
+            db.refresh(provider)
+            return provider
+    provider.source = {k: v for k, v in (provider.source or {}).items() if not k.startswith("reconnect_")}
+    db.commit()
+    raise DraftError("The worker didn't respond. Is ./scripts/worker.sh running on this machine?", 409)
+
+
+def run_reconnects(db: Session) -> int:
+    """Worker entry point: reconnect providers the API could not reach itself."""
+    from sqlalchemy import text
+
+    rows = db.execute(
+        text("SELECT id FROM providers WHERE source->>'reconnect_requested_at' IS NOT NULL ORDER BY updated_at LIMIT 5 FOR UPDATE SKIP LOCKED")
+    ).all()
+    done = 0
+    for (provider_id,) in rows:
+        provider = db.get(Provider, provider_id)
+        if provider is None:
+            continue
+        try:
+            # It is here because the API could not reach it: both halves of
+            # that are facts the runtimes should carry away.
+            _reconnect_here(db, provider, location=WORKER, ruled_out=API)
+        except (NotReachable, DiscoveryFailed, DraftError, TargetError) as exc:
+            provider.source = {**(provider.source or {}), "reconnect_error": str(exc)}
+            provider.source.pop("reconnect_requested_at", None)
+            db.commit()
+        except Exception as exc:  # noqa: BLE001 - one bad provider must not stop the worker
+            log.exception("reconnect on the host failed for %s", provider.slug)
+            provider.source = {**(provider.source or {}), "reconnect_error": f"The reconnect failed: {type(exc).__name__}"}
+            provider.source.pop("reconnect_requested_at", None)
+            db.commit()
+        done += 1
+    return done
 
 
 def _has_secret_store() -> bool:

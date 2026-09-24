@@ -62,6 +62,9 @@ def runtime_summary(provider: Provider, stored: list[str]) -> dict[str, Any] | N
         "built": built,
         "review": review_state(provider) if built else None,
         "display_name": rt.display_name,
+        # Where it is driven from, when that is not simply "here": a
+        # connection only the host can reach needs the worker running.
+        "runs_at": "On this machine" if rt.reachability.host_only() else None,
         "availability": rt.availability,
         "credentials_label": label,
         "runtimes_found": len(runtimes_of(provider)),

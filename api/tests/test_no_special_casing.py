@@ -58,6 +58,44 @@ def test_adapters_never_name_a_provider():
     assert offenders == [], offenders
 
 
+# A service's own routes and addresses arrive at runtime, from what the
+# service publishes about itself. Written down in code they would be an
+# integration with one product wearing generic clothes. Bevro's own
+# conventions (/health, /openapi.json, the loopback probe) are not that.
+SERVICE_ROUTE = re.compile(r"[\"']/(?:api/v\d|p)/")
+ADDRESS = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+OWN_ADDRESSES = {"127.0.0.1", "0.0.0.0", "255.255.255.255", "1.2.3.4"}
+
+
+def _without_comments_or_docstrings(path: Path):
+    """Code lines only: a docstring may say whatever explains the thing."""
+    in_doc = False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.count('"""') % 2 == 1:
+            in_doc = not in_doc
+            continue
+        if in_doc:
+            continue
+        code = line.split("#", 1)[0]
+        if code.strip():
+            yield code
+
+
+def test_no_service_specific_route_or_address_is_written_down():
+    """Where a service keeps things, and where it lives, is data. This is what
+    keeps "works with the thing I connected" from quietly becoming "works with
+    one particular product"."""
+    offenders = []
+    for path in [*sorted(APP.rglob("*.py")), *sorted(ADAPTERS.glob("*.py"))]:
+        for line in _without_comments_or_docstrings(path):
+            if SERVICE_ROUTE.search(line):
+                offenders.append(f"{path.name}: {line.strip()}")
+            for found in ADDRESS.findall(line):
+                if found not in OWN_ADDRESSES:
+                    offenders.append(f"{path.name}: {line.strip()}")
+    assert offenders == [], offenders
+
+
 def test_runtime_kinds_are_not_provider_types():
     from adapters.runtime import ADAPTER_FOR_KIND, RuntimeKind
 

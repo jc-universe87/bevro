@@ -38,7 +38,7 @@ from app.services import bridges as bridge_service
 from app.services import connect as connect_service
 from app.services import runtime as runtime_service
 from app.services import tasks as task_service
-from app.services.providers import list_providers, record_availability
+from app.services.providers import list_providers, record_availability, record_heartbeat
 from app.services.secrets import SecretStore
 
 log = logging.getLogger("bevro.worker")
@@ -48,6 +48,8 @@ HEARTBEAT_SECONDS = 5.0
 REAP_EVERY_SECONDS = 30.0
 DB_RETRY_SECONDS = 5.0
 AVAILABILITY_EVERY_SECONDS = 60.0
+# Well inside the window the API treats as "a worker is running" (3 minutes).
+HEARTBEAT_EVERY_SECONDS = 30.0
 
 
 def background_kinds() -> list[str]:
@@ -107,7 +109,7 @@ class Worker:
                 # The stored secrets are resolved for the check itself; the adapter looks at names only.
                 secrets = self.secrets.resolve(db, provider.id) if self.secrets else {}
                 # Checks every way in, so one that was down is restored here.
-                outcomes, _deferred = runtime_service.check_all_runtimes(provider, secrets)
+                outcomes, _deferred = runtime_service.check_all_runtimes(provider, secrets, location=runtime_service.WORKER)
                 result = next((r for _rt, r in outcomes if r.ok), None) or (outcomes[0][1] if outcomes else runtime_service.health(provider, secrets))
             except Exception as exc:  # noqa: BLE001
                 result = HealthResult(ok=False, state="unavailable", detail=str(exc)[:200])
@@ -116,12 +118,20 @@ class Worker:
 
     def run_forever(self) -> None:
         log.info("worker %s handling adapter kinds %s; local roots %s", self.worker_id, self.kinds, [str(r) for r in self.roots] or "none")
+        last_heartbeat = 0.0
         Session = get_sessionmaker()
         last_reap = 0.0
         last_report = -AVAILABILITY_EVERY_SECONDS
         while not self.stop.is_set():
             try:
                 now = time.monotonic()
+                if now - last_heartbeat > HEARTBEAT_EVERY_SECONDS:
+                    # Said plainly rather than inferred: on a new installation
+                    # there is no work yet to infer it from, and that is
+                    # exactly when Connect needs to know a worker is here.
+                    with Session() as db:
+                        record_heartbeat(db, self.worker_id, self.kinds)
+                    last_heartbeat = now
                 if now - last_report > AVAILABILITY_EVERY_SECONDS:
                     with Session() as db:
                         self.report_availability(db)
@@ -131,7 +141,7 @@ class Worker:
                         task_service.reap_stale_runs(db)
                     last_reap = now
                 with Session() as db:
-                    if connect_service.run_pending(db, self.roots) or bridge_service.run_pending(db, self.roots) or agent_service.run_pending(db, self.roots):
+                    if connect_service.run_pending(db, self.roots) or connect_service.run_reconnects(db) or bridge_service.run_pending(db, self.roots) or agent_service.run_pending(db, self.roots):
                         continue  # Connect work was handled; look again straight away
                     run_id = acquire(db, self.kinds, self.worker_id)
             except OperationalError as exc:
@@ -205,6 +215,11 @@ def main() -> None:
     # Say goodbye: the providers this worker served are unavailable again.
     try:
         with get_sessionmaker()() as db:
+            from app.models import WorkerHeartbeat
+
+            if (beat := db.get(WorkerHeartbeat, worker.worker_id)) is not None:
+                db.delete(beat)  # no longer here; nothing should wait for it
+                db.commit()
             for provider in list_providers(db, enabled_only=False):
                 if str(provider.adapter.get("kind", "")) in worker.kinds and runtime_service.execution_of(provider) == "background":
                     record_availability(db, provider, HealthResult(ok=False, state="unavailable", detail="worker stopped"))

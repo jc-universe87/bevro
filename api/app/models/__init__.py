@@ -6,6 +6,7 @@ from app.models.notification import NotificationDelivery, NotificationEvent
 from app.models.provider import Provider, ProviderSecret
 from app.models.provider_run import ProviderRun
 from app.models.task import Task
+from app.models.worker import WorkerHeartbeat
 from app.models.workspace import Workspace
 
 __all__ = [
@@ -20,5 +21,6 @@ __all__ = [
     "ProviderSecret",
     "ProviderRun",
     "Task",
+    "WorkerHeartbeat",
     "Workspace",
 ]

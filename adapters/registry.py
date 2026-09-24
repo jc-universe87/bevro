@@ -38,7 +38,17 @@ def execution_mode(adapter: ProviderAdapter, adapter_block: dict | None = None) 
 
 
 def may_run_in_background(adapter: ProviderAdapter) -> bool:
-    return getattr(adapter, "execution", "inline") == "background" or callable(getattr(adapter, "execution_for", None))
+    """Could a run of this kind ever land on the worker?
+
+    Three ways it can: the adapter always runs there, it decides per provider
+    (MCP), or it talks over the network and the service is only reachable from
+    the host. The last one is why "inline" is not the end of the question.
+    """
+    return (
+        getattr(adapter, "execution", "inline") == "background"
+        or callable(getattr(adapter, "execution_for", None))
+        or bool(getattr(adapter, "network", False))
+    )
 
 
 _loaded = False

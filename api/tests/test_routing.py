@@ -14,7 +14,7 @@ from adapters import HealthResult
 from app.config import get_settings
 from app.models import Workspace
 from app.routing import RoutingDecision, RoutingSource, get_router, set_router
-from app.routing.catalogue import build_catalogue, catalogue_json
+from app.routing.catalogue import CatalogueCapability, CatalogueEntry, build_catalogue, catalogue_json
 from app.routing.decision import InputRequestSpec, PlanStep, response_schema
 from app.routing.deterministic import DeterministicRouter, wanted_capability
 from app.routing.llm import LLMRouter
@@ -169,6 +169,41 @@ def test_deterministic_router_never_routes_everything_to_research(seeded, two_wo
     with pytest.raises(task_service.NoProviderAvailable) as exc:
         task_service.submit(seeded, "Write a poem about autumn.")
     assert str(exc.value) == "Bevro doesn't have anything connected that can do this yet." and exc.value.reason == "no_provider"
+
+
+def _entry(id: str, name: str, caps: list[tuple[str, str]]) -> CatalogueEntry:
+    return CatalogueEntry(
+        id=id,
+        name=name,
+        description="",
+        capabilities=[CatalogueCapability(id=c, title=t) for c, t in caps],
+        available=True,
+        can_invoke=True,
+    )
+
+
+def test_one_word_routes_when_it_is_one_agent_s_own_word():
+    """"Show me my shortlist" is a plain request naming nothing but the thing
+    it wants. No keyword rule covers it, and one matching word is normally too
+    little - but "shortlist" is what exactly one connected agent calls one of
+    its capabilities, so there is no ambiguity to protect against."""
+    desk = _entry("casework", "Casework control API", [("shortlist", "Shortlist"), ("applications", "Applications")])
+    coder = _entry("claude-code", "Claude Code", [("coding", "Build, fix and change software")])
+    decision = DeterministicRouter().decide("Show me my shortlist.", [desk, coder])
+    assert decision.provider_id == "casework"
+
+
+def test_a_word_two_agents_both_use_settles_nothing():
+    a = _entry("a", "Alpha", [("reports", "Reports")])
+    b = _entry("b", "Beta", [("reports", "Reports")])
+    assert DeterministicRouter().decide("Show me my reports.", [a, b]).selected_provider_ids == []
+
+
+def test_an_ordinary_word_in_a_capability_title_is_not_a_match():
+    """Titles are written in English: "Build, fix and change software" must not
+    make "Write a poem" a coding request. Only the id counts on its own."""
+    coder = _entry("claude-code", "Claude Code", [("coding", "Write, build and change software")])
+    assert DeterministicRouter().decide("Write a poem about autumn.", [coder]).selected_provider_ids == []
 
 
 # ----------------------------------------------------------------------------- LLM router

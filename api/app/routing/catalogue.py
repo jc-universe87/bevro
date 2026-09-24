@@ -27,6 +27,10 @@ class CatalogueCapability(BaseModel):
     id: str
     title: str | None = None
     description: str | None = None
+    # The service's other words for this same ability, from its own addresses.
+    # Kept out of the prompt: a model finds synonyms by itself, and the
+    # deterministic router is the one that needs them written down.
+    terms: list[str] = Field(default_factory=list)
 
 
 class CatalogueEntry(BaseModel):
@@ -59,8 +63,11 @@ def entry_for(provider: Provider) -> CatalogueEntry:
         rt = active_runtime(provider)
         can_invoke = rt.abilities.accepts_prompt if rt else True
         requires = sorted(requires_of(provider))
+        # How long it may take is worth knowing when choosing; *where* it runs
+        # is not. A router picks what can do the work, and Bevro decides which
+        # of its processes drives it - the catalogue never says.
         if execution_of(provider) == "background":
-            constraints = "Long-running; works inside one approved project directory." if "workspace" in requires else "May take a while; runs on the host machine."
+            constraints = "Long-running; works inside one approved project directory." if "workspace" in requires else "May take a while."
     except NotSupported:
         pass
     return CatalogueEntry(
@@ -72,6 +79,7 @@ def entry_for(provider: Provider) -> CatalogueEntry:
                 id=_clip(c.get("id"), 80),
                 title=_clip(c.get("title"), 80) or None,
                 description=_clip(c.get("description"), MAX_CAPABILITY_TEXT) or None,
+                terms=[_clip(t, 40) for t in (c.get("terms") or []) if isinstance(t, str)][:6],
             )
             for c in provider.capabilities
             if isinstance(c, dict) and c.get("id")
@@ -92,4 +100,4 @@ def build_catalogue(db: Session, *, selectable_only: bool = True) -> list[Catalo
 
 
 def catalogue_json(entries: list[CatalogueEntry]) -> list[dict[str, Any]]:
-    return [e.model_dump(exclude_none=True) for e in entries]
+    return [e.model_dump(exclude_none=True, exclude={"capabilities": {"__all__": {"terms"}}}) for e in entries]

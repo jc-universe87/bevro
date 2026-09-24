@@ -36,6 +36,7 @@ from adapters.localroots import OutsideRoots, resolve_within
 from adapters.mcp_client import HttpSession, McpError, StdioSession, text_of
 from adapters.registry import register_adapter
 from adapters.runtime import BaseRuntimeAdapter
+from adapters import urlsafety
 
 DEFAULT_TIMEOUT = 120.0
 
@@ -65,6 +66,11 @@ def open_session(config: dict[str, Any], secrets: dict[str, str], timeout: float
     url = str(config.get("server_url") or "")
     if not url:
         raise McpError("no server address configured")
+    # The same URL policy as everywhere else, in whichever process this runs.
+    try:
+        urlsafety.check(url)
+    except urlsafety.UnsafeUrl as exc:
+        raise McpError(str(exc)) from None
     return HttpSession(url, headers=_headers(config, secrets), timeout=timeout)
 
 

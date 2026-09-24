@@ -122,6 +122,67 @@ Every adapter translates its native errors into one of:
 interface turns the kind into a sentence and actions; it never needs a
 provider-specific error code.
 
+## Runtime kind is not execution location
+
+A runtime kind says **how** a provider is reached: an HTTP service, a command,
+an MCP server. Where Bevro drives it from is a separate question, and for
+anything reached over a network the answer is not fixed.
+
+    kind        http, openapi, mcp_http, cli, docker_compose, systemd, ...
+    location    api     the container, which needs no other process
+                worker  the host, which sits on networks the container does not
+
+A service on a Tailscale address, a VPN, or a host-only interface can be
+perfectly healthy and still be invisible from inside Docker. "I cannot reach
+it" is then a statement about a process, not about the provider - so Bevro
+records it per process:
+
+```python
+class Reachability(BaseModel):
+    api: str = "unknown"      # available | unavailable | unknown
+    worker: str = "unknown"
+```
+
+`runtime_service.locations_for()` offers the locations that have not been
+ruled out, least dependent first, preferring one already known to work.
+`execution_of()` turns that into `"inline"` or `"background"`. Three rules
+decide it:
+
+* a mechanism that needs the host (a command, a stdio MCP server) is the
+  worker's, whoever can reach what;
+* a network runtime goes to the API when the API can see it, and to the
+  worker when it cannot;
+* a provider with both keeps the older rule - the worker takes it, because
+  the worker can drive both ways in and the other stays as a fallback.
+
+Nothing is assumed. A location is written down only after something was
+actually tried there: discovery records who found it, a health check records
+who reached it, and a failed invocation records who could not.
+
+### When a route stops working mid-run
+
+A run that fails with `provider_unavailable` in the API is not failed to the
+person. `_hand_to_worker()` records that the API could not get there, and if a
+worker is running and the provider is reachable from the host, the same run
+goes back to pending as a background run. The person sees one task that took a
+little longer, not a lesson in container networking.
+
+### Adapters that could run in either place
+
+`may_run_in_background()` decides whether the worker will claim a run at all.
+An adapter qualifies by always running there, by deciding per provider
+(`execution_for`, which MCP uses), or by setting `network = True` - the
+http and openapi adapters do, because "inline" is their usual place, not
+their only one.
+
+### The worker says it is there
+
+`worker_heartbeats` holds one row per running worker: its id, the adapter
+kinds it handles, and the network it sits on (`host`). Connect asks that
+table before handing an unreachable address to the host. This used to be
+inferred from recent availability reports, which is no answer on a fresh
+installation - the case that needs it most.
+
 ## Discovery and ranking
 
 For a local folder, discovery looks systematically for: processes of yours

@@ -34,3 +34,12 @@ class DiscoveryStrategy(Protocol):
 
 class DiscoveryFailed(Exception):
     """Discovery could not produce a draft. The message is for the person."""
+
+
+class NotReachable(DiscoveryFailed):
+    """Nothing answered *from this process*.
+
+    Worth separating from every other failure: another of Bevro's processes
+    may sit on a network this one does not, so the answer may be "ask the
+    worker" rather than "it is not there".
+    """
