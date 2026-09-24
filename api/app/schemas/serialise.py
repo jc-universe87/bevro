@@ -116,6 +116,17 @@ def provider_ref(provider: Provider) -> ProviderRef:
     return ProviderRef(id=provider.id, slug=provider.slug, name=provider.name)
 
 
+def run_provider_ref(run: ProviderRun) -> ProviderRef:
+    """Who did this work, whether or not they are still here.
+
+    History does not change when an agent is renamed or removed: the name
+    stored on the run at the time is what a person is shown.
+    """
+    if run.provider is not None:
+        return provider_ref(run.provider)
+    return ProviderRef(id=None, slug=run.provider_slug, name=run.provider_name or "Removed agent", removed=True)
+
+
 FAILURE_TITLES = {
     "configuration_problem": "Configuration problem",
     "credential_required": "Credential required",
@@ -134,7 +145,16 @@ def failure_out(run: ProviderRun, stored_secret_names: list[str] | None = None) 
     if run.state != "failed":
         return None
     provider = run.provider
-    name = provider.name
+    name = provider.name if provider is not None else (run.provider_name or "That agent")
+    if provider is None:
+        # The agent has since been removed. The record of why this failed is
+        # still worth reading; there is simply nothing left to act on.
+        return FailureOut(
+            category="provider_unavailable",
+            title="Agent removed",
+            message=f"{name} was removed from Bevro after this ran.",
+            actions=[],
+        )
     category = str((run.meta or {}).get("failure") or "")
     category = _LEGACY_FAILURES.get(category, category)
     missing = [n for n, source in credential_status(provider, stored_secret_names or []).items() if source == "missing"]
@@ -192,7 +212,7 @@ def run_out(run: ProviderRun, workspaces: dict[str, Workspace] | None = None, st
         permissions = permission_sentences(list(run.input.get("permissions") or ws.permissions), ws.name)
     return RunOut(
         id=run.id,
-        provider=provider_ref(run.provider),
+        provider=run_provider_ref(run),
         state=run.state,
         result_summary=run.result_summary,
         error_summary=run.error_summary,
@@ -242,7 +262,7 @@ def artifact_out(artifact: Artifact) -> ArtifactOut:
 def _primary_provider(task: Task) -> ProviderRef | None:
     if not task.runs:
         return None
-    return provider_ref(task.runs[-1].provider)
+    return run_provider_ref(task.runs[-1])
 
 
 def task_out(task: Task) -> TaskOut:

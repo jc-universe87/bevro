@@ -286,3 +286,165 @@ def test_a_shipped_demo_someone_repointed_is_left_alone(db):
     assert provider_service.shipped_demo(research) is False
     provider_service.seed_examples(db, demo=False)
     assert provider_service.get_by_slug(db, "research") is not None
+
+
+# --------------------------------------------------------------------------- removing an agent
+
+def test_an_agent_that_never_did_anything_is_simply_gone(client, seeded):
+    provider = provider_service.register_provider(
+        seeded,
+        {
+            "name": "Sales Desk",
+            "description": "Quotes",
+            "capabilities": [{"id": "research", "title": "Research"}],
+            "adapter": {"kind": "http", "config": {"base_url": "http://localhost:9999"}},
+            "origin": "connected",
+        },
+    )
+    seeded.commit()
+
+    assert client.delete(f"/api/providers/{provider.id}").status_code == 204
+    assert seeded.get(Provider, provider.id) is None
+    assert all(p["slug"] != provider.slug for p in client.get("/api/providers").json())
+
+
+def test_an_agent_with_history_is_removed_and_its_work_stays(client, seeded, research):
+    task = finished_task(seeded, research, "Compare three note-taking apps")
+    run_id, artifact_ids = task.runs[0].id, [a.id for a in task.artifacts]
+    assert artifact_ids
+    research.origin = "connected"  # a shipped example cannot be removed; this stands for yours
+    seeded.commit()
+
+    assert client.delete(f"/api/providers/{research.id}").status_code == 204
+
+    # The agent is gone...
+    assert seeded.get(Provider, research.id) is None
+    # ...and every trace of the work is still here.
+    seeded.expire_all()
+    kept = seeded.get(Task, task.id)
+    assert kept is not None and kept.state == "completed"
+    run = seeded.get(ProviderRun, run_id)
+    assert run is not None and run.provider_id is None
+    assert [seeded.get(Artifact, a) is not None for a in artifact_ids] == [True] * len(artifact_ids)
+
+
+def test_history_still_says_who_did_the_work(client, seeded, research):
+    task = finished_task(seeded, research, "Compare three note-taking apps")
+    research.origin = "connected"
+    seeded.commit()
+    client.delete(f"/api/providers/{research.id}")
+
+    listed = client.get("/api/tasks").json()
+    assert [t["provider"]["name"] for t in listed] == ["Research"]
+    assert listed[0]["provider"]["removed"] is True
+    assert listed[0]["provider"]["id"] is None
+
+    detail = client.get(f"/api/tasks/{task.id}").json()
+    assert detail["runs"][0]["provider"] == {"id": None, "slug": "research", "name": "Research", "removed": True}
+    assert detail["artifacts"], "the results are still readable"
+
+
+def test_a_removed_agent_is_no_longer_offered_work(client, seeded, research):
+    finished_task(seeded, research, "Compare three note-taking apps")
+    research.origin = "connected"
+    seeded.commit()
+    client.delete(f"/api/providers/{research.id}")
+
+    from app.routing.catalogue import build_catalogue
+
+    seeded.expire_all()
+    assert all(entry.id != "research" for entry in build_catalogue(seeded, selectable_only=False))
+    response = client.post("/api/tasks", json={"request": "Compare three note-taking apps"})
+    assert response.status_code == 503 and response.json()["detail"]["reason"] == "no_provider"
+
+
+def test_an_automation_pinned_to_a_removed_agent_fails_honestly(client, seeded, research):
+    from datetime import datetime, time, timezone
+
+    automation = automation_service.create(
+        seeded,
+        instruction="Compare three note-taking apps",
+        schedule=ScheduleSpec(recurrence=Recurrence.DAILY, at=time(9, 0), timezone="UTC"),
+        provider=research,
+        now=datetime(2026, 3, 4, 10, 0, tzinfo=timezone.utc),
+    )
+    seeded.commit()
+    research.origin = "connected"
+    seeded.commit()
+    client.delete(f"/api/providers/{research.id}")
+    seeded.expire_all()
+
+    # The automation is still there, and says plainly why nothing ran.
+    assert seeded.get(Automation, automation.id) is not None
+    for claimed, run in automation_service.claim_due(seeded, now=datetime(2026, 3, 5, 9, 0, tzinfo=timezone.utc)):
+        assert automation_service.start_run(seeded, claimed, run) is None
+        seeded.commit()
+    last = automation_service.last_run(seeded, automation)
+    assert last.outcome == "failed" and "no longer here" in last.reason
+
+
+def test_the_same_name_can_be_used_again_afterwards(client, seeded, research):
+    finished_task(seeded, research, "Compare three note-taking apps")
+    research.origin = "connected"
+    seeded.commit()
+    client.delete(f"/api/providers/{research.id}")
+
+    again = provider_service.register_provider(
+        seeded,
+        {
+            "name": "Research",
+            "description": "My own research agent this time",
+            "capabilities": [{"id": "research", "title": "Research"}],
+            "adapter": {"kind": "http", "config": {"base_url": "http://localhost:9999"}},
+            "origin": "connected",
+        },
+    )
+    seeded.commit()
+    assert again.id is not None and again.name == "Research"
+    # The old work still names the old agent, and is not attributed to the new one.
+    detail = client.get("/api/tasks").json()[0]
+    assert detail["provider"]["removed"] is True and detail["provider"]["id"] is None
+
+
+def test_an_agent_in_the_middle_of_something_is_not_removed(client, seeded, research):
+    task_service.submit(seeded, "Something long", provider=research)
+    research.origin = "connected"
+    seeded.commit()
+
+    response = client.delete(f"/api/providers/{research.id}")
+    assert response.status_code == 409
+    assert "working on something right now" in response.json()["detail"]
+    assert seeded.get(Provider, research.id) is not None
+
+
+def test_removing_a_created_agent_takes_the_project_bevro_wrote(client, seeded, research, tmp_path, monkeypatch):
+    """Generated code belongs to the agent. History does not."""
+    from app.services import agents as agent_service
+    from app.services import bridges as bridge_service
+
+    monkeypatch.setattr(agent_service.get_settings(), "agents_dir", str(tmp_path / "agents"), raising=False)
+    built = agent_service.agent_dir(research.id)
+    built.mkdir(parents=True, exist_ok=True)
+    (built / "agent.py").write_text("print('hi')\n", encoding="utf-8")
+    bridge = bridge_service.integration_dir(research.id)
+    bridge.mkdir(parents=True, exist_ok=True)
+    (bridge / "bridge.py").write_text("print('hi')\n", encoding="utf-8")
+    finished_task(seeded, research, "Compare three note-taking apps")
+    research.origin = "created"
+    seeded.commit()
+
+    plan = client.get(f"/api/providers/{research.id}/removal").json()
+    assert plan["built_project"] is True and plan["built_connection"] is True and plan["history"] == 1
+
+    assert client.delete(f"/api/providers/{research.id}").status_code == 204
+    assert not built.exists() and not bridge.exists()
+    assert len(client.get("/api/tasks").json()) == 1  # the work it did is still there
+
+
+def test_the_removal_question_is_asked_with_the_facts(client, seeded, research):
+    finished_task(seeded, research, "One")
+    finished_task(seeded, research, "Two")
+    plan = client.get(f"/api/providers/{research.id}/removal").json()
+    assert plan == {"removable": False, "history": 2, "in_flight": 0, "credentials": 0, "built_project": False, "built_connection": False}
+    # A shipped example says so rather than pretending it can go.
+    assert client.delete(f"/api/providers/{research.id}").status_code == 409

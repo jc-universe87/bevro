@@ -1,9 +1,23 @@
 /** Thin client for the Bevro API. All paths are relative to /api. */
 
 export interface ProviderRef {
-  id: string;
-  slug: string;
+  /** Absent once the agent has been removed; the name is still the one it had. */
+  id: string | null;
+  slug: string | null;
   name: string;
+  removed?: boolean;
+}
+
+/** What removing an agent would take with it. */
+export interface RemovalPlan {
+  removable: boolean;
+  /** Pieces of work it did. These are kept. */
+  history: number;
+  /** Work running right now, which must finish or be cancelled first. */
+  in_flight: number;
+  credentials: number;
+  built_project: boolean;
+  built_connection: boolean;
 }
 
 export interface Capability {
@@ -425,6 +439,7 @@ export const api = {
   reconnectProvider: (id: string) => request<Provider>(`/providers/${id}/reconnect`, { method: "POST" }),
   putSecret: (id: string, name: string, value: string) =>
     request<Provider>(`/providers/${id}/secrets/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ value }) }),
+  removalPlan: (id: string) => request<RemovalPlan>(`/providers/${id}/removal`),
   removeProvider: (id: string) => request<void>(`/providers/${id}`, { method: "DELETE" }),
   createPreview: (description: string) =>
     request<CreatePreview>("/create/preview", { method: "POST", body: JSON.stringify({ description }) }),

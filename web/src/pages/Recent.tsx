@@ -138,7 +138,12 @@ export default function Recent() {
                 </time>
               </div>
               <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-muted">
-                {t.provider && <span>{t.provider.name}</span>}
+                {t.provider && (
+                  <span>
+                    {t.provider.name}
+                    {t.provider.removed && <span className="text-subtle"> · Removed</span>}
+                  </span>
+                )}
                 {t.provider && <span aria-hidden="true">·</span>}
                 <TaskStatus state={t.state} />
               </div>

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.connect.targets import TargetError, split_command
 from app.db import get_db
 from app.models import Provider, ProviderRun
-from app.schemas.providers import HealthOut, ProviderConnect, ProviderDetails, ProviderOut, ProviderUpdate, SecretIn
+from app.schemas.providers import HealthOut, ProviderConnect, ProviderDetails, ProviderOut, ProviderUpdate, RemovalPlanOut, SecretIn
 from app.schemas.serialise import provider_details, provider_out
 from app.services import providers as provider_service
 from app.services.secrets import SecretStore
@@ -178,19 +178,35 @@ def update_provider(provider_id: uuid.UUID, body: ProviderUpdate, db: Session = 
     return _out(db, provider)
 
 
+@router.get("/{provider_id}/removal", response_model=RemovalPlanOut)
+def removal_plan(provider_id: uuid.UUID, db: Session = Depends(get_db)) -> RemovalPlanOut:
+    """What removing this agent would take with it. Asked before confirming."""
+    provider = provider_service.get_provider(db, provider_id)
+    if provider is None:
+        raise HTTPException(404, "Agent not found.")
+    plan = provider_service.removal_plan(db, provider)
+    return RemovalPlanOut(
+        removable=provider.origin != "example",
+        history=plan["history"],
+        in_flight=plan["in_flight"],
+        credentials=plan["credentials"],
+        built_project=plan["built_project"],
+        built_connection=plan["built_connection"],
+    )
+
+
 @router.delete("/{provider_id}", status_code=204)
 def remove_provider(provider_id: uuid.UUID, db: Session = Depends(get_db)) -> None:
+    """Remove an agent. Its work stays in Recent, under the name it had."""
     provider = provider_service.get_provider(db, provider_id)
     if provider is None:
         raise HTTPException(404, "Agent not found.")
     if provider.origin == "example":
         raise HTTPException(409, "Built-in agents cannot be removed.")
-    has_runs = db.scalar(select(ProviderRun.id).where(ProviderRun.provider_id == provider.id).limit(1))
-    if has_runs is not None:
-        provider.enabled = False
-        db.commit()
-        return None
-    db.delete(provider)
+    try:
+        provider_service.remove_provider(db, provider)
+    except provider_service.ProviderInUse as exc:
+        raise HTTPException(409, str(exc)) from None
     db.commit()
     return None
 

@@ -107,6 +107,8 @@ def submit(db: Session, request: str, *, provider: Provider | None = None, input
     run = ProviderRun(
         task_id=task.id,
         provider_id=chosen.id,
+        provider_name=chosen.name,
+        provider_slug=chosen.slug,
         state=RunState.PENDING,
         input=dict(input or {}) if trusted else _safe_input(input),
         execution=runtime_service.execution_of(chosen, provider_service.worker_seen_recently(db)),
@@ -483,6 +485,8 @@ def retry_task(db: Session, task: Task) -> ProviderRun:
     run = ProviderRun(
         task_id=task.id,
         provider_id=provider.id,
+        provider_name=provider.name,
+        provider_slug=provider.slug,
         state=RunState.PENDING,
         input={k: v for k, v in (last.input or {}).items() if k in ("workspace_id", "permissions", "answer")},
         execution=runtime_service.execution_of(provider, provider_service.worker_seen_recently(db)),

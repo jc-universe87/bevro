@@ -194,3 +194,62 @@ test("having agents that are merely idle is not an empty workspace", async () =>
   expect(await screen.findByRole("heading", { name: "What should we get done?" })).toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Getting started" })).not.toBeInTheDocument();
 });
+
+test("removing an agent says what goes and what stays before asking", async () => {
+  const calls = mockApi({
+    "GET /api/providers": [provider()],
+    "GET /api/providers/p1/details": { id: "p1", active_runtime: null, runtimes: [], source_kind: null },
+    "GET /api/providers/p1/removal": { removable: true, history: 4, in_flight: 0, credentials: 1, built_project: true, built_connection: false },
+    "DELETE /api/providers/p1": null,
+    "GET /api/tasks": [],
+    "GET /api/notifications*": { unread: 0, items: [] },
+  });
+  const user = userEvent.setup();
+  renderAt("/agents");
+
+  await user.click(await screen.findByRole("button", { name: "Manage" }));
+  await user.click(await screen.findByRole("button", { name: "Remove" }));
+
+  const question = await screen.findByRole("group", { name: "Remove Support Desk" });
+  expect(within(question).getByText("Remove Support Desk from Bevro?")).toBeInTheDocument();
+  expect(within(question).getByText("The project Bevro wrote for it is deleted.")).toBeInTheDocument();
+  expect(within(question).getByText("Its stored credential is deleted.")).toBeInTheDocument();
+  expect(within(question).getByText(/4 tasks stay in Recent, still showing Support Desk/)).toBeInTheDocument();
+  expect(within(question).getByText("Nothing outside Bevro is touched.")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Yes, remove" }));
+  expect(calls.some((c) => c.method === "DELETE" && c.url === "/api/providers/p1")).toBe(true);
+});
+
+test("an agent busy with something cannot be removed, and says why", async () => {
+  mockApi({
+    "GET /api/providers": [provider()],
+    "GET /api/providers/p1/details": { id: "p1", active_runtime: null, runtimes: [], source_kind: null },
+    "GET /api/providers/p1/removal": { removable: true, history: 2, in_flight: 1, credentials: 0, built_project: false, built_connection: false },
+    "GET /api/tasks": [],
+    "GET /api/notifications*": { unread: 0, items: [] },
+  });
+  const user = userEvent.setup();
+  renderAt("/agents");
+
+  await user.click(await screen.findByRole("button", { name: "Manage" }));
+  await user.click(await screen.findByRole("button", { name: "Remove" }));
+
+  const question = await screen.findByRole("group", { name: "Remove Support Desk" });
+  expect(within(question).getByText(/working on something right now/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Yes, remove" })).toBeDisabled();
+});
+
+test("work done by an agent that has since gone is still readable, and labelled", async () => {
+  const gone = { id: null, slug: "support-desk", name: "Support Desk", removed: true };
+  mockApi({
+    "GET /api/tasks": [task({ id: "t1", title: "Draft a reply", state: "completed", provider: gone })],
+    "GET /api/providers": [],
+    "GET /api/notifications*": { unread: 0, items: [] },
+  });
+  renderAt("/recent");
+
+  expect(await screen.findByText("Draft a reply")).toBeInTheDocument();
+  expect(screen.getByText("Support Desk")).toBeInTheDocument();
+  expect(screen.getByText("· Removed")).toBeInTheDocument();
+});

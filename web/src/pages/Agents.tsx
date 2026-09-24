@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import Icon from "../components/Icon";
 import PageHeader, { Page } from "../components/PageHeader";
-import { api, ApiError, type Provider, type ProviderDetails } from "../lib/api";
+import { api, ApiError, type Provider, type ProviderDetails, type RemovalPlan } from "../lib/api";
 
 function LetterMark({ provider }: { provider: Provider }) {
   const letter = provider.icon?.text ?? provider.name.slice(0, 1).toUpperCase();
@@ -91,9 +91,32 @@ function CredentialRow({ provider, credential, onChange, autoFocus }: { provider
   );
 }
 
+/** What removal really does, in the order that matters: what goes, then what stays. */
+export function removalConsequences(provider: Provider, plan: RemovalPlan | null): string[] {
+  const lines: string[] = [];
+  if ((plan?.in_flight ?? 0) > 0) {
+    return [`${provider.name} is working on something right now. Wait for it to finish, or cancel it first.`];
+  }
+  if (plan?.built_project) lines.push("The project Bevro wrote for it is deleted.");
+  if (plan?.built_connection) lines.push("The connection Bevro built for it is deleted.");
+  if ((plan?.credentials ?? 0) > 0) {
+    lines.push(plan?.credentials === 1 ? "Its stored credential is deleted." : `Its ${plan?.credentials} stored credentials are deleted.`);
+  }
+  lines.push("Nothing outside Bevro is touched.");
+  if ((plan?.history ?? 0) > 0) {
+    const n = plan?.history ?? 0;
+    lines.push(`${n} ${n === 1 ? "task stays" : "tasks stay"} in Recent, still showing ${provider.name} as having done the work.`);
+  } else {
+    lines.push("Any work it does from now on would stay in Recent; there is none yet.");
+  }
+  return lines;
+}
+
 function ManagePanel({ provider, onChange, onRemoved, focusCredential = false, autoTest = false }: { provider: Provider; onChange: (p: Provider) => void; onRemoved: () => void; focusCredential?: boolean; autoTest?: boolean }) {
   const [note, setNote] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  // What removal would actually cost, asked for before the question is put.
+  const [plan, setPlan] = useState<RemovalPlan | null>(null);
   const [busy, setBusy] = useState(false);
   const [details, setDetails] = useState<ProviderDetails | null>(null);
   const [editing, setEditing] = useState(false);
@@ -118,6 +141,10 @@ function ManagePanel({ provider, onChange, onRemoved, focusCredential = false, a
       const result = await api.checkProvider(provider.id);
       setNote(result.ok ? `Reachable.${result.detail ? ` ${result.detail}` : ""}` : `Not reachable${result.detail ? `: ${result.detail}` : "."}`);
     });
+  const askToRemove = async () => {
+    setPlan(await api.removalPlan(provider.id).catch(() => null));
+    setConfirmRemove(true);
+  };
   const remove = () =>
     run(async () => {
       await api.removeProvider(provider.id);
@@ -233,6 +260,16 @@ function ManagePanel({ provider, onChange, onRemoved, focusCredential = false, a
           )}
         </dd>
       </dl>
+      {confirmRemove && (
+        <div role="group" aria-label={`Remove ${provider.name}`} className="mt-3 rounded-md border border-line p-3">
+          <p className="font-medium">Remove {provider.name} from Bevro?</p>
+          <ul className="mt-1 space-y-0.5 text-sm text-muted">
+            {removalConsequences(provider, plan).map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button type="button" className="bv-btn" onClick={test} disabled={busy}>
           {(provider.runtime?.alternatives ?? 0) > 0 ? "Test all connections" : "Test"}
@@ -257,15 +294,15 @@ function ManagePanel({ provider, onChange, onRemoved, focusCredential = false, a
         )}
         {confirmRemove ? (
           <>
-            <button type="button" className="bv-btn" onClick={remove} disabled={busy}>
+            <button type="button" className="bv-btn" onClick={remove} disabled={busy || (plan?.in_flight ?? 0) > 0}>
               Yes, remove
             </button>
-            <button type="button" className="bv-btn-quiet" onClick={() => setConfirmRemove(false)}>
+            <button type="button" className="bv-btn-quiet" onClick={() => { setConfirmRemove(false); setPlan(null); }}>
               Keep
             </button>
           </>
         ) : (
-          <button type="button" className="bv-btn-quiet" onClick={() => setConfirmRemove(true)} disabled={busy}>
+          <button type="button" className="bv-btn-quiet" onClick={() => void askToRemove()} disabled={busy}>
             Remove
           </button>
         )}

@@ -23,9 +23,16 @@ class ProviderRun(UUIDPrimaryKey, Timestamped, Base):
     task_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    provider_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("providers.id", ondelete="RESTRICT"), nullable=False, index=True
+    # An agent can be removed while the work it did stays readable, so the link
+    # is allowed to go: the database nullifies it and the two columns below
+    # carry what a person needs to still recognise the run.
+    provider_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("providers.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Who did this work, recorded when it ran. Kept verbatim afterwards: this
+    # is history, so it must not change when a provider is renamed or removed.
+    provider_name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    provider_slug: Mapped[str | None] = mapped_column(String(80), nullable=True)
     state: Mapped[str] = mapped_column(String(32), nullable=False, default=RunState.PENDING)
     input: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     result_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -48,5 +55,6 @@ class ProviderRun(UUIDPrimaryKey, Timestamped, Base):
     meta: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
 
     task: Mapped["Task"] = relationship(back_populates="runs")  # noqa: F821
-    provider: Mapped["Provider"] = relationship(back_populates="runs")  # noqa: F821
+    # None once the agent has been removed; provider_name still says who it was.
+    provider: Mapped["Provider | None"] = relationship(back_populates="runs")  # noqa: F821
     artifacts: Mapped[list["Artifact"]] = relationship(back_populates="provider_run")  # noqa: F821

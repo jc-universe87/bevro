@@ -104,7 +104,7 @@ export default function TaskPage() {
     if (!task) return;
     setBusy(true);
     try {
-      const again = await api.submitTask({ request: task.original_request, provider_id: task.provider?.id });
+      const again = await api.submitTask({ request: task.original_request, provider_id: task.provider?.id ?? undefined });
       navigate(`/tasks/${again.id}`);
     } catch (err) {
       setScheduleNote(err instanceof ApiError ? err.message : "Bevro couldn't reach the server.");
@@ -186,7 +186,12 @@ export default function TaskPage() {
       <section aria-label="Request" className="mb-8">
         <p className="text-lg md:text-xl leading-snug">{task.original_request}</p>
         <p className="bv-hint mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-          {task.provider && <span>{task.provider.name}</span>}
+          {task.provider && (
+            <span>
+              {task.provider.name}
+              {task.provider.removed && <span className="text-subtle"> · Removed</span>}
+            </span>
+          )}
           <span aria-hidden="true">·</span>
           <TaskStatus state={task.state} />
           <span aria-hidden="true">·</span>
@@ -257,13 +262,13 @@ export default function TaskPage() {
                 <button key={a.kind} type="button" onClick={retry} disabled={retrying} className={i === 0 ? "bv-btn-primary" : "bv-btn"}>
                   {retrying ? "Retrying…" : a.label}
                 </button>
-              ) : (
+              ) : run.provider.id ? (
                 <Link key={a.kind} to={actionTarget(a.kind, run.provider.id)} className={i === 0 ? "bv-btn-primary" : "bv-btn"}>
                   {a.label}
                 </Link>
-              ),
+              ) : null,
             )}
-            {!failure.actions.some((a) => a.kind === "manage") && (
+            {run.provider.id && !failure.actions.some((a) => a.kind === "manage") && (
               <Link to={actionTarget("manage", run.provider.id)} className="bv-btn-quiet">
                 Manage provider
               </Link>

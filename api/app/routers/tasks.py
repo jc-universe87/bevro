@@ -27,6 +27,8 @@ def _detail(db: Session, task: Task) -> TaskDetail:
         store = None
     if store is not None:
         for run in task.runs:
+            if run.provider_id is None:
+                continue  # the agent has been removed; there are no secrets to speak of
             key = str(run.provider_id)
             if key not in secret_names:
                 secret_names[key] = store.names(db, run.provider_id)

@@ -8,9 +8,17 @@ from pydantic import BaseModel, Field
 
 
 class ProviderRef(BaseModel):
-    id: uuid.UUID
-    slug: str
+    """Who did the work.
+
+    An agent can be removed while its work stays readable, so this may name
+    an agent that is no longer here: the id is then absent and `removed` is
+    true. The name is the one recorded when the work was done.
+    """
+
+    id: uuid.UUID | None = None
+    slug: str | None = None
     name: str
+    removed: bool = False
 
 
 class TaskSubmit(BaseModel):

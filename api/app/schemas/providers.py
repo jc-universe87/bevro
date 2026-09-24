@@ -113,6 +113,21 @@ class CreatePreviewIn(BaseModel):
     description: str = Field(min_length=3, max_length=4000)
 
 
+class RemovalPlanOut(BaseModel):
+    """What removing an agent would take with it, so the question can be honest."""
+
+    # Built-in agents stay; everything else can go.
+    removable: bool = True
+    # How many pieces of work it did. These are kept, and said so.
+    history: int = 0
+    # Work running right now, which must finish or be cancelled first.
+    in_flight: int = 0
+    credentials: int = 0
+    # A project or a connection Bevro generated and owns. These do go.
+    built_project: bool = False
+    built_connection: bool = False
+
+
 class CreatePreviewOut(BaseModel):
     """What the person is shown before agreeing. Plain words, never the spec itself."""
 

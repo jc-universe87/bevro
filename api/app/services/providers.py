@@ -82,6 +82,71 @@ def register_provider(db: Session, data: dict[str, Any]) -> Provider:
 _MANIFEST_FIELDS = ("name", "description", "capabilities", "adapter", "app_url", "icon")
 
 
+class ProviderInUse(Exception):
+    """Work is running through this provider right now."""
+
+
+def removal_plan(db: Session, provider: Provider) -> dict[str, Any]:
+    """What removing this agent would take with it, in plain terms.
+
+    The work it did is never in this list: history belongs to the person, not
+    to the agent that happened to do it.
+    """
+    from app.models import ProviderRun
+    from app.domain.run_state import RUN_TERMINAL
+
+    runs = db.scalars(select(ProviderRun).where(ProviderRun.provider_id == provider.id)).all()
+    return {
+        "history": len({r.task_id for r in runs}),
+        "in_flight": sum(1 for r in runs if r.state not in RUN_TERMINAL),
+        "credentials": len(provider.secrets),
+        # A created agent keeps a project Bevro wrote and owns.
+        "built_project": bool(agents_dir_for(provider).exists()),
+        "built_connection": bool(integration_dir_for(provider).exists()),
+    }
+
+
+def agents_dir_for(provider: Provider):
+    from app.services.agents import agent_dir
+
+    return agent_dir(provider.id)
+
+
+def integration_dir_for(provider: Provider):
+    from app.services.bridges import integration_dir
+
+    return integration_dir(provider.id)
+
+
+def remove_provider(db: Session, provider: Provider) -> dict[str, Any]:
+    """Remove an agent and everything that was only ever its. Caller commits.
+
+    Gone: the provider, its credentials, its runtimes, its build records, and
+    any project or connection Bevro generated for it - all of which live in
+    folders named after it, so none of it is shared with anything else.
+
+    Kept: every task, every run, every artifact. The runs simply lose the link
+    and go on saying who did the work.
+    """
+    import shutil
+
+    plan = removal_plan(db, provider)
+    if plan["in_flight"]:
+        raise ProviderInUse(f"{provider.name} is working on something right now. Wait for it to finish, or cancel it first.")
+
+    for folder in (agents_dir_for(provider), integration_dir_for(provider)):
+        if folder.exists():
+            shutil.rmtree(folder, ignore_errors=True)
+            log.info("provider %s: removed generated data at %s", provider.slug, folder.name)
+
+    # Secrets and build records are the provider's own and cascade with it;
+    # runs keep their row and lose only the link.
+    db.delete(provider)
+    db.flush()
+    log.info("provider %s removed; %s task(s) of history kept", provider.slug, plan["history"])
+    return plan
+
+
 def shipped_demo(provider: Provider) -> bool:
     """Is this row a demo provider Bevro seeded, and no one has made their own?
 
