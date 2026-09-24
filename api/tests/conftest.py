@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from types import SimpleNamespace
 from collections.abc import Iterator
 
 import pytest
@@ -21,12 +22,19 @@ TEST_URL = os.environ.get("BEVRO_TEST_DATABASE_URL", "postgresql+psycopg://bevro
 if "test" not in make_url(TEST_URL).database:
     raise RuntimeError("BEVRO_TEST_DATABASE_URL must point at a database whose name contains 'test'")
 
+# Every directory Bevro writes to points inside one temporary root. The
+# defaults are the real installation's (/data/...), which a test must never
+# touch: on a developer's machine that would pollute their workspace, and on
+# a bare runner /data does not exist at all. A test that needs its own
+# directories uses the `managed_data` fixture; this is the floor under it.
 _artifact_dir = tempfile.mkdtemp(prefix="bevro-artifacts-")
 os.environ["BEVRO_DATABASE_URL"] = TEST_URL
 os.environ["BEVRO_ARTIFACT_DIR"] = _artifact_dir
 os.environ["BEVRO_SECRET_KEY"] = Fernet.generate_key().decode()
 os.environ["BEVRO_WORKSPACES_FILE"] = os.path.join(_artifact_dir, "no-workspaces.json")
 os.environ["BEVRO_LOG_DIR"] = os.path.join(_artifact_dir, "logs")
+os.environ["BEVRO_AGENTS_DIR"] = os.path.join(_artifact_dir, "agents")
+os.environ["BEVRO_INTEGRATIONS_DIR"] = os.path.join(_artifact_dir, "integrations")
 # Delivery is off in tests whatever this machine happens to be set up with:
 # a test that needs email hands its own Settings in.
 os.environ["BEVRO_SMTP_HOST"] = ""
@@ -72,6 +80,24 @@ def db(engine) -> Iterator[Session]:
         session.close()
         trans.rollback()
         connection.close()
+
+
+@pytest.fixture
+def managed_data(tmp_path, monkeypatch):
+    """The directories Bevro owns and writes into, for one test only.
+
+    Generated agents and built connections land under the test's own
+    tmp_path, so a test can assert that its files were created and removed
+    without ever going near the installation's real data directory.
+    """
+    from app.config import get_settings as settings_cache
+
+    agents, integrations = tmp_path / "agents", tmp_path / "integrations"
+    monkeypatch.setenv("BEVRO_AGENTS_DIR", str(agents))
+    monkeypatch.setenv("BEVRO_INTEGRATIONS_DIR", str(integrations))
+    settings_cache.cache_clear()
+    yield SimpleNamespace(root=tmp_path, agents=agents, integrations=integrations)
+    settings_cache.cache_clear()
 
 
 @pytest.fixture

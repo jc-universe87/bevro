@@ -417,16 +417,25 @@ def test_an_agent_in_the_middle_of_something_is_not_removed(client, seeded, rese
     assert seeded.get(Provider, research.id) is not None
 
 
-def test_removing_a_created_agent_takes_the_project_bevro_wrote(client, seeded, research, tmp_path, monkeypatch):
-    """Generated code belongs to the agent. History does not."""
+def test_removing_a_created_agent_takes_the_project_bevro_wrote(client, seeded, research, managed_data):
+    """Generated code belongs to the agent. History does not.
+
+    Both kinds of generated data - the project Bevro wrote and the connection
+    it built - live under the test's own directories, never the
+    installation's, and both must be gone afterwards.
+    """
     from app.services import agents as agent_service
     from app.services import bridges as bridge_service
 
-    monkeypatch.setattr(agent_service.get_settings(), "agents_dir", str(tmp_path / "agents"), raising=False)
     built = agent_service.agent_dir(research.id)
+    bridge = bridge_service.integration_dir(research.id)
+    # Both really are inside this test's tmp_path, not a real data directory.
+    assert managed_data.agents in built.parents, built
+    assert managed_data.integrations in bridge.parents, bridge
+    assert not str(built).startswith("/data") and not str(bridge).startswith("/data")
+
     built.mkdir(parents=True, exist_ok=True)
     (built / "agent.py").write_text("print('hi')\n", encoding="utf-8")
-    bridge = bridge_service.integration_dir(research.id)
     bridge.mkdir(parents=True, exist_ok=True)
     (bridge / "bridge.py").write_text("print('hi')\n", encoding="utf-8")
     finished_task(seeded, research, "Compare three note-taking apps")
@@ -439,6 +448,21 @@ def test_removing_a_created_agent_takes_the_project_bevro_wrote(client, seeded, 
     assert client.delete(f"/api/providers/{research.id}").status_code == 204
     assert not built.exists() and not bridge.exists()
     assert len(client.get("/api/tasks").json()) == 1  # the work it did is still there
+
+
+def test_no_test_ever_writes_to_the_installation_s_own_directories():
+    """The floor under every test: nothing points at /data.
+
+    The defaults are the real installation's. A test that reached them would
+    pollute a developer's workspace, and would simply fail on a bare runner
+    where /data does not exist.
+    """
+    from app.config import get_settings
+
+    settings = get_settings()
+    for name in ("artifact_dir", "log_dir", "agents_dir", "integrations_dir", "workspaces_file"):
+        value = getattr(settings, name)
+        assert not value.startswith("/data"), f"{name} points at the real installation: {value}"
 
 
 def test_the_removal_question_is_asked_with_the_facts(client, seeded, research):
