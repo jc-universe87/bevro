@@ -406,12 +406,12 @@ export default function Agents() {
     api.listProviders().then(setProviders).catch(() => setError("Agents couldn't be loaded."));
   }, []);
 
-  // An agent Bevro ships that has never been usable here is not one of yours:
-  // it is something you could set up. Anything you connected or created stays
-  // in the list whatever its state today.
-  const isWaitingToBeSetUp = (p: Provider) => p.origin === "example" && p.availability?.state === "unavailable" && !p.actions.includes("ask");
-  const mine = (providers ?? []).filter((p) => !isWaitingToBeSetUp(p));
-  const available = (providers ?? []).filter(isWaitingToBeSetUp);
+  // Agents lists the agents you have. An agent Bevro ships that is not usable
+  // on this installation is not one of them, so it is not listed at all - it
+  // is offered where it is actually needed, such as on Create. Anything you
+  // connected or created stays listed whatever its state today.
+  const isUnusableBuiltIn = (p: Provider) => p.origin === "example" && p.availability?.state === "unavailable" && !p.actions.includes("ask");
+  const mine = (providers ?? []).filter((p) => !isUnusableBuiltIn(p));
 
   const replace = (updated: Provider) => setProviders((list) => (list ?? []).map((x) => (x.id === updated.id ? updated : x)));
   const drop = (id: string) => {
@@ -479,6 +479,7 @@ export default function Agents() {
       {providers && mine.length === 0 && (
         <section aria-label="No agents yet" className="py-8">
           <p className="bv-hint">No agents yet.</p>
+          <p className="bv-hint">Connect something you already have or create something new.</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Link to="/connect" className="bv-btn-primary">
               Connect
@@ -487,30 +488,6 @@ export default function Agents() {
               Create
             </Link>
           </div>
-        </section>
-      )}
-
-      {/* Shipped with Bevro but not usable here yet: worth knowing about,
-          not worth listing as though you had set it up. */}
-      {available.length > 0 && (
-        <section aria-labelledby="available-heading" className="mt-8">
-          <h2 id="available-heading" className="text-sm font-medium">
-            Available to set up
-          </h2>
-          <ul className="mt-2 divide-y divide-line border-t border-b border-line">
-            {available.map((p) => (
-              <li key={p.id} className="py-3 flex items-start gap-3">
-                <LetterMark provider={p} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-baseline gap-x-2">
-                    <h3 className="font-medium text-muted">{p.name}</h3>
-                    <span className="text-xs text-subtle">{p.availability?.note ?? "Not set up yet"}</span>
-                  </div>
-                  <p className="text-sm text-muted">{p.description}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
         </section>
       )}
     </Page>

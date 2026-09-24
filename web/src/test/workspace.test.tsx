@@ -54,14 +54,32 @@ test("a fresh workspace says it has no agents and offers the two ways to get one
 
   const empty = await screen.findByRole("region", { name: "No agents yet" });
   expect(within(empty).getByText("No agents yet.")).toBeInTheDocument();
+  expect(within(empty).getByText("Connect something you already have or create something new.")).toBeInTheDocument();
   expect(within(empty).getByRole("link", { name: "Connect" })).toHaveAttribute("href", "/connect");
   expect(within(empty).getByRole("link", { name: "Create" })).toHaveAttribute("href", "/create");
 
-  // Claude Code is shipped, so it is mentioned - but not as one of yours.
-  const available = await screen.findByRole("region", { name: "Available to set up" });
-  expect(within(screen.getByRole("list", { name: "Agents" })).queryByText("Claude Code")).not.toBeInTheDocument();
-  expect(within(available).getByText("Claude Code")).toBeInTheDocument();
-  expect(within(available).getByText("Optional · needs the host worker")).toBeInTheDocument();
+  // An agent Bevro ships that cannot be used here is not listed at all: it is
+  // offered where it is needed, not kept on a shelf in Agents.
+  expect(screen.queryByText("Claude Code")).not.toBeInTheDocument();
+  expect(screen.queryByText("Optional · needs the host worker")).not.toBeInTheDocument();
+});
+
+
+test("a coding agent is offered where it is actually needed", async () => {
+  mockApi({
+    "GET /api/providers": [notSetUp],
+    "POST /api/create/preview": { name: "Price Watch", description: "Watch pricing", can: ["Monitor"], needs: ["Web access"], produces: "a summary", can_build: false, spec: {} },
+    "GET /api/tasks": [],
+    "GET /api/notifications*": { unread: 0, items: [] },
+  });
+  const user = userEvent.setup();
+  renderAt("/create");
+
+  await user.type(await screen.findByRole("textbox"), "Watch competitor pricing pages");
+  await user.click(screen.getByRole("button", { name: "Create" }));
+
+  expect(await screen.findByText("Creating agents needs a connected coding agent.")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Connect coding agent" })).toHaveAttribute("href", "/connect");
 });
 
 test("once a coding agent is usable it is simply one of your agents", async () => {
