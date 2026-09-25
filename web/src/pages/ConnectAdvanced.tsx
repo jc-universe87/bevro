@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useState, type FormEvent } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import PageHeader, { Page } from "../components/PageHeader";
 import { api, ApiError } from "../lib/api";
 
@@ -27,6 +27,29 @@ export default function ConnectAdvanced() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  // Arrived from Connect with something already found: what Bevro and the
+  // person already know about it is filled in, so nothing is typed twice.
+  const [params] = useSearchParams();
+  const from = params.get("from");
+  const [foundName, setFoundName] = useState<string | null>(null);
+  useEffect(() => {
+    if (!from) return;
+    let live = true;
+    api
+      .connectDraft(from)
+      .then((d) => {
+        if (!live || !d.draft) return;
+        setFoundName(d.draft.name);
+        setName((current) => current || d.draft!.name);
+        setCapabilities((current) => current || d.draft!.capabilities.map((c) => c.title ?? c.id).join(", "));
+      })
+      .catch(() => {
+        /* the form still works empty */
+      });
+    return () => {
+      live = false;
+    };
+  }, [from]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -81,6 +104,11 @@ export default function ConnectAdvanced() {
           Back to Connect
         </Link>
       </PageHeader>
+      {foundName && (
+        <p className="mb-3">
+          Setting up {foundName}. Bevro found it, but not how to send it a task. Tell Bevro how it takes one: an address it answers requests on, an MCP server, or a command.
+        </p>
+      )}
       <p className="bv-hint mb-5">For things Bevro couldn't work out on its own. The normal way is to type an address or folder under Connect.</p>
       <form onSubmit={submit} className="space-y-5" aria-label="Advanced setup">
         <fieldset>
@@ -172,7 +200,7 @@ export default function ConnectAdvanced() {
           <label htmlFor="a-caps" className="bv-label">
             Capabilities <span className="font-normal text-muted">(optional)</span>
           </label>
-          <input id="a-caps" value={capabilities} onChange={(e) => setCapabilities(e.target.value)} placeholder="Research, Quotes, Bookings" className="bv-input" />
+          <input id="a-caps" value={capabilities} onChange={(e) => setCapabilities(e.target.value)} placeholder="Search documents, create reports" className="bv-input" />
           <p className="bv-hint mt-1">A few words, separated by commas.</p>
         </div>
 

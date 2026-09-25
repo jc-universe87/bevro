@@ -222,7 +222,12 @@ def test_b_a_fixed_one_off_job_has_the_key_and_no_way_to_be_asked(roots, host):
     assert draft.runtime.id == work_interface(draft).id
     assert draft.auth.required is True
     note = work_interface(draft).credentials.note or ""
-    assert "can't hand work to that" in note and f"Bevro needs its own {KEY}" in note
+    assert "already has a credential for its scheduled runs" in note and "isn't available when Bevro starts a new task" in note
+    # Said to the person with the provider's name, and with a "why" that
+    # names no file, unit or mechanism.
+    auth = draft.public()["auth"]
+    assert auth["hint"].startswith(draft.name) and auth["why"]
+    assert "systemd" not in auth["why"] and "EnvironmentFile" not in auth["why"] and "scheduled service starts" in auth["why"]
 
 
 def test_b_a_template_s_short_name_is_not_a_request(roots, host):

@@ -138,6 +138,11 @@ class ProviderUpdate(BaseModel):
 class HealthOut(BaseModel):
     ok: bool
     detail: str | None = None
+    # What was actually checked, one fact each: [{"label", "ok", "kind"?}].
+    # `ok` is null for "not checked, and why".
+    checks: list[dict[str, Any]] = Field(default_factory=list)
+    # The one thing that would fix it, when there is one: "add_credential".
+    next: str | None = None
 
 
 class CreatePreviewIn(BaseModel):

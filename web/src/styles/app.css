@@ -64,6 +64,13 @@
   .bv-hint {
     @apply text-sm text-muted;
   }
+  /* "Why?": small, optional, never louder than the action it explains. */
+  .bv-help {
+    @apply inline-flex items-center gap-1.5 py-1 text-sm text-muted hover:text-ink;
+  }
+  .bv-help-mark {
+    @apply inline-flex h-4 w-4 items-center justify-center rounded-full border border-line-strong text-[11px] leading-none;
+  }
   .bv-row {
     @apply flex items-start gap-4 py-3 border-b border-line last:border-b-0;
   }

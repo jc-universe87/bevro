@@ -115,6 +115,11 @@ class Credentials(BaseModel):
     # True when this way in cannot get what it needs but another way into the
     # same provider can. Nobody is asked; this one is simply the worse way in.
     supplied_elsewhere: bool = False
+    # What the way in that has it uses it for, in words that finish "a
+    # credential for ...": "its scheduled runs", "its container". Set on the
+    # way in that holds it, and copied to the ones that cannot reach it, so
+    # the person is told where the credential they already have lives.
+    held_for: str | None = None
     note: str | None = None  # one plain sentence for the person
 
     @property

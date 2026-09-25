@@ -51,6 +51,7 @@ UNREACHABLE_HERE_MESSAGE = (
     "Bevro can't reach that address from inside its container, and the worker isn't running on this "
     "machine to try from here (./scripts/worker.sh)."
 )
+WORKER_TIMEOUT_MESSAGE = "The worker didn't respond. Is ./scripts/worker.sh running on this machine?"
 LOCAL_KINDS = ("local", "command", "name")
 NOT_FOUND_BY_NAME = "Bevro couldn't find anything called “{name}” on this machine. If you know where it is, paste the folder's full path instead."
 
@@ -346,7 +347,7 @@ def get_draft(db: Session, draft_id: uuid.UUID) -> ConnectDraft | None:
     if row.state in ("pending", "testing") and (utcnow() - row.updated_at) > timedelta(seconds=PENDING_TIMEOUT_SECONDS):
         if row.state == "pending":
             row.state = "failed"
-            row.error = "The worker didn't respond. Is ./scripts/worker.sh running on this machine?"
+            row.error = WORKER_TIMEOUT_MESSAGE
         else:
             row.state = "found"
             row.test = {"ok": False, "detail": "The worker didn't respond to the test."}
@@ -375,21 +376,81 @@ def run_pending(db: Session, roots: list[Path]) -> int:
     return handled
 
 
+# --------------------------------------------------------------------------- describe
+
+def describe_draft(db: Session, row: ConnectDraft, *, capability_summary: str, name: str | None = None) -> ConnectDraft:
+    """The person said what it is for. Keep it on the draft, whatever comes next.
+
+    Saved now rather than at Connect, because Connect may not be the next
+    step: the thing may still need a credential, or a way to send it work,
+    and what was typed must not be lost on the way there.
+    """
+    if row.state != "found" or not row.draft:
+        raise DraftError("There is nothing found to describe yet.", 409)
+    capabilities = capabilities_from_summary(capability_summary)
+    if not capabilities:
+        raise DraftError("Say in a few words what Bevro should use it for.", 422)
+    pd = ProviderDraft.model_validate(row.draft).describe(capabilities, name)
+    row.draft = pd.model_dump(mode="json")
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+# What went wrong, as a kind the page can offer the right way out of. The
+# words themselves are the service's; the kind only chooses the button.
+def problem_of(row: ConnectDraft) -> str | None:
+    """"worker" | "unreachable" | "not_found" | "failed" for a failed draft; None otherwise."""
+    if row.state != "failed":
+        return None
+    if row.error in (WORKER_NEEDED_MESSAGE, WORKER_TIMEOUT_MESSAGE, UNREACHABLE_HERE_MESSAGE):
+        return "worker"
+    if row.unreachable:
+        return "unreachable"
+    if row.named and row.error == NOT_FOUND_BY_NAME.format(name=row.named):
+        return "not_found"
+    return "failed"
+
+
+def already_connected(db: Session, row: ConnectDraft) -> Provider | None:
+    """A provider already connected from the same place, if there is one.
+
+    Found again is not new: the person is pointed at what they have rather
+    than offered a second copy of it.
+    """
+    if row.state not in ("found", "testing") or not row.target:
+        return None
+    for provider in db.scalars(select(Provider).where(Provider.origin == "connected")):
+        if str((provider.source or {}).get("target") or "") == row.target:
+            return provider
+    return None
+
+
 # --------------------------------------------------------------------------- test
 
 def test_draft(db: Session, row: ConnectDraft, secrets: dict[str, str]) -> ConnectDraft:
+    """Check what can be checked, safely, and say exactly what that was.
+
+    The result is a short list of facts - found, reachable, the program is
+    there, the credential is there, its own self-check passed - each passed
+    or not. "Test passed" is only said when every one of them did, and it
+    never means a real task has run.
+    """
     if row.state not in ("found",) or not row.draft:
         raise DraftError("There is nothing to test yet.", 409)
     pd = ProviderDraft.model_validate(row.draft)
+    given = bool(pd.auth.secret_name and secrets.get(pd.auth.secret_name))
     if (needs_host(pd) and not can_discover_locally()) or api_ruled_out(pd):
         if not provider_service.worker_seen_recently(db):
             raise DraftError(UNREACHABLE_HERE_MESSAGE if api_ruled_out(pd) else WORKER_NEEDED_MESSAGE, 409)
         row.state = "testing"
-        row.test = None
+        # Whether a credential was typed travels with the request; the value does not.
+        row.test = {"credential_given": given}
         db.commit()
         db.refresh(row)
         return row
     if needs_host(pd):
+        row.test = {"credential_given": given}
         _test_on_host(row, local_roots())
     else:
         row.test = _test_remote(pd, secrets)
@@ -400,9 +461,39 @@ def test_draft(db: Session, row: ConnectDraft, secrets: dict[str, str]) -> Conne
     return row
 
 
+def credential_check(pd: ProviderDraft, *, given: bool, sources: dict[str, str] | None = None) -> dict[str, Any] | None:
+    """The credential, as one line of a test. None when nothing is needed."""
+    rt = pd.runtime
+    label = pd.auth.label or "credential"
+    if pd.auth.required:
+        # Where the machine that would run it says it can find it: a value
+        # typed here, or the worker's own environment. Never a guess.
+        found = given or bool(sources and pd.auth.secret_name and sources.get(pd.auth.secret_name, "missing") != "missing")
+        if found:
+            return {"label": f"Has an {label}" if label[:1].lower() in "aeiou" else f"Has a {label}", "ok": True, "kind": "credential"}
+        return {"label": f"No {label} yet for tasks Bevro starts", "ok": False, "kind": "credential"}
+    if rt is not None and rt.credentials.names and not rt.credentials.missing:
+        return {"label": "Has the credentials it needs", "ok": True, "kind": "credential"}
+    return None
+
+
+def verdict(checks: list[dict[str, Any]]) -> dict[str, Any]:
+    """{ok, detail, checks, next}: what the checks add up to, in one sentence."""
+    failed = [c for c in checks if c.get("ok") is False]
+    if failed:
+        # Only when the credential is the one thing missing is adding it the answer.
+        only_credential = len(failed) == 1 and failed[0].get("kind") == "credential"
+        detail = "Everything else is in place, but it needs a credential before it can run." if only_credential else "It can't take work yet."
+        return {"ok": False, "detail": detail, "checks": checks, "next": "add_credential" if only_credential else None}
+    functional = any(c.get("kind") == "functional" and c.get("ok") for c in checks)
+    detail = "Everything checked, including its own self-check." if functional else "Everything Bevro can check without running a real task is in place."
+    return {"ok": True, "detail": detail, "checks": checks, "next": None}
+
+
 def _test_remote(pd: ProviderDraft, secrets: dict[str, str]) -> dict[str, Any]:
     """HTTP and MCP-over-HTTP: a health request or an MCP initialize, in this process."""
     kind = str(pd.adapter.get("kind") or "")
+    given = bool(pd.auth.secret_name and secrets.get(pd.auth.secret_name))
     if pd.availability == "needs_start" and kind == "http":
         # A project that runs as a web service: now that it may be running, read what it publishes.
         base = str((pd.adapter.get("config") or {}).get("base_url") or "")
@@ -410,16 +501,24 @@ def _test_remote(pd: ProviderDraft, secrets: dict[str, str]) -> dict[str, Any]:
             target = classify_target(base)
             found = get_discovery_service().discover(target, DiscoveryContext(secrets=secrets))
         except (DiscoveryFailed, TargetError) as exc:
-            return {"ok": False, "detail": str(exc)}
+            return {**verdict([{"label": "Found it", "ok": True}, {"label": "It isn't running yet", "ok": False}]), "detail": str(exc)}
         merged = found.model_copy(update={"name": pd.name if pd.name else found.name, "description": pd.description or found.description, "capabilities": found.capabilities or pd.capabilities, "evidence": [*pd.evidence, *found.evidence]})
-        return {"ok": True, "detail": "Reached it and read its description.", "draft": merged.model_dump()}
+        return {**verdict([{"label": "Found it", "ok": True}, {"label": "It's running and described itself", "ok": True}]), "draft": merged.model_dump()}
     try:
         adapter = get_adapter(kind)
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "detail": str(exc)}
+    except Exception:  # noqa: BLE001
+        return verdict([{"label": "Found it", "ok": True}, {"label": "Bevro doesn't know how to send it work yet", "ok": False}])
     spec = ProviderSpec(id="draft", slug="draft", name=pd.name, capabilities=[c.model_dump() for c in pd.capabilities], adapter=pd.adapter)
     result = adapter.check(spec, secrets)
-    return {"ok": result.ok, "detail": result.detail or ("Reachable." if result.ok else "Not reachable.")}
+    checks: list[dict[str, Any]] = [{"label": "Found it", "ok": True}]
+    checks.append({"label": ("It answers and lists its tools" if kind == "mcp" else "It answers at its address") if result.ok else "It didn't answer", "ok": result.ok})
+    if not result.ok and result.detail:
+        checks[-1]["detail"] = result.detail
+    if result.ok and not pd.invocable:
+        checks.append({"label": "Bevro doesn't know how to send it work yet", "ok": False})
+    if (cred := credential_check(pd, given=given)) is not None:
+        checks.append(cred)
+    return verdict(checks)
 
 
 def _test_on_host(row: ConnectDraft, roots: list[Path]) -> None:
@@ -427,9 +526,12 @@ def _test_on_host(row: ConnectDraft, roots: list[Path]) -> None:
 
     Commands and stdio MCP servers, because that is where the program is; and
     addresses the container cannot reach, because that is where they answer.
-    A local MCP server is started once to read its tools (the person asked)."""
+    A local MCP server is started once to read its tools (the person asked).
+    A command is not run - unless it declares a self-check of its own, which
+    is the one thing it promised is safe to run."""
     pd = ProviderDraft.model_validate(row.draft or {})
     kind = str(pd.adapter.get("kind") or "")
+    given = bool((row.test or {}).get("credential_given"))
     row.state = "found"
     try:
         adapter = get_adapter(kind)
@@ -437,17 +539,39 @@ def _test_on_host(row: ConnectDraft, roots: list[Path]) -> None:
         if kind == "mcp":
             refined = refine_stdio(pd, {})
             row.draft = refined.model_dump()
-            row.test = {"ok": True, "detail": f"Started it and read {len(refined.capabilities)} tool(s)."}
+            checks = [{"label": "Found it on this machine", "ok": True}, {"label": f"Started it and read {len(refined.capabilities)} tool(s)", "ok": True}]
+            if (cred := credential_check(pd, given=given)) is not None:
+                checks.append(cred)
+            row.test = verdict(checks)
             return
         result = adapter.check(spec, {})
-        # What was proved differs: that a program is there, or that something answered.
-        worked = "Connection works." if kind in ("http", "openapi") else "The folder and the program are in place."
-        row.test = {"ok": result.ok, "detail": result.detail or (worked if result.ok else "Not ready.")}
+        if kind != "command":
+            checks = [{"label": "It answers at its address" if result.ok else "It didn't answer", "ok": result.ok}]
+            if (cred := credential_check(pd, given=given, sources=result.credentials)) is not None:
+                checks.append(cred)
+            row.test = verdict(checks)
+            return
+        checks = adapter.readiness(spec)  # type: ignore[attr-defined]
+        if all(c["ok"] for c in checks):
+            cred = credential_check(pd, given=given, sources=result.credentials)
+            if cred is not None:
+                checks.append(cred)
+            # Its own check runs only with what this machine has: a value typed
+            # in the browser is not here until it is connected and stored.
+            here = credential_check(pd, given=False, sources=result.credentials)
+            declared = bool((pd.adapter.get("config") or {}).get("self_check"))
+            if not declared:
+                checks.append({"label": "It doesn't offer a self-check, so no real task was run", "ok": None, "kind": "functional"})
+            elif here is None or here["ok"]:
+                checks.append(adapter.self_check(spec, {}))  # type: ignore[attr-defined]
+            elif cred is not None and cred["ok"]:
+                checks.append({"label": "Its own self-check runs once the credential is saved", "ok": None, "kind": "functional"})
+        row.test = verdict(checks)
     except DiscoveryFailed as exc:
-        row.test = {"ok": False, "detail": str(exc)}
+        row.test = {"ok": False, "detail": str(exc), "checks": [], "next": None}
     except Exception as exc:  # noqa: BLE001
         log.exception("test on host failed")
-        row.test = {"ok": False, "detail": f"The test failed: {type(exc).__name__}"}
+        row.test = {"ok": False, "detail": f"The test failed: {type(exc).__name__}", "checks": [], "next": None}
 
 
 # --------------------------------------------------------------------------- confirm
@@ -495,8 +619,11 @@ def confirm_draft(db: Session, row: ConnectDraft, *, name: str | None, descripti
         if scope not in [c.get("value") for c in pd.scope_choices]:
             raise DraftError("That isn't one of the ones Bevro found.", 422)
         pd = _scoped_to(pd, scope)
-    if not pd.adapter.get("kind"):
-        raise DraftError("Bevro found this, but has no way to run it. Use Advanced setup.", 409)
+    if not pd.adapter.get("kind") or not pd.invocable:
+        raise DraftError("Bevro found this, but doesn't yet know how to send it work.", 409)
+    if capability_summary is None and not pd.capabilities:
+        # Connected with nothing it can do, it would never be sent anything.
+        raise DraftError("Say what Bevro should use it for first.", 422)
     capabilities = [c.model_dump(exclude_none=True) for c in pd.capabilities]
     if capability_summary is not None:
         capabilities = [c.model_dump(exclude_none=True) for c in capabilities_from_summary(capability_summary)]
@@ -687,7 +814,7 @@ def _reconnect_through_worker(db: Session, provider: Provider, reason: str) -> P
             return provider
     provider.source = {k: v for k, v in (provider.source or {}).items() if not k.startswith("reconnect_")}
     db.commit()
-    raise DraftError("The worker didn't respond. Is ./scripts/worker.sh running on this machine?", 409)
+    raise DraftError(WORKER_TIMEOUT_MESSAGE, 409)
 
 
 def run_reconnects(db: Session) -> int:

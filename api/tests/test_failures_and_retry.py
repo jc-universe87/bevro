@@ -39,7 +39,7 @@ def test_missing_credential_is_explained_and_fixed_from_the_browser(client, seed
         provider = connect_fixture(client, seeded, root, with_key=False)
         # "Missing" with nothing else found; where something *was* found, the
         # note says what, so the two are never the same answer.
-        assert provider["credentials"] == [{"name": "OPENAI_API_KEY", "label": "OpenAI credential", "present": False, "source": "missing", "status": "Missing", "note": None}]
+        assert provider["credentials"] == [{"name": "OPENAI_API_KEY", "label": "OpenAI credential", "present": False, "source": "missing", "status": "Missing", "note": None, "why": None}]
 
         r = client.post("/api/tasks", json={"request": "Fixture research: what changed among competitors?"})
         assert r.status_code == 201, r.text
@@ -59,7 +59,7 @@ def test_missing_credential_is_explained_and_fixed_from_the_browser(client, seed
         # Add the credential from Manage: stored encrypted, never echoed back.
         r = client.put(f"/api/providers/{provider['id']}/secrets/OPENAI_API_KEY", json={"value": "sk-added-in-browser"})
         assert r.status_code == 200, r.text
-        assert r.json()["credentials"] == [{"name": "OPENAI_API_KEY", "label": "OpenAI credential", "present": True, "source": "bevro", "status": "Added", "note": None}]
+        assert r.json()["credentials"] == [{"name": "OPENAI_API_KEY", "label": "OpenAI credential", "present": True, "source": "bevro", "status": "Added", "note": None, "why": None}]
         assert "sk-added-in-browser" not in r.text and "sk-added-in-browser" not in client.get("/api/providers").text
         assert client.put(f"/api/providers/{provider['id']}/secrets/bad name", json={"value": "x"}).status_code == 422
 

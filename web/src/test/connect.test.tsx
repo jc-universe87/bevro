@@ -23,6 +23,8 @@ const draftView = (over: Record<string, unknown> = {}) => ({
   confidence: "high",
   confidence_label: "Confident",
   note: null,
+  needs_description: false,
+  described: false,
   evidence: ["pyproject.toml declares market-research 1.4.1", "README documents python -m market_research.agent"],
   warnings: [],
   app_url: null,
@@ -77,17 +79,19 @@ test("typing a folder finds the agent, confirms it, and says it is under Agents"
   renderAt("/connect");
   await user.type(screen.getByPlaceholderText("Paste an address, folder, command, or name"), "~/agents/market-research{Enter}");
   expect(calls.find((c) => c.method === "POST")?.body).toEqual({ target: "~/agents/market-research", secrets: {} });
-  expect(await screen.findByText("Looking at market-research…")).toBeInTheDocument();
+  expect(await screen.findByText("Looking for market-research…")).toBeInTheDocument();
 
   const found = await screen.findByRole("region", { name: "Found" }, { timeout: 3000 });
   expect(within(found).getByRole("heading", { name: "Market Research" })).toBeInTheDocument();
   expect(within(found).getByText("Competitor and market research")).toBeInTheDocument();
   const caps = within(found).getByRole("list", { name: "Capabilities" });
   expect(within(caps).getAllByRole("listitem").map((li) => li.textContent?.replace("• ", ""))).toEqual(["Research", "Product strategy", "Competitor analysis"]);
-  expect(within(found).getByText("Runs via:").parentElement).toHaveTextContent("Runs from this project");
   expect(within(found).getByText("Can:")).toBeInTheDocument();
   expect(document.body.textContent).not.toMatch(/adapter|argv|cwd|\/home\//);
   expect(screen.queryByLabelText(/token|key/i)).not.toBeInTheDocument();
+
+  await user.click(within(found).getByText("How Bevro found this"));
+  expect(within(found).getByText(/Runs via:/).parentElement).toHaveTextContent("Runs from this project");
 
   await user.click(within(found).getByRole("button", { name: "Connect" }));
   const done = await screen.findByRole("region", { name: "Connected" });
@@ -96,7 +100,7 @@ test("typing a folder finds the agent, confirms it, and says it is under Agents"
   expect(calls.find((c) => c.url === "/api/connect/drafts/d1/confirm")?.body).toEqual({ secrets: {} });
 });
 
-test("authentication is asked for only when needed and sent on confirm", async () => {
+test("a credential is added as an explicit step and sent on confirm", async () => {
   const calls = mockApi({
     "POST /api/connect/discover": draft({ target_kind: "url", target_label: "https://sales.example", draft: draftView({ name: "Sales Desk", mechanism_label: "API", availability: "ready", auth: { required: true, secret_name: "api_key", label: "API token", hint: "Sent as a bearer token." } }) }),
     "POST /api/connect/drafts/d1/confirm": { ...provider, name: "Sales Desk" },
@@ -104,26 +108,58 @@ test("authentication is asked for only when needed and sent on confirm", async (
   const user = userEvent.setup();
   renderAt("/connect");
   await user.type(screen.getByPlaceholderText("Paste an address, folder, command, or name"), "https://sales.example{Enter}");
-  expect(await screen.findByText("Authentication required")).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Sales Desk needs an API token." })).toBeInTheDocument();
   await user.type(screen.getByLabelText("API token"), "tok-123");
-  await user.click(within(screen.getByRole("region", { name: "Found" })).getByRole("button", { name: "Connect" }));
+  await user.keyboard("{Enter}");
+  const found = screen.getByRole("region", { name: "Found" });
+  expect(within(found).getByText("Ready to connect.")).toBeInTheDocument();
+  expect(document.body.textContent).not.toContain("tok-123");
+  await user.click(within(found).getByRole("button", { name: "Connect" }));
   await screen.findByRole("region", { name: "Connected" });
   expect(calls.find((c) => c.url === "/api/connect/drafts/d1/confirm")?.body).toEqual({ secrets: { api_key: "tok-123" } });
 });
 
-test("when unsure, the person edits a plain capability summary before connecting", async () => {
+test("description Continue saves on Enter and advances to the next unresolved step", async () => {
+  const described = draftView({
+    name: "Archivist",
+    description: "Search documents and organise files.",
+    capabilities: [{ id: "search_documents", title: "Search documents" }, { id: "organise_files", title: "Organise files" }],
+    confidence: "low",
+    confidence_label: "Needs review",
+    note: null,
+    needs_description: false,
+    described: true,
+    invocable: false,
+    availability: "not_invocable",
+    runs_via: "Already running on this machine",
+  });
   const calls = mockApi({
-    "POST /api/connect/discover": draft({ draft: draftView({ name: "Bare Service", capabilities: [], confidence: "low", confidence_label: "Needs review", note: "I found this provider but I'm not fully sure what it can do.", mechanism_label: "API", availability: "ready" }) }),
-    "POST /api/connect/drafts/d1/confirm": { ...provider, name: "Bare Service" },
+    "POST /api/connect/discover": draft({ found_by_name: true, draft: draftView({ name: "Archivist", description: "", capabilities: [], confidence: "low", confidence_label: "Needs review", note: "Bevro found this, but couldn't tell what it's for.", needs_description: true, invocable: false, availability: "not_invocable" }) }),
+    "POST /api/connect/drafts/d1/describe": draft({ found_by_name: true, draft: described }),
+    "GET /api/connect/drafts/d1": draft({ found_by_name: true, draft: described }),
   });
   const user = userEvent.setup();
   renderAt("/connect");
-  await user.type(screen.getByPlaceholderText("Paste an address, folder, command, or name"), "http://bare.local{Enter}");
-  expect(await screen.findByText("I found this provider but I'm not fully sure what it can do.")).toBeInTheDocument();
-  await user.type(screen.getByLabelText("What can it do?"), "Quotes, Bookings");
-  await user.click(within(screen.getByRole("region", { name: "Found" })).getByRole("button", { name: "Connect" }));
-  await screen.findByRole("region", { name: "Connected" });
-  expect(calls.find((c) => c.url === "/api/connect/drafts/d1/confirm")?.body).toEqual({ secrets: {}, capability_summary: "Quotes, Bookings" });
+  await user.type(screen.getByPlaceholderText("Paste an address, folder, command, or name"), "archivist{Enter}");
+  const field = await screen.findByLabelText("What should Bevro use it for?");
+  const continueButton = screen.getByRole("button", { name: "Continue" });
+  expect(continueButton).toBeDisabled();
+  await user.type(field, "Search documents, organise files{Enter}");
+  expect(calls.find((c) => c.url === "/api/connect/drafts/d1/describe")?.body).toEqual({ capability_summary: "Search documents, organise files" });
+  const found = await screen.findByRole("region", { name: "Found" });
+  expect(within(found).getByText("Archivist is almost ready.")).toBeInTheDocument();
+  expect(within(found).getByText("Bevro found it, but not yet a way to send it a task.")).toBeInTheDocument();
+  expect(within(found).getByRole("button", { name: "Set up how to use it" })).toBeInTheDocument();
+  // What was typed is shown once, as a sentence, not again as a list.
+  expect(within(found).getByText("Search documents and organise files.")).toBeInTheDocument();
+  expect(within(found).queryByRole("list", { name: "Capabilities" })).not.toBeInTheDocument();
+  expect(within(found).queryByText("Connected service")).not.toBeInTheDocument();
+
+  // The way forward keeps what was said: nothing is typed twice.
+  await user.click(within(found).getByRole("button", { name: "Set up how to use it" }));
+  expect(await screen.findByText(/Setting up Archivist\./)).toBeInTheDocument();
+  expect(screen.getByLabelText("Name")).toHaveValue("Archivist");
+  expect(screen.getByLabelText(/Capabilities/)).toHaveValue("Search documents, Organise files");
 });
 
 test("a failed discovery says why and offers Advanced setup", async () => {
@@ -131,8 +167,10 @@ test("a failed discovery says why and offers Advanced setup", async () => {
   const user = userEvent.setup();
   renderAt("/connect");
   await user.type(screen.getByPlaceholderText("Paste an address, folder, command, or name"), "http://down.local{Enter}");
-  expect(await screen.findByRole("alert")).toHaveTextContent("Nothing answered at that address.");
-  expect(screen.getAllByRole("link", { name: "Advanced setup" }).length).toBeGreaterThan(0);
+  const next = await screen.findByRole("region", { name: "Next step" });
+  expect(within(next).getByText(/Nothing answered at that address/)).toBeInTheDocument();
+  expect(within(next).getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  expect(within(next).getByRole("button", { name: "Set it up by hand" })).toBeInTheDocument();
 });
 
 test("advanced setup posts the technical fields to the providers endpoint", async () => {
@@ -151,7 +189,7 @@ test("advanced setup posts the technical fields to the providers endpoint", asyn
 test("agents lists a connected provider and Manage offers pause, test and remove without technical details", async () => {
   const calls = mockApi({
     "GET /api/providers": [{ ...provider, actions: ["ask"], availability: { state: "available", note: null } }],
-    "POST /api/providers/p9/check": { ok: true, detail: null },
+    "POST /api/providers/p9/check": { ok: true, detail: "Everything Bevro can check is in place.", checks: [{ label: "Bevro can reach it", ok: true }, { label: "No real task was run", ok: null, kind: "functional" }] },
     "DELETE /api/providers/p9": {},
   });
   const user = userEvent.setup();
@@ -163,11 +201,60 @@ test("agents lists a connected provider and Manage offers pause, test and remove
   expect(within(panel).getByRole("button", { name: "Reconnect" })).toBeInTheDocument();
   expect(panel.textContent).not.toMatch(/argv|cwd|python -m|stdio|systemd/);
   await user.click(within(panel).getByRole("button", { name: "Test" }));
-  expect(await within(panel).findByText("Reachable.")).toBeInTheDocument();
+  const results = await within(panel).findByRole("region", { name: "Test results" });
+  expect(within(results).getByText("Test passed.")).toBeInTheDocument();
+  expect(within(results).getByText("Bevro can reach it")).toBeInTheDocument();
   await user.click(within(panel).getByRole("button", { name: "Remove" }));
   await user.click(within(panel).getByRole("button", { name: "Yes, remove" }));
   expect(calls.some((c) => c.method === "DELETE" && c.url === "/api/providers/p9")).toBe(true);
   expect(screen.queryByRole("heading", { name: "Market Research" })).not.toBeInTheDocument();
+});
+
+test("Manage leads with what is in the way and the one thing that fixes it", async () => {
+  const noWayIn = { ...provider, availability: { state: "unavailable", note: "No way in that Bevro can use", reason: "nothing_usable" } };
+  const noWorker = { ...provider, id: "p8", slug: "notes", name: "Notes", availability: { state: "unavailable", note: "Waiting for the worker on this machine", reason: "waiting_for_worker" } };
+  const noKey = {
+    ...provider,
+    id: "p7",
+    slug: "moimio",
+    name: "Moimio Research",
+    availability: { state: "unavailable", note: "Needs a credential", reason: "needs_credential" },
+    credentials: [{ name: "OPENAI_API_KEY", label: "OpenAI API key", present: false, source: "missing", status: "Missing", note: "Moimio Research already has a credential for its scheduled runs, but that credential isn't available when Bevro starts a new task.", why: "The credential is handed over only when its scheduled service starts." }],
+  };
+  const calls = mockApi({
+    "GET /api/providers": [noWayIn, noWorker, noKey],
+    "POST /api/providers/p8/check": { ok: false, detail: "Bevro can't reach this machine right now.", checks: [{ label: "Bevro can't reach it right now", ok: false }] },
+  });
+  const user = userEvent.setup();
+  renderAt("/agents");
+  await screen.findByRole("heading", { name: "Market Research" });
+  const open = (name: string) => user.click(within(screen.getByRole("heading", { name }).closest("li")!).getByRole("button", { name: "Manage" }));
+
+  await open("Market Research");
+  const setup = within(screen.getByLabelText("Manage Market Research")).getByRole("region", { name: "Needs attention" });
+  expect(within(setup).getByRole("heading", { name: "Needs setup" })).toBeInTheDocument();
+  expect(setup.textContent).toMatch(/doesn't yet know how to send it work/);
+  const setupButton = within(setup).getByRole("button", { name: "Set up how to use it" });
+  // The blocker's action comes before the maintenance controls.
+  const panel = screen.getByLabelText("Manage Market Research");
+  const buttons = within(panel).getAllByRole("button").map((b) => b.textContent);
+  expect(buttons.indexOf(setupButton.textContent)).toBeLessThan(buttons.indexOf("Test"));
+  await user.click(within(setup).getByRole("button", { name: /Why can't Bevro use it yet/ }));
+  expect(within(setup).getByRole("note")).toBeVisible();
+
+  await open("Notes");
+  const worker = within(screen.getByLabelText("Manage Notes")).getByRole("region", { name: "Needs attention" });
+  expect(within(worker).getByRole("heading", { name: "Bevro can't reach this machine right now." })).toBeInTheDocument();
+  await user.click(within(worker).getByRole("button", { name: "Try again" }));
+  expect(calls.some((c) => c.method === "POST" && c.url === "/api/providers/p8/check")).toBe(true);
+
+  await open("Moimio Research");
+  const key = within(screen.getByLabelText("Manage Moimio Research")).getByRole("region", { name: "Needs attention" });
+  expect(within(key).getByRole("heading", { name: "Needs a credential" })).toBeInTheDocument();
+  expect(within(key).getByRole("button", { name: "Add credential" })).toBeInTheDocument();
+  expect(within(key).getByRole("button", { name: "Why can't Bevro use the existing one?" })).toBeInTheDocument();
+  expect(key.textContent?.match(/already has a credential for its scheduled runs/g)).toHaveLength(1);
+  expect(key.textContent).not.toMatch(/systemd|EnvironmentFile/);
 });
 
 test("when two ways are close, the person picks one and the choice is sent", async () => {
@@ -183,7 +270,7 @@ test("when two ways are close, the person picks one and the choice is sent", asy
   renderAt("/connect");
   await user.type(screen.getByPlaceholderText("Paste an address, folder, command, or name"), "~/agents/notes{Enter}");
   const found = await screen.findByRole("region", { name: "Found" });
-  expect(within(found).getByText("I found two ways to connect this. Which should Bevro use?")).toBeInTheDocument();
+  expect(within(found).getByRole("heading", { name: "Bevro found two ways to connect this. Which should it use?" })).toBeInTheDocument();
   const connect = within(found).getByRole("button", { name: "Connect" });
   expect(connect).toBeDisabled();
   await user.click(within(found).getByRole("radio", { name: /Uses MCP on this machine/ }));
@@ -213,12 +300,12 @@ test("a project with no way in offers to have a connection built, and follows it
   renderAt("/connect");
   await user.type(screen.getByPlaceholderText("Paste an address, folder, command, or name"), "~/agents/widget-brain{Enter}");
   const found = await screen.findByRole("region", { name: "Found" });
-  expect(within(found).getByText("This project doesn't expose a connection Bevro can use yet.")).toBeInTheDocument();
+  expect(within(found).getByText("Bevro found it, but not yet a way to send it a task.")).toBeInTheDocument();
   expect(within(found).queryByRole("button", { name: "Connect" })).not.toBeInTheDocument();
 
-  await user.click(within(found).getByRole("button", { name: "Make it connectable" }));
+  await user.click(within(found).getByRole("button", { name: "Set up how to use it" }));
   expect(calls.some((c) => c.url === "/api/connect/drafts/d1/bridge")).toBe(true);
-  const progress = await screen.findByRole("region", { name: "Preparing connection" });
+  const progress = await screen.findByRole("region", { name: "Next step" });
   expect(within(progress).getByText("Preparing connection…")).toBeInTheDocument();
   expect(await within(progress).findByText("Building connection", {}, { timeout: 4000 })).toBeInTheDocument();
   expect(await screen.findByText("Connected", {}, { timeout: 5000 })).toBeInTheDocument();
@@ -234,8 +321,8 @@ test("with no agent able to build one, Bevro says what is needed instead of fail
   renderAt("/connect");
   await user.type(screen.getByPlaceholderText("Paste an address, folder, command, or name"), "~/agents/widget-brain{Enter}");
   const found = await screen.findByRole("region", { name: "Found" });
-  expect(within(found).getByRole("link", { name: "Connect a coding agent" })).toHaveAttribute("href", "/agents");
-  expect(within(found).getAllByRole("link", { name: "Advanced setup" }).length).toBeGreaterThan(0);
+  expect(within(found).getByText("Bevro found it, but not yet a way to send it a task.")).toBeInTheDocument();
+  expect(within(found).getByRole("button", { name: "Set up how to use it" })).toBeInTheDocument();
 });
 
 test("a name that fits two folders asks which one, and sends only the choice", async () => {
@@ -260,13 +347,13 @@ test("a name that fits two folders asks which one, and sends only the choice", a
   renderAt("/connect");
   await user.type(screen.getByPlaceholderText("Paste an address, folder, command, or name"), "Market Research{Enter}");
 
-  const which = await screen.findByRole("region", { name: "Which one" });
+  const which = await screen.findByRole("region", { name: "Next step" });
   expect(within(which).getByText("Found a few matches on this machine.")).toBeInTheDocument();
   expect(within(which).getByText("~/archive/market_research")).toBeInTheDocument();
-  await user.click(within(which).getAllByRole("button", { name: "Choose" })[1]);
+  await user.click(within(which).getAllByRole("button", { name: /^Choose / })[1]);
 
   expect(calls.find((c) => c.url === "/api/connect/drafts/d1/choose")?.body).toEqual({ choice: 1 });
-  expect(await screen.findByRole("region", { name: "Permission needed" })).toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: "Allow folder" })).toBeInTheDocument();
 });
 
 test("something found by its name says it was found on this machine", async () => {

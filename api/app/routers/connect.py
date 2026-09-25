@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import ConnectDraft
-from app.schemas.connect import BridgeStatusOut, ChooseIn, ConfirmIn, DiscoverIn, DraftOut, TestIn, TrustIn
+from app.schemas.connect import BridgeStatusOut, ChooseIn, ConfirmIn, DescribeIn, DiscoverIn, DraftOut, TestIn, TrustIn
 from app.schemas.providers import ProviderOut
 from app.schemas.serialise import provider_out
 from app.services import connect as connect_service
@@ -25,6 +25,7 @@ _STATE_OUT = {"pending": "looking"}
 
 
 def _out(row: ConnectDraft, db: Session | None = None) -> DraftOut:
+    existing = connect_service.already_connected(db, row) if db is not None else None
     return DraftOut(
         id=row.id,
         state=_STATE_OUT.get(row.state, row.state),
@@ -35,7 +36,10 @@ def _out(row: ConnectDraft, db: Session | None = None) -> DraftOut:
         choices=connect_service.choices_public(row),
         found_by_name=bool(row.named) and row.target_kind == "local",
         error=row.error,
-        test=row.test,
+        problem=connect_service.problem_of(row),
+        already_connected={"id": str(existing.id), "name": existing.name} if existing is not None else None,
+        # While a test waits for the worker, what it carries is bookkeeping.
+        test=row.test if row.state != "testing" else None,
         provider_id=row.provider_id,
         created_at=row.created_at,
     )
@@ -77,6 +81,17 @@ def choose(draft_id: uuid.UUID, body: ChooseIn, db: Session = Depends(get_db)) -
     """A name fitted more than one folder; the person says which they meant."""
     try:
         row = connect_service.choose_candidate(db, _load(db, draft_id), body.choice)
+    except connect_service.DraftError as exc:
+        raise HTTPException(exc.status, str(exc)) from None
+    return _out(row, db)
+
+
+@router.post("/drafts/{draft_id}/describe", response_model=DraftOut)
+def describe(draft_id: uuid.UUID, body: DescribeIn, db: Session = Depends(get_db)) -> DraftOut:
+    """Keep what the person said it is for, before anything else is asked."""
+    row = _load(db, draft_id)
+    try:
+        row = connect_service.describe_draft(db, row, capability_summary=body.capability_summary, name=body.name)
     except connect_service.DraftError as exc:
         raise HTTPException(exc.status, str(exc)) from None
     return _out(row, db)

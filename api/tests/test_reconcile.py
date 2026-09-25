@@ -74,6 +74,8 @@ def test_waiting_for_the_worker_means_there_is_no_worker(seeded):
     state = reconcile_service.state_of(seeded, provider)
     assert state.connection == "waiting_for_worker"
     assert state.note == "Waiting for the worker on this machine"
+    # The page is told why as well as what, so it can offer the one way out.
+    assert provider_service.availability_of(provider, seeded) == {"state": "unavailable", "note": "Waiting for the worker on this machine", "reason": "waiting_for_worker"}
 
 
 def test_something_bevro_ships_that_nobody_set_up_is_not_a_fault(seeded):

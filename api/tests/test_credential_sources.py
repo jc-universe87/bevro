@@ -92,7 +92,7 @@ def test_worker_report_tells_the_api_where_the_credential_comes_from(client, see
         # The API (in Docker) cannot see the host; the worker's report says the host has it.
         record_availability(seeded, row, HealthResult(ok=True, state="available", credentials={"OPENAI_API_KEY": "host"}))
         listed = next(p for p in client.get("/api/providers").json() if p["id"] == provider["id"])
-        assert listed["credentials"] == [{"name": "OPENAI_API_KEY", "label": "OpenAI credential", "present": True, "source": "host", "status": "From this machine", "note": None}]
+        assert listed["credentials"] == [{"name": "OPENAI_API_KEY", "label": "OpenAI credential", "present": True, "source": "host", "status": "From this machine", "note": None, "why": None}]
         record_availability(seeded, row, HealthResult(ok=True, state="available", credentials={"OPENAI_API_KEY": "missing"}))
         listed = next(p for p in client.get("/api/providers").json() if p["id"] == provider["id"])
         assert listed["credentials"][0]["status"] == "Missing"

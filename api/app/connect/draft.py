@@ -12,6 +12,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from adapters.runtime import WORKER, RuntimeProfile, credentials_label
+from app.connect.copy import NOTHING_KNOWN
 
 Confidence = Literal["high", "medium", "low"]
 Availability = Literal["ready", "needs_worker", "needs_start", "not_invocable"]
@@ -23,7 +24,7 @@ MECHANISM_LABELS = {
     "command": "Local agent",
     "local": "Local project",
 }
-LOW_CONFIDENCE_NOTE = "I found this provider but I'm not fully sure what it can do."
+LOW_CONFIDENCE_NOTE = "Bevro found this, but couldn't tell what it's for."
 
 
 class DraftCapability(BaseModel):
@@ -106,6 +107,9 @@ class ProviderDraft(BaseModel):
     active_runtime: str | None = None
     # Two different mechanisms were close: the person picks under "I found two ways to connect this."
     choice_needed: bool = False
+    # The person has said, in their own words, what it is for. Once they
+    # have, Bevro stops asking - whatever else it still needs.
+    described: bool = False
     # Where this came from, in enough detail to find it again: the address
     # that was typed, the origin, the path under it, where the machine
     # description lives, and any scope that was resolved. Server-side only,
@@ -195,6 +199,28 @@ class ProviderDraft(BaseModel):
         )
 
     @property
+    def needs_description(self) -> bool:
+        """Bevro cannot say what this is for, and nobody has told it yet."""
+        return not self.described and (self.confidence == "low" or not self.capabilities)
+
+    def describe(self, capabilities: list[DraftCapability], name: str | None = None) -> "ProviderDraft":
+        """What the person said it is for, kept on the draft until it is connected."""
+        self.capabilities = capabilities
+        if name and name.strip():
+            self.name = name.strip()[:120]
+        self.described = True
+        return self
+
+    def _auth_public(self, rt: RuntimeProfile | None) -> dict[str, Any]:
+        """The credential question, said with this provider's name, plus why when there is a why."""
+        from app.connect.runtimes import credential_story
+
+        out = {**self.auth.model_dump(), "why": None}
+        if rt is not None and rt.credentials.supplied_elsewhere and self.auth.required:
+            out["hint"], out["why"] = credential_story(self.name, rt.credentials)
+        return out
+
+    @property
     def needs_bridge(self) -> bool:
         """Worth connecting, but nothing in it can take a task as it stands."""
         evidence = self.callable_evidence or {}
@@ -216,7 +242,9 @@ class ProviderDraft(BaseModel):
             "name": self.name,
             # The same sentence Agents will show once this is connected,
             # worked out the same way - so what is previewed is what is got.
-            "description": self.summary(),
+            # Except the last-resort "Connected service": said of something
+            # that is not connected, it is simply untrue.
+            "description": "" if (summary := self.summary()) == NOTHING_KNOWN else summary,
             "source_description": self.source_description,
             "source_name": self.source_name,
             "capabilities": [c.model_dump() for c in self.capabilities],
@@ -226,11 +254,13 @@ class ProviderDraft(BaseModel):
             "availability": self.availability,
             "confidence": self.confidence,
             "confidence_label": CONFIDENCE_LABELS[self.confidence],
-            "note": LOW_CONFIDENCE_NOTE if self.confidence == "low" else None,
+            "note": LOW_CONFIDENCE_NOTE if self.needs_description else None,
+            "needs_description": self.needs_description,
+            "described": self.described,
             "evidence": list(self.evidence),
             "warnings": list(self.warnings),
             "app_url": self.app_url,
-            "auth": self.auth.model_dump(),
+            "auth": self._auth_public(rt),
             "invocable": self.invocable,
         }
 

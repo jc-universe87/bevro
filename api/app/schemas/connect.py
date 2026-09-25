@@ -33,9 +33,24 @@ class DraftOut(BaseModel):
     # True when Bevro found this by what it is called, on this machine.
     found_by_name: bool = False
     error: str | None = None
+    # When state is "failed": what kind of failure, so the page can offer the
+    # way out that fits - "worker" (this machine can't be reached right now),
+    # "unreachable", "not_found" or "failed". The words are in `error`.
+    problem: str | None = None
+    # When what was found is already connected: {"id", "name"}. The page then
+    # points at it instead of offering a second copy.
+    already_connected: dict[str, Any] | None = None
+    # After a test: {"ok", "detail", "checks": [{"label", "ok", "kind"?}], "next"}.
+    # `ok` in a check is true, false, or null for "not checked, and why".
     test: dict[str, Any] | None = None
     provider_id: uuid.UUID | None = None
     created_at: datetime
+
+
+class DescribeIn(BaseModel):
+    # What it is for, in the person's words: "search documents, create reports".
+    capability_summary: str = Field(min_length=1, max_length=1000)
+    name: str | None = Field(default=None, min_length=1, max_length=120)
 
 
 class ChooseIn(BaseModel):

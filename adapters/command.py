@@ -66,6 +66,9 @@ MAX_OUTPUT_CHARS = 200_000
 MAX_REPORT_CHARS = 20_000
 MAX_ATTACHED_FILES = 5
 MAX_FILE_BYTES = 5_000_000
+# A program's own self-check, when it declares one, is run by Test. Short,
+# because a check that takes minutes is doing real work.
+SELF_CHECK_TIMEOUT_S = 30
 TEXT_SUFFIXES = {".md", ".txt", ".markdown"}
 FILE_SUFFIXES = TEXT_SUFFIXES | {".pdf", ".json", ".html", ".csv"}
 
@@ -207,6 +210,25 @@ def credential_sources(config: dict[str, Any], secrets: dict[str, str]) -> dict[
         else:
             out[name] = "missing"
     return out
+
+
+def entry_present(argv: list[str], cwd: Path, config: dict[str, Any]) -> bool | None:
+    """Is what the program is asked to run actually there? None when there is nothing to look for.
+
+    `python -m package.module` is looked for under the folder and anything
+    the profile puts on PYTHONPATH; `python script.py` as a file. Nothing is
+    imported.
+    """
+    if "-m" in argv:
+        at = argv.index("-m")
+        if at + 1 >= len(argv):
+            return False
+        rel = Path(*argv[at + 1].split("."))
+        roots = [cwd, *(Path(p) for p in str((config.get("env") or {}).get("PYTHONPATH") or "").split(os.pathsep) if p)]
+        return any(root.joinpath(rel).with_suffix(".py").is_file() or (root / rel / "__init__.py").is_file() or (root / rel / "__main__.py").is_file() for root in roots)
+    if len(argv) > 1 and argv[1].endswith((".py", ".js", ".mjs", ".sh")) and not argv[1].startswith("-"):
+        return (cwd / argv[1]).is_file()
+    return None
 
 
 def missing_secrets(config: dict[str, Any], secrets: dict[str, str]) -> list[str]:
@@ -396,6 +418,55 @@ class CommandAdapter(BaseRuntimeAdapter):
         except CommandUnavailable as exc:
             return HealthResult(ok=False, state="unavailable", detail=str(exc), credentials=credential_sources(cfg, secrets))
         return HealthResult(ok=True, state="available", credentials=credential_sources(cfg, secrets))
+
+    def readiness(self, provider: ProviderSpec) -> list[dict[str, Any]]:
+        """What can be proved without running anything, one fact at a time.
+
+        Each is {"label", "ok"}; the first thing missing ends the list,
+        because nothing after it could be true. Nothing is run and nothing
+        raw is returned: no paths, no program output.
+        """
+        cfg = provider.adapter_config
+        argv = [str(a) for a in cfg.get("argv") or []]
+        steps: list[dict[str, Any]] = []
+        try:
+            cwd = resolve_cwd(cfg) if cfg.get("cwd") else Path(os.path.expanduser("~"))
+        except CommandUnavailable:
+            return [{"label": "Bevro can't open its folder", "ok": False}]
+        if cfg.get("cwd"):
+            steps.append({"label": "Found it on this machine", "ok": True})
+        python = bool(argv) and Path(argv[0]).name.startswith("python")
+        try:
+            resolve_executable(argv, cwd)
+        except CommandUnavailable:
+            steps.append({"label": "Its Python environment is missing" if python else "The program it runs isn't installed", "ok": False})
+            return steps
+        steps.append({"label": "Its Python environment is available" if python else "The program it runs is installed", "ok": True})
+        entry = entry_present(argv, cwd, cfg)
+        if entry is not None:
+            steps.append({"label": "Found the command Bevro will use" if entry else "The command Bevro would use isn't there", "ok": entry})
+        return steps
+
+    def self_check(self, provider: ProviderSpec, secrets: dict[str, str]) -> dict[str, Any] | None:
+        """Run the program's own self-check, when it declares one. None when it doesn't.
+
+        Only an option whose name promises a check and nothing else is ever
+        used (see SELF_CHECK_OPTIONS); a dry run, which may still fetch or
+        send things, is not one.
+        """
+        cfg = provider.adapter_config
+        option = [str(a) for a in cfg.get("self_check") or []]
+        if not option:
+            return None
+        argv = [str(a) for a in cfg.get("argv") or []]
+        try:
+            cwd = resolve_cwd(cfg)
+            argv[0] = resolve_executable(argv, cwd)
+            done = subprocess.run([*argv, *option], cwd=cwd, env=build_env(cfg, secrets), stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=SELF_CHECK_TIMEOUT_S)
+        except (CommandUnavailable, OSError, subprocess.TimeoutExpired):
+            return {"label": "Its own self-check didn't finish", "ok": False, "kind": "functional"}
+        ok = done.returncode == 0
+        return {"label": "Its own self-check passed" if ok else "Its own self-check failed", "ok": ok, "kind": "functional"}
 
     # -- invoke ---------------------------------------------------------------
     def invoke(self, provider: ProviderSpec, request: InvocationRequest, context: InvocationContext | None = None) -> InvocationResult:

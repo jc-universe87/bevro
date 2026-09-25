@@ -30,6 +30,6 @@ def test_tools_and_operations_keep_their_names():
 def test_public_view_carries_labels_not_internals():
     draft = ProviderDraft(name="X", mechanism="command", adapter={"kind": "command", "config": {"cwd": "/secret/place"}}, confidence="low", assist_evidence={"dependencies": ["openai"]})
     public = draft.public()
-    assert public["confidence_label"] == "Needs review" and public["note"].startswith("I found this provider")
+    assert public["confidence_label"] == "Needs review" and public["note"] == "Bevro found this, but couldn't tell what it's for."
     assert "adapter" not in public and "assist_evidence" not in public and "/secret/place" not in str(public)
     assert ProviderDraft(name="Y", mechanism="http", adapter={}, confidence="high").public()["confidence_label"] == "Confident"

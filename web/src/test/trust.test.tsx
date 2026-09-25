@@ -46,12 +46,12 @@ test("a folder on this machine is asked about in plain words, showing where it r
   await userEvent.type(await screen.findByLabelText(/Connect an agent/), "/home/someone/projects/alpha");
   await userEvent.keyboard("{Enter}");
 
-  const ask = await screen.findByLabelText("Permission needed");
+  const ask = await screen.findByLabelText("Next step");
   expect(within(ask).getByText("This is a project on this machine.")).toBeInTheDocument();
   expect(within(ask).getByText(/Allow Bevro to look inside this folder/)).toBeInTheDocument();
   // The resolved path, so what is agreed to is what will be used.
   expect(within(ask).getByText("/home/someone/projects/alpha")).toBeInTheDocument();
-  expect(within(ask).getByRole("button", { name: "Allow" })).toBeInTheDocument();
+  expect(within(ask).getByRole("button", { name: "Allow folder" })).toBeInTheDocument();
   expect(within(ask).getByRole("button", { name: /Allow everything in projects/ })).toBeInTheDocument();
 
   // Nothing about how Bevro is built.
@@ -62,7 +62,7 @@ test("saying yes carries straight on, without asking anything else", async () =>
   connect();
   await userEvent.type(await screen.findByLabelText(/Connect an agent/), "/home/someone/projects/alpha");
   await userEvent.keyboard("{Enter}");
-  await screen.findByLabelText("Permission needed");
+  await screen.findByLabelText("Next step");
 
   mockApi({
     "POST /api/connect/discover": asking,
@@ -100,11 +100,11 @@ test("saying yes carries straight on, without asking anything else", async () =>
       },
     },
   });
-  await userEvent.click(screen.getByRole("button", { name: "Allow" }));
+  await userEvent.click(screen.getByRole("button", { name: "Allow folder" }));
 
   await waitFor(() => expect(screen.getByLabelText("Found")).toBeInTheDocument(), { timeout: 4000 });
   expect(screen.getByRole("heading", { name: "Alpha" })).toBeInTheDocument();
-  expect(screen.queryByLabelText("Permission needed")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Allow folder" })).not.toBeInTheDocument();
 });
 
 test("an address is never asked about: permission is about this machine", async () => {
@@ -145,7 +145,7 @@ test("an address is never asked about: permission is about this machine", async 
   await userEvent.keyboard("{Enter}");
 
   expect(await screen.findByLabelText("Found")).toBeInTheDocument();
-  expect(screen.queryByLabelText("Permission needed")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Allow folder" })).not.toBeInTheDocument();
 });
 
 test("Settings lists what has been allowed, and offers to take it back", async () => {
@@ -237,10 +237,10 @@ test("a credential the installed service already has is explained, not asked for
   await userEvent.keyboard("{Enter}");
 
   const found = await screen.findByLabelText("Found");
-  expect(within(found).getByText("Credentials")).toBeInTheDocument();
+  expect(within(found).getByText("Credentials:")).toBeInTheDocument();
   expect(within(found).getByText("Uses credentials provided by the installed system service.")).toBeInTheDocument();
   // No field, and nothing asked for.
-  expect(within(found).queryByText("Authentication required")).not.toBeInTheDocument();
+  expect(within(found).queryByRole("button", { name: "Add credential" })).not.toBeInTheDocument();
   expect(found.querySelector('input[type="password"]')).toBeNull();
 });
 
@@ -262,6 +262,7 @@ test("a credential nothing here has is still asked for", async () => {
   await userEvent.keyboard("{Enter}");
 
   const found = await screen.findByLabelText("Found");
-  expect(within(found).getByText("Authentication required")).toBeInTheDocument();
+  expect(within(found).getByRole("heading", { name: "Watcher needs an OpenAI credential." })).toBeInTheDocument();
+  expect(within(found).getByRole("button", { name: "Add credential" })).toBeDisabled();
   expect(found.querySelector('input[type="password"]')).not.toBeNull();
 });

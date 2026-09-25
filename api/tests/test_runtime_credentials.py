@@ -228,8 +228,8 @@ def test_a_scheduled_service_s_credential_is_recognised_and_still_out_of_reach(r
     cli = next(rt for rt in draft.runtimes if rt.kind in ("cli", "python_entrypoint"))
     assert cli.credentials.status == "incomplete"
     assert draft.auth.required is True
-    assert "installed system service has its own" in (cli.credentials.note or "")
-    assert "Bevro needs its own OPENAI_API_KEY" in (cli.credentials.note or "")
+    assert "already has a credential for its scheduled runs" in (cli.credentials.note or "")
+    assert cli.credentials.held_for == "its scheduled runs"
     assert "fixture-secret-never-read" not in str(draft.model_dump())
 
 

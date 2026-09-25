@@ -175,14 +175,6 @@ def settle_credentials(runtimes: list[RuntimeProfile]) -> list[RuntimeProfile]:
     return runtimes
 
 
-# What holds the credential, in a few words that fit inside a sentence.
-WHAT_HOLDS_IT = {
-    RuntimeKind.SYSTEMD: "installed system service",
-    RuntimeKind.DOCKER_COMPOSE: "container service",
-    RuntimeKind.PROCESS: "running service",
-}
-
-
 def _explain_the_near_miss(runtimes: list[RuntimeProfile]) -> None:
     """Say when the credential is here but out of Bevro's reach.
 
@@ -199,19 +191,57 @@ def _explain_the_near_miss(runtimes: list[RuntimeProfile]) -> None:
         if not creds.required_from_user or not set(creds.missing) & out_of_reach:
             continue
         holder = next((other for other in runtimes if not other.invocable and set(creds.missing) <= set(other.credentials.supplied)), None)
-        where = WHAT_HOLDS_IT.get(holder.kind, "another part of it") if holder is not None else "another part of it"
+        held_for = held_for_of(holder)
         rt.credentials = creds.model_copy(
             update={
                 # Somewhere in this project has it - just not anywhere Bevro
                 # can use. Marked, so that the interface knows there is
                 # something worth saying beyond "missing".
                 "supplied_elsewhere": True,
-                "note": (
-                    f"Its {where} has its own, but Bevro can't hand work to that. "
-                    f"To run this directly, Bevro needs its own {', '.join(creds.missing)}."
-                ),
+                "held_for": held_for,
+                "note": credential_story("It", rt.credentials.model_copy(update={"held_for": held_for, "supplied_elsewhere": True}))[0],
             }
         )
+
+
+def held_for_of(holder: RuntimeProfile | None) -> str:
+    """What the way in that has the credential uses it for, in a few words."""
+    if holder is None:
+        return "another part of it"
+    if holder.credentials.held_for:
+        return holder.credentials.held_for
+    return {RuntimeKind.SYSTEMD: "its installed service", RuntimeKind.DOCKER_COMPOSE: "its container", RuntimeKind.PROCESS: "its running service"}.get(holder.kind, "another part of it")
+
+
+# What starts the thing that has the credential, for the "why" sentence.
+_WHAT_STARTS = {
+    "its scheduled runs": "its scheduled service starts",
+    "its installed service": "its installed service starts",
+    "its container": "its container starts",
+    "its running service": "its service starts",
+}
+
+
+def credential_story(name: str, creds: Credentials) -> tuple[str | None, str | None]:
+    """(what to say, why) about a credential this machine has out of Bevro's reach.
+
+    The first half is for the page: what is true and what it means for the
+    person. The second is for "Why?": why the one that exists cannot simply
+    be used. Neither names a file, a unit or a mechanism, and neither
+    suggests Bevro could fetch it - it will not.
+    """
+    if not creds.supplied_elsewhere or not creds.missing:
+        return creds.note, None
+    held_for = creds.held_for or "another part of it"
+    note = f"{name} already has a credential for {held_for}, but that credential isn't available when Bevro starts a new task."
+    starts = _WHAT_STARTS.get(held_for)
+    who = "it" if name == "It" else name
+    why = (
+        (f"The credential is handed over only when {starts}. " if starts else "The credential belongs to another part of it. ")
+        + f"When Bevro starts a task, it runs {who} separately, so the credential doesn't reach it. "
+        "Bevro never copies credentials from other programs; the one you add is stored encrypted and used only here."
+    )
+    return note, why
 
 
 def rank(runtimes: list[RuntimeProfile]) -> list[RuntimeProfile]:

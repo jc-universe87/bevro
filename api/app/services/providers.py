@@ -270,7 +270,9 @@ def availability_of(provider: Provider, db: Session | None = None) -> dict[str, 
         from app.services.reconcile import CONNECTION_WORDS, state_of
 
         state = state_of(db, provider)
-        return {"state": "available" if state.available else "unavailable", "note": None if state.available else CONNECTION_WORDS.get(state.connection)}
+        # `reason` lets the page choose the one thing to do about it; the
+        # words stay in `note`.
+        return {"state": "available" if state.available else "unavailable", "note": None if state.available else CONNECTION_WORDS.get(state.connection), "reason": state.connection}
     if not provider.enabled:
         return {"state": "unavailable", "note": "Paused"}
     from app.services.runtime import active_runtime, execution_of
@@ -544,10 +546,13 @@ def credentials_of(provider: Provider, stored: list[str]) -> list[dict[str, Any]
     """
     from app.services.runtime import active_runtime
 
+    from app.connect.runtimes import credential_story
+
     rt = active_runtime(provider)
     # Only when there is something to add. "Missing" already says missing;
-    # the note is for when Bevro found the credential somewhere it cannot use.
-    explanation = rt.credentials.note if rt is not None and rt.credentials.supplied_elsewhere else None
+    # the note is for when Bevro found the credential somewhere it cannot use,
+    # and "why" for anyone who asks why that one can't simply be used.
+    explanation, why = credential_story(provider.name, rt.credentials) if rt is not None and rt.credentials.supplied_elsewhere else (None, None)
     return [
         {
             "name": n,
@@ -556,6 +561,7 @@ def credentials_of(provider: Provider, stored: list[str]) -> list[dict[str, Any]
             "source": source,
             "status": CREDENTIAL_SOURCE_WORDS[source],
             "note": explanation if source == "missing" else None,
+            "why": why if source == "missing" else None,
         }
         for n, source in credential_status(provider, stored).items()
     ]

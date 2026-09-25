@@ -42,10 +42,11 @@ export interface Provider {
   origin: "example" | "created" | "connected" | string;
   actions: string[];
   connection: string | null;
-  availability: { state: string; note: string | null };
+  /** `reason`: why it isn't ready, so Manage can offer the one thing that fixes it. */
+  availability: { state: string; note: string | null; reason?: "ready" | "paused" | "waiting_for_worker" | "optional_worker" | "needs_start" | "needs_credential" | "unreachable" | "nothing_usable" | string };
   secret_names: string[];
   /** What the connection needs and whether it has it. Values are never sent. */
-  credentials: { note?: string | null; name: string; label: string; present: boolean; source?: "bevro" | "host" | "project" | "missing" | string; status?: string }[];
+  credentials: { note?: string | null; why?: string | null; name: string; label: string; present: boolean; source?: "bevro" | "host" | "project" | "missing" | string; status?: string }[];
   /** How this installation runs, in words. Mechanism stays on the server. */
   runtime: { display_name: string; runs_at?: string | null; availability: string; credentials_label: string; runtimes_found: number; alternatives: number; health: string; built?: boolean; review?: string | null; abilities: Record<string, boolean> } | null;
   /** For agents Bevro created: what it is for and which version is in use. */
@@ -387,11 +388,32 @@ export interface DraftView {
   confidence: "high" | "medium" | "low";
   confidence_label: string;
   note: string | null;
+  /** Bevro can't tell what it is for, and nobody has said yet. */
+  needs_description?: boolean;
+  /** The person has said what it is for. */
+  described?: boolean;
   evidence: string[];
   warnings: string[];
   app_url: string | null;
-  auth: { required: boolean; secret_name: string | null; label: string | null; hint: string | null };
+  /** `why`: the optional explanation behind `hint`, for "Why?". */
+  auth: { required: boolean; secret_name: string | null; label: string | null; hint: string | null; why?: string | null };
   invocable: boolean;
+}
+
+/** One fact a test checked. `ok: null` means "not checked", and the label says why. */
+export interface TestCheck {
+  label: string;
+  ok: boolean | null;
+  kind?: "credential" | "functional" | string;
+  detail?: string | null;
+}
+
+export interface TestResult {
+  ok: boolean;
+  detail: string | null;
+  checks?: TestCheck[];
+  /** The one thing that would fix it, when there is one. */
+  next?: "add_credential" | string | null;
 }
 
 export interface ConnectDraft {
@@ -407,15 +429,16 @@ export interface ConnectDraft {
   /** Found by what it is called, on this machine. */
   found_by_name?: boolean;
   error: string | null;
-  test: { ok: boolean; detail: string | null } | null;
+  /** What kind of failure, so the page can offer the right way out. */
+  problem?: "worker" | "unreachable" | "not_found" | "failed" | null;
+  /** What was found is already connected: point at it instead. */
+  already_connected?: { id: string; name: string } | null;
+  test: TestResult | null;
   provider_id: string | null;
   created_at: string;
 }
 
-export interface HealthOut {
-  ok: boolean;
-  detail: string | null;
-}
+export type HealthOut = TestResult;
 
 export class ApiError extends Error {
   status: number;
@@ -515,6 +538,8 @@ export const api = {
     request<Provider>(`/providers/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   checkProvider: (id: string) => request<HealthOut>(`/providers/${id}/check`, { method: "POST" }),
   providerDetails: (id: string) => request<ProviderDetails>(`/providers/${id}/details`),
+  connectDescribe: (id: string, capability_summary: string, name?: string) =>
+    request<ConnectDraft>(`/connect/drafts/${id}/describe`, { method: "POST", body: JSON.stringify(name ? { capability_summary, name } : { capability_summary }) }),
   connectChoose: (id: string, choice: number) =>
     request<ConnectDraft>(`/connect/drafts/${id}/choose`, { method: "POST", body: JSON.stringify({ choice }) }),
   connectAllow: (id: string, scope: "exact" | "parent") =>

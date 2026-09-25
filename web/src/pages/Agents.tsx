@@ -1,8 +1,10 @@
 import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import Help from "../components/Help";
 import Icon from "../components/Icon";
 import PageHeader, { Page } from "../components/PageHeader";
-import { api, ApiError, type Provider, type ProviderDetails, type RemovalPlan } from "../lib/api";
+import TestResults from "../components/TestResults";
+import { api, ApiError, type Provider, type ProviderDetails, type RemovalPlan, type TestResult } from "../lib/api";
 
 function LetterMark({ provider }: { provider: Provider }) {
   const letter = provider.icon?.text ?? provider.name.slice(0, 1).toUpperCase();
@@ -19,7 +21,7 @@ function statusNote(p: Provider): string | null {
   if (p.availability?.note) return p.availability.note;
   if (p.build && p.build.state !== "ready") return p.build.state === "failed" ? "Couldn't be built" : "Being built…";
   const missing = (p.credentials ?? []).filter((c) => !c.present);
-  if (missing.length) return `Needs ${missing.map((c) => c.label.toLowerCase()).join(", ")}`;
+  if (missing.length) return "Needs a credential";
   if (p.origin === "connected") return "Connected";
   return null;
 }
@@ -36,7 +38,7 @@ const CONNECTED_FROM: Record<string, string> = { url: "a web address", mcp: "an 
 
 const CONNECTION_WORDS: Record<string, string> = { api: "API", mcp: "MCP server", command: "Local agent", local: "Local", declared: "Described, not built" };
 
-function CredentialRow({ provider, credential, onChange, autoFocus }: { provider: Provider; credential: Provider["credentials"][number]; onChange: (p: Provider) => void; autoFocus: boolean }) {
+function CredentialRow({ provider, credential, onChange, autoFocus, prominent = false }: { provider: Provider; credential: Provider["credentials"][number]; onChange: (p: Provider) => void; autoFocus: boolean; prominent?: boolean }) {
   const [editing, setEditing] = useState(!credential.present && autoFocus);
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -66,12 +68,17 @@ function CredentialRow({ provider, credential, onChange, autoFocus }: { provider
           {credential.label} · {credential.status ?? (credential.present ? "Added" : "Missing")}
         </span>
         {!editing && (
-          <button type="button" className="bv-link text-sm" onClick={() => setEditing(true)}>
-            {credential.source === "bevro" ? "Update" : credential.present ? "Override" : "Add"}
+          <button type="button" className={prominent ? "bv-btn-primary mt-2 basis-full sm:basis-auto" : "bv-link text-sm"} onClick={() => setEditing(true)}>
+            {credential.source === "bevro" ? "Update" : credential.present ? "Override" : "Add credential"}
           </button>
         )}
       </div>
       {!editing && credential.note && <p className="bv-hint mt-0.5">{credential.note}</p>}
+      {!editing && credential.why && (
+        <Help question="Why can't Bevro use the existing one?" className="mt-1">
+          {credential.why}
+        </Help>
+      )}
       {editing && (
         <form onSubmit={save} className="mt-2 flex flex-col sm:flex-row gap-2">
           <label htmlFor={inputId} className="sr-only">
@@ -123,6 +130,46 @@ export function removalConsequences(provider: Provider, plan: RemovalPlan | null
   return lines;
 }
 
+type BlockerAction = "setup" | "retry";
+
+/** Why a connected agent can't take work, keyed by the server's reason, and the one way out of each. */
+const BLOCKERS: Record<string, { heading: string; message: (name: string) => string; action: BlockerAction; label: string; help: { question: string; answer: string } }> = {
+  nothing_usable: {
+    heading: "Needs setup",
+    message: (name) => `Bevro found ${name}, but doesn't yet know how to send it work.`,
+    action: "setup",
+    label: "Set up how to use it",
+    help: {
+      question: "Why can't Bevro use it yet?",
+      answer: "Bevro can see it, but couldn't find a way for other programs to hand it a task - it may only have a screen for people. Setting it up tells Bevro how to reach it.",
+    },
+  },
+  waiting_for_worker: {
+    heading: "Bevro can't reach this machine right now.",
+    message: (name) => `${name} runs on this computer, and Bevro reaches it through the worker.`,
+    action: "retry",
+    label: "Try again",
+    help: {
+      question: "Check the worker",
+      answer: "Bevro looks at things on this computer through a small helper program called the worker, and it isn't answering. Start it with ./scripts/worker.sh (see the setup guide), then try again.",
+    },
+  },
+  unreachable: {
+    heading: "Bevro can't reach it right now.",
+    message: (name) => `${name} didn't answer the last time Bevro tried.`,
+    action: "retry",
+    label: "Try again",
+    help: { question: "What can I check?", answer: "Make sure it's running and that its address hasn't changed. Nothing about it is changed by trying again." },
+  },
+  needs_start: {
+    heading: "It isn't running.",
+    message: (name) => `Start ${name} on this machine, then try again.`,
+    action: "retry",
+    label: "Try again",
+    help: { question: "Why does it need to be running?", answer: "It's a service that answers only while it's running. Bevro doesn't start or stop it." },
+  },
+};
+
 function ManagePanel({ provider, onChange, onRemoved, focusCredential = false, autoTest = false }: { provider: Provider; onChange: (p: Provider) => void; onRemoved: () => void; focusCredential?: boolean; autoTest?: boolean }) {
   const [note, setNote] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -132,6 +179,8 @@ function ManagePanel({ provider, onChange, onRemoved, focusCredential = false, a
   const [details, setDetails] = useState<ProviderDetails | null>(null);
   const [editing, setEditing] = useState(false);
   const [purpose, setPurpose] = useState(provider.build?.purpose ?? "");
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const navigate = useNavigate();
   const testedOnOpen = useRef(false);
 
   const run = async (fn: () => Promise<void>) => {
@@ -150,7 +199,9 @@ function ManagePanel({ provider, onChange, onRemoved, focusCredential = false, a
   const test = () =>
     run(async () => {
       const result = await api.checkProvider(provider.id);
-      setNote(result.ok ? `Reachable.${result.detail ? ` ${result.detail}` : ""}` : `Not reachable${result.detail ? `: ${result.detail}` : "."}`);
+      setTestResult(result);
+      // A way that answers is restored by the check; show what is true now.
+      onChange(await api.listProviders().then((list) => list.find((p) => p.id === provider.id) ?? provider));
     });
   const askToRemove = async () => {
     setPlan(await api.removalPlan(provider.id).catch(() => null));
@@ -198,8 +249,35 @@ function ManagePanel({ provider, onChange, onRemoved, focusCredential = false, a
 
   const capabilities = provider.capabilities.map((c) => c.title ?? c.id).join(", ");
   const missing = (provider.credentials ?? []).filter((c) => !c.present);
+  const present = (provider.credentials ?? []).filter((c) => c.present);
+  const blocker = missing[0];
+  // What stands in the way, when it isn't a credential: said first, with the
+  // one thing that fixes it. Maintenance comes after.
+  const stuck = provider.enabled && !blocker ? BLOCKERS[provider.availability?.reason ?? ""] : undefined;
+  const fix = (action: BlockerAction) => (action === "setup" ? navigate("/connect/advanced") : void test());
   return (
     <div className="mt-3 rounded-md border border-line bg-sunken/40 p-3 text-sm" aria-label={`Manage ${provider.name}`}>
+      {blocker && (
+        <section aria-label="Needs attention" className="mb-4 rounded-md border border-line bg-surface p-3">
+          <h3 className="font-medium">Needs a credential</h3>
+          <p className="mt-1 text-muted">Add it so {provider.name} can run tasks Bevro starts.</p>
+          <ul className="mt-2" aria-label="Missing credentials">
+            <CredentialRow provider={provider} credential={blocker} onChange={onChange} autoFocus={focusCredential} prominent />
+          </ul>
+        </section>
+      )}
+      {stuck && (
+        <section aria-label="Needs attention" className="mb-4 rounded-md border border-line bg-surface p-3">
+          <h3 className="font-medium">{stuck.heading}</h3>
+          <p className="mt-1 text-muted">{stuck.message(provider.name)}</p>
+          <button type="button" className="bv-btn-primary mt-3" onClick={() => fix(stuck.action)} disabled={busy}>
+            {busy && stuck.action === "retry" ? "Trying…" : stuck.label}
+          </button>
+          <Help question={stuck.help.question} className="mt-2">
+            {stuck.help.answer}
+          </Help>
+        </section>
+      )}
       {(provider.details?.what_it_does || provider.details?.how_it_connects) && (
         <div className="mb-3 space-y-2">
           {provider.details?.what_it_does && (
@@ -218,7 +296,7 @@ function ManagePanel({ provider, onChange, onRemoved, focusCredential = false, a
       )}
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
         <dt className="text-muted">Connection</dt>
-        <dd>{provider.enabled ? (provider.availability?.note ?? (missing.length ? `Needs ${missing.map((c) => c.label.toLowerCase()).join(", ")}` : "Available")) : "Paused"}</dd>
+        <dd>{provider.enabled ? (provider.availability?.note ?? (missing.length ? "Needs a credential" : "Available")) : "Paused"}</dd>
         {provider.runtime && (
           <>
             <dt className="text-muted">Runs via</dt>
@@ -270,12 +348,14 @@ function ManagePanel({ provider, onChange, onRemoved, focusCredential = false, a
         )}
         <dt className="text-muted">Credentials</dt>
         <dd>
-          {(provider.credentials ?? []).length > 0 ? (
+          {present.length > 0 ? (
             <ul aria-label="Credentials">
-              {provider.credentials.map((c) => (
+              {present.map((c) => (
                 <CredentialRow key={c.name} provider={provider} credential={c} onChange={onChange} autoFocus={focusCredential} />
               ))}
             </ul>
+          ) : blocker ? (
+            <span>Missing - add it above</span>
           ) : (
             <span>{provider.runtime?.credentials_label ?? "None needed"}</span>
           )}
@@ -333,6 +413,7 @@ function ManagePanel({ provider, onChange, onRemoved, focusCredential = false, a
           </p>
         )}
       </div>
+      {testResult && <TestResults result={testResult} />}
       <details className="mt-3" onToggle={(e) => (e.currentTarget as HTMLDetailsElement).open && void loadDetails()}>
         <summary className="cursor-pointer text-muted hover:text-ink text-sm">Advanced details</summary>
         {details ? (

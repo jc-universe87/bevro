@@ -22,6 +22,9 @@ class Entrypoint:
     # The runtime kind this entry point is, when it is not the project's own language
     # (a wrapper script in a Python project is a plain CLI). Empty: derive from the language.
     runtime_kind: str = ""
+    # The program's own self-check, when its interface declares one: the
+    # option to add, like ["--self-test"]. Test runs it; nothing else does.
+    self_check: list[str] = field(default_factory=list)
 
 
 @dataclass

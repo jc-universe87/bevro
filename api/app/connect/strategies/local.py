@@ -142,7 +142,7 @@ def _compose_credentials(service: dict, names: list[str]) -> Credentials:
     if service.get("env_file") or any(n in env_keys for n in names):
         # Its compose file says where they come from, so the service has them
         # whether or not Bevro could name which.
-        return Credentials(strategy=CredentialStrategy.DOCKER_ENVIRONMENT, names=names, supplied=list(names), note="Uses credentials provided by its Compose service.")
+        return Credentials(strategy=CredentialStrategy.DOCKER_ENVIRONMENT, names=names, supplied=list(names), held_for="its container", note="Uses the credentials it was set up with.")
     return Credentials(strategy=CredentialStrategy.RUNTIME_MANAGED, names=names)
 
 
@@ -335,6 +335,7 @@ def _systemd_runtime(unit: SystemdUnit, rid: str, secret_names: list[str], owner
     creds = _systemd_credentials(unit, secret_names)
     if creds.supplied:
         evidence.append(_credential_evidence(unit, creds))
+        creds = creds.model_copy(update={"held_for": "its scheduled runs" if unit.unit_type == "oneshot" else "its installed service"})
     context = systemd_context(unit, owner, creds)
     if context.input == ContextInput.STDIN:
         evidence.append(f"{unit.socket.name if unit.socket else unit.name} starts it for each connection and hands it the request")
@@ -397,7 +398,7 @@ def _systemd_credentials(unit: SystemdUnit, secret_names: list[str]) -> Credenti
             strategy=CredentialStrategy.SYSTEMD_ENVIRONMENT_FILE,
             names=secret_names,
             supplied=list(secret_names),
-            note="Uses credentials provided by the installed system service.",
+            note="Uses the credentials its installed service provides.",
         )
     if named:
         return Credentials(
@@ -442,6 +443,7 @@ def _entrypoint_runtime(project: Project, primary: Finding | None, entry: Entryp
             "secret_env": list(creds.names),
             "self_configured": self_configured,
             "timeout_seconds": 1800,
+            **({"self_check": list(entry.self_check)} if entry.self_check else {}),
         },
     }
     kind = RuntimeKind(entry.runtime_kind) if entry.runtime_kind else (RuntimeKind.PYTHON_ENTRYPOINT if lang == "Python" else RuntimeKind.NODE_ENTRYPOINT if lang == "Node" else RuntimeKind.CLI)

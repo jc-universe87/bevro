@@ -100,7 +100,7 @@ def test_service_that_describes_nothing_is_low_confidence_and_not_invocable():
     transport, _ = fake_service()
     draft = discover("http://bare.local", transport)
     assert draft.name == "Bare Service" and draft.confidence == "low" and not draft.invocable
-    assert draft.public()["note"] == "I found this provider but I'm not fully sure what it can do."
+    assert draft.public()["note"] == "Bevro found this, but couldn't tell what it's for."
 
 
 def test_unreachable_address_fails_plainly():

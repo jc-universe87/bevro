@@ -70,6 +70,17 @@ def _packages(project: Project, where: list[str]) -> list[tuple[str, str]]:
     return found
 
 
+# Options whose name promises a harmless check and nothing else. "--dry-run"
+# is not one: a dry run often still fetches, writes or sends. "--check" is
+# not one either; too many programs use it to mean "check and fix".
+SELF_CHECK_OPTIONS = ("--self-test", "--selftest", "--self-check", "--health-check", "--healthcheck", "--check-config")
+
+
+def _self_check_from_source(text: str) -> list[str]:
+    flags = _ADD_ARG.findall(text)
+    return next(([flag] for flag in SELF_CHECK_OPTIONS if flag in flags), [])
+
+
 def _input_from_source(text: str) -> tuple[dict[str, Any], bool]:
     flags = _ADD_ARG.findall(text)
     for flag in INPUT_FLAGS:
@@ -152,16 +163,16 @@ def inspect_python(project: Project) -> Finding | None:
         text = _module_text(project, packages, module) or ""
         inp, known = _input_from_source(text)
         if venv_bin:
-            finding.entrypoints.append(Entrypoint(argv=[venv_bin], label=script_name, confidence="high", source=f"pyproject.toml declares the command '{script_name}'", input=inp, input_known=known))
+            finding.entrypoints.append(Entrypoint(argv=[venv_bin], label=script_name, confidence="high", source=f"pyproject.toml declares the command '{script_name}'", input=inp, input_known=known, self_check=_self_check_from_source(text)))
         else:
-            finding.entrypoints.append(Entrypoint(argv=[interpreter, "-m", module], label=f"python -m {module}", confidence="medium", source=f"pyproject.toml declares the command '{script_name}' ({module})", input=inp, input_known=known))
+            finding.entrypoints.append(Entrypoint(argv=[interpreter, "-m", module], label=f"python -m {module}", confidence="medium", source=f"pyproject.toml declares the command '{script_name}' ({module})", input=inp, input_known=known, self_check=_self_check_from_source(text)))
 
     # 2. Packages: __main__.py, then modules with a main guard.
     for pkg, rel in packages:
         if project.is_file(f"{rel}/__main__.py"):
             text = project.read_text(f"{rel}/__main__.py") or ""
             inp, known = _input_from_source(text)
-            finding.entrypoints.append(Entrypoint(argv=[interpreter, "-m", pkg], label=f"python -m {pkg}", confidence="high", source=f"{pkg}/__main__.py makes the package runnable", input=inp, input_known=known))
+            finding.entrypoints.append(Entrypoint(argv=[interpreter, "-m", pkg], label=f"python -m {pkg}", confidence="high", source=f"{pkg}/__main__.py makes the package runnable", input=inp, input_known=known, self_check=_self_check_from_source(text)))
         modules = [n[:-3] for n in project.listdir(rel) if n.endswith(".py") and n != "__main__.py"][:MAX_MODULES_SCANNED]
         modules.sort(key=lambda n: MODULE_PREFERENCE.index(n) if n in MODULE_PREFERENCE else len(MODULE_PREFERENCE))
         for mod in modules:
@@ -184,7 +195,7 @@ def inspect_python(project: Project) -> Finding | None:
                 conf, source = "low", f"{mod}.py can be run as a program"
             else:
                 conf, source = "low", f"{mod}.py can be run as a program"
-            finding.entrypoints.append(Entrypoint(argv=[interpreter, "-m", dotted], label=f"python -m {dotted}", confidence=conf, source=source, input=inp, input_known=known))
+            finding.entrypoints.append(Entrypoint(argv=[interpreter, "-m", dotted], label=f"python -m {dotted}", confidence=conf, source=source, input=inp, input_known=known, self_check=_self_check_from_source(text)))
 
     # 3. Conventional top-level scripts.
     for script in TOP_LEVEL_SCRIPTS:
@@ -194,7 +205,7 @@ def inspect_python(project: Project) -> Finding | None:
             if _MAIN_GUARD.search(text) or script in ("main.py", "cli.py", "run.py"):
                 inp, known = _input_from_source(text)
                 mech = "mcp" if _MCP.search(text) else "command"
-                finding.entrypoints.append(Entrypoint(argv=[interpreter, script], label=f"python {script}", confidence="medium" if _ARGPARSE.search(text) else "low", source=f"{script} at the project root", input=inp, input_known=known, mechanism=mech))
+                finding.entrypoints.append(Entrypoint(argv=[interpreter, script], label=f"python {script}", confidence="medium" if _ARGPARSE.search(text) else "low", source=f"{script} at the project root", input=inp, input_known=known, mechanism=mech, self_check=_self_check_from_source(text)))
 
     if any(d in ("python-dotenv", "dotenv") for d in finding.dependencies):
         finding.loads_dotenv = True

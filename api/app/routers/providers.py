@@ -283,6 +283,11 @@ def rebuild_connection(provider_id: uuid.UUID, db: Session = Depends(get_db)) ->
     return HealthOut(ok=True, detail=note)
 
 
+# Said when the host worker is not running at all: a fact about this machine,
+# not about the agent.
+WORKER_ABSENT = "Bevro can't reach this machine right now. Is the worker running?"
+
+
 @router.post("/{provider_id}/check", response_model=HealthOut)
 def check_provider(provider_id: uuid.UUID, db: Session = Depends(get_db)) -> HealthOut:
     """Test every way Bevro has of reaching this agent, and say so in plain words.
@@ -290,13 +295,40 @@ def check_provider(provider_id: uuid.UUID, db: Session = Depends(get_db)) -> Hea
     A way that answers is restored, so an agent that was down comes back
     without being reconnected.
     """
-    from app.services import runtime as runtime_service
-
     provider = provider_service.get_provider(db, provider_id)
     if provider is None:
         raise HTTPException(404, "Agent not found.")
     store = _secret_store_or_none()
     secrets = store.resolve(db, provider.id) if store else {}
+    reach = _reach(db, provider, secrets)
+    return _with_checks(provider, reach, store.names(db, provider.id) if store else [])
+
+
+def _with_checks(provider: Any, reach: HealthOut, stored: list[str]) -> HealthOut:
+    """What was checked, one fact at a time: can it be reached, and does it
+    have what it needs. "Not reachable: needs a credential" says two things
+    as if they were one; these are kept apart."""
+    checks: list[dict[str, Any]] = [
+        {"label": "Bevro can reach it", "ok": True} if reach.ok else {"label": "Bevro can't reach it right now", "ok": False, "detail": reach.detail}
+    ]
+    credentials = provider_service.credentials_of(provider, stored)
+    missing = [c for c in credentials if not c["present"]]
+    for c in missing:
+        checks.append({"label": f"No {c['label']} yet for tasks Bevro starts", "ok": False, "kind": "credential"})
+    if credentials and not missing:
+        checks.append({"label": "Has the credentials it needs", "ok": True, "kind": "credential"})
+    checks.append({"label": "No real task was run", "ok": None, "kind": "functional"})
+    if reach.ok and missing:
+        return HealthOut(ok=False, detail="It can be reached, but it needs a credential before it can run.", checks=checks, next="add_credential")
+    if not reach.ok:
+        return HealthOut(ok=False, detail=reach.detail, checks=checks)
+    return HealthOut(ok=True, detail=reach.detail, checks=checks)
+
+
+def _reach(db: Session, provider: Any, secrets: dict[str, str]) -> HealthOut:
+    """Can Bevro reach it, by any way it has? Said in plain words."""
+    from app.services import runtime as runtime_service
+
     # Whatever this process can reach is tested now; a folder or a command on
     # the host belongs to the worker, which reports on its own.
     outcomes, deferred = runtime_service.check_all_runtimes(provider, secrets, execution="inline")
@@ -310,7 +342,7 @@ def check_provider(provider_id: uuid.UUID, db: Session = Depends(get_db)) -> Hea
         return HealthOut(ok=result.ok, detail=result.detail)
     if not outcomes:
         if not worker_ok:
-            return HealthOut(ok=False, detail=worker_note["note"] or "No worker has reported on this yet.")
+            return HealthOut(ok=False, detail=WORKER_ABSENT if not provider_service.worker_seen_recently(db) else (worker_note["note"] or "No worker has reported on this yet."))
         # Nothing was tried here, so say where it was reached instead of
         # leaving a bare "Reachable." about a process that never got there.
         here = "Runs on this machine." if any(rt.reachability.host_only() for rt in deferred) else None

@@ -41,7 +41,8 @@ log = logging.getLogger("bevro.reconcile")
 # the worker, rather than being left to say what an older Bevro concluded.
 #   2  credentials belong to runtimes; systemd environment files
 #   3  execution contexts; installed template units; the installed unit's own ExecStart
-DISCOVERY_VERSION = 3
+#   4  what a credential held elsewhere is for; a program's own self-check option
+DISCOVERY_VERSION = 4
 
 
 @dataclass
