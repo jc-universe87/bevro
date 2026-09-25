@@ -1,7 +1,7 @@
 /**
  * An installed service that has the key, and why it doesn't help.
  *
- * The card and Manage stay as simple as ever: the thing needs a credential.
+ * The card and the app's own page stay as simple as ever: the thing needs a credential.
  * Advanced details is where it says what Bevro found - the service that has
  * one, that it can't be handed work, that starting it needs an administrator -
  * so that "needs a credential" never looks like Bevro didn't notice.
@@ -56,27 +56,32 @@ const details = {
   ],
 };
 
-function agents() {
-  mockApi({ "GET /api/providers": [project], "GET /api/providers/p2/details": details });
+function renderAt(path: string) {
+  mockApi({ "GET /api/providers": [project], "GET /api/providers/p2": project, "GET /api/providers/p2/details": details });
   return render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={["/agents"]}>
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={[path]}>
       <App />
     </MemoryRouter>,
   );
 }
 
 test("the card says nothing about execution contexts", async () => {
-  agents();
-  const list = await screen.findByLabelText("Agents");
+  renderAt("/apps");
+  const list = await screen.findByRole("list", { name: "Apps and agents" });
   expect(within(list).getByRole("heading", { name: "Brief Writer" })).toBeInTheDocument();
   expect(list.textContent).not.toMatch(/context|systemd|administrator/i);
 });
 
+test("its page says nothing about execution contexts until Advanced details is opened", async () => {
+  renderAt("/apps/p2");
+  expect(await screen.findByRole("heading", { level: 1, name: "Brief Writer" })).toBeInTheDocument();
+  expect(document.body.textContent).not.toMatch(/Execution context|systemd|administrator/i);
+});
+
 test("Advanced details says what has the key and why it doesn't help", async () => {
-  agents();
-  await userEvent.click(await screen.findByRole("button", { name: "Manage" }));
-  await userEvent.click(await screen.findByText("Advanced details"));
-  const panel = await screen.findByLabelText("Manage Brief Writer");
+  renderAt("/apps/p2");
+  const panel = await screen.findByRole("region", { name: "Settings" });
+  await userEvent.click(within(panel).getByText("Advanced details"));
 
   expect(await within(panel).findByText("Execution context")).toBeInTheDocument();
   expect(within(panel).getByText(/Installed system service · brief-writer\.service/)).toBeInTheDocument();

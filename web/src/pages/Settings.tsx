@@ -54,15 +54,15 @@ export default function Settings() {
   return (
     <Page narrow>
       <PageHeader title="Settings" />
-      <section aria-labelledby="theme-heading" className="pb-6 border-b border-line">
-        <h2 id="theme-heading" className="font-medium mb-3">
+      <section aria-labelledby="theme-heading" className="pb-6 border-b bv-sep">
+        <h2 id="theme-heading" className="bv-subheading text-base mb-3">
           Appearance
         </h2>
         <fieldset>
           <legend className="sr-only">Theme</legend>
-          <div className="inline-flex rounded-md border border-line overflow-hidden" role="radiogroup" aria-label="Theme">
+          <div className="inline-flex rounded-md border bv-sep overflow-hidden" role="radiogroup" aria-label="Theme">
             {THEMES.map((t) => (
-              <label key={t.value} className={`px-4 py-2 text-sm cursor-pointer min-h-[40px] flex items-center ${theme === t.value ? "bg-sunken font-medium" : "hover:bg-sunken"}`}>
+              <label key={t.value} className={`px-4 py-2 text-sm cursor-pointer min-h-[44px] sm:min-h-[40px] flex items-center has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-focus has-[:focus-visible]:-outline-offset-2 ${theme === t.value ? "bg-[var(--bv-raised-hover)] font-medium text-ink" : "text-muted hover:bg-[var(--bv-raised)]"}`}>
                 <input type="radio" name="theme" value={t.value} checked={theme === t.value} onChange={() => setTheme(t.value)} className="sr-only" />
                 {t.label}
               </label>
@@ -71,24 +71,24 @@ export default function Settings() {
         </fieldset>
       </section>
 
-      <section aria-labelledby="routing-heading" className="py-6 border-b border-line">
-        <h2 id="routing-heading" className="font-medium mb-1">
+      <section aria-labelledby="routing-heading" className="py-6 border-b bv-sep">
+        <h2 id="routing-heading" className="bv-subheading text-base mb-1">
           Routing
         </h2>
         <p className="text-sm">{meta?.routing?.mode === "llm" ? "Intelligent routing: On" : "Local routing"}</p>
         <p className="bv-hint mt-1">
           {meta?.routing?.mode === "llm"
-            ? "Requests and the list of connected agents are sent to the configured routing model to choose who does the work."
-            : "Requests are matched to agents by local rules. Nothing leaves this installation to decide."}
+            ? "Requests and the list of your apps and agents are sent to the configured routing model to choose who does the work."
+            : "Requests are matched to your apps and agents by local rules. Nothing leaves this installation to decide."}
         </p>
       </section>
 
-      <section aria-labelledby="notifications-heading" className="py-6 border-b border-line">
-        <h2 id="notifications-heading" className="font-medium mb-1">
+      <section aria-labelledby="notifications-heading" className="py-6 border-b bv-sep">
+        <h2 id="notifications-heading" className="bv-subheading text-base mb-1">
           Notifications
         </h2>
         <p className="bv-hint mb-3">How Bevro can reach you when a result matters. Set up on the server.</p>
-        <ul className="divide-y divide-line border-t border-b border-line">
+        <ul className="bv-divide">
           {channels.map((channel) => (
             <li key={channel.name} className="py-2.5 flex items-baseline justify-between gap-4">
               <span className="text-sm font-medium">{channel.label}</span>
@@ -98,8 +98,8 @@ export default function Settings() {
         </ul>
       </section>
 
-      <section aria-labelledby="access-heading" className="py-6 border-b border-line">
-        <h2 id="access-heading" className="font-medium mb-1">
+      <section aria-labelledby="access-heading" className="py-6 border-b bv-sep">
+        <h2 id="access-heading" className="bv-subheading text-base mb-1">
           Access &amp; trust
         </h2>
         <p className="bv-hint mb-3">
@@ -109,7 +109,7 @@ export default function Settings() {
         {!access || access.grants.length === 0 ? (
           <p className="bv-hint">Nothing yet. Bevro asks the first time it needs something here.</p>
         ) : (
-          <ul className="divide-y divide-line border-t border-b border-line" aria-label="Allowed">
+          <ul className="bv-divide" aria-label="Allowed">
             {access.grants.map((g) => (
               <li key={g.id} className="flex flex-wrap items-baseline justify-between gap-2 py-2.5">
                 <div className="min-w-0">
@@ -143,15 +143,15 @@ export default function Settings() {
         )}
       </section>
 
-      <section aria-labelledby="projects-heading" className="py-6 border-b border-line">
-        <h2 id="projects-heading" className="font-medium mb-1">
+      <section aria-labelledby="projects-heading" className="py-6 border-b bv-sep">
+        <h2 id="projects-heading" className="bv-subheading text-base mb-1">
           Projects
         </h2>
         <p className="bv-hint mb-3">Where coding agents are allowed to work.</p>
         {workspaces.length === 0 ? (
           <p className="bv-hint">None yet.</p>
         ) : (
-          <ul className="divide-y divide-line border-t border-b border-line">
+          <ul className="bv-divide">
             {workspaces.map((w) => (
               <li key={w.id} className="py-2.5">
                 <div className="font-medium text-sm">{w.name}</div>
@@ -163,8 +163,8 @@ export default function Settings() {
         )}
       </section>
 
-      <section aria-labelledby="data-heading" className="py-6 border-b border-line">
-        <h2 id="data-heading" className="font-medium mb-1">
+      <section aria-labelledby="data-heading" className="py-6 border-b bv-sep">
+        <h2 id="data-heading" className="bv-subheading text-base mb-1">
           Workspace data
         </h2>
         <p className="bv-hint mb-3">What Bevro keeps. Your agents, scheduled work and settings are not touched by anything here.</p>
@@ -212,7 +212,7 @@ export default function Settings() {
       </section>
 
       <section aria-labelledby="about-heading" className="pt-6">
-        <h2 id="about-heading" className="font-medium mb-3">
+        <h2 id="about-heading" className="bv-subheading text-base mb-3">
           About
         </h2>
         <Logo variant="primary" height={72} />

@@ -156,7 +156,7 @@ export default function Notifications() {
           Nothing needs your attention. Bevro speaks up when work it{"’"}s <Link to="/scheduled" className="bv-link">watching</Link> finds a result that matters.
         </p>
       )}
-      <ul className="divide-y divide-line border-t border-b border-line empty:hidden" aria-label="Notifications">
+      <ul className="bv-divide empty:hidden" aria-label="Notifications">
         {(items ?? []).map((item) => (
           <Row key={item.id} item={item} onChange={replace} onRemoved={() => drop(item.id)} />
         ))}

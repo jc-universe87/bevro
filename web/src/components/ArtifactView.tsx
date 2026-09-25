@@ -69,7 +69,7 @@ function StructuredTable({ columns, rows }: { columns: string[]; rows: unknown[]
       <thead>
         <tr className="text-left text-muted">
           {columns.map((c, j) => (
-            <th key={c} className={`font-medium py-1 border-b border-line ${j > 0 ? "text-right pl-8" : "pr-8"}`}>
+            <th key={c} className={`font-medium py-1 border-b bv-sep ${j > 0 ? "text-right pl-8" : "pr-8"}`}>
               {c}
             </th>
           ))}
@@ -79,7 +79,7 @@ function StructuredTable({ columns, rows }: { columns: string[]; rows: unknown[]
         {shown.map((row, i) => (
           <tr key={i}>
             {row.map((cell, j) => (
-              <td key={j} className={`py-1.5 border-b border-line ${j > 0 ? "text-right pl-8 tabular-nums" : "pr-8"}`}>
+              <td key={j} className={`py-1.5 border-b bv-sep ${j > 0 ? "text-right pl-8 tabular-nums" : "pr-8"}`}>
                 {String(cell)}
               </td>
             ))}
@@ -144,7 +144,7 @@ export default function ArtifactView({ artifact }: { artifact: Artifact }) {
           <span className="inline-block transition-transform group-open:rotate-90" aria-hidden="true">›</span>
           {a.title}
         </summary>
-        <pre className="mt-2 max-h-[28rem] overflow-auto rounded-md border border-line bg-sunken p-3 text-xs leading-relaxed">
+        <pre className="mt-2 max-h-[28rem] overflow-auto rounded-md border bv-sep bg-sunken p-3 text-xs leading-relaxed">
           {text.length > 40_000 ? text.slice(0, 40_000) + "\n…" : text}
         </pre>
       </details>
@@ -174,7 +174,7 @@ export default function ArtifactView({ artifact }: { artifact: Artifact }) {
   if (a.type === "image" && (a.content_url || a.external_url)) {
     return (
       <figure>
-        <img src={a.content_url ?? a.external_url ?? ""} alt={a.summary ?? a.title} className="max-w-full rounded-md border border-line" />
+        <img src={a.content_url ?? a.external_url ?? ""} alt={a.summary ?? a.title} className="max-w-full rounded-md border bv-sep" />
         <figcaption className="bv-hint mt-1">{a.title}</figcaption>
       </figure>
     );

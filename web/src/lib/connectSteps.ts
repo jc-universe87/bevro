@@ -22,6 +22,7 @@ export type StepKind =
   | "needs_description"
   | "needs_credential"
   | "needs_interface"
+  | "found_app"
   | "needs_start"
   | "needs_choice"
   | "building"
@@ -83,26 +84,38 @@ const WORKER_HELP =
   "Bevro looks at things on this computer through a small helper program called the worker, and it isn't answering. " +
   "Start it with ./scripts/worker.sh (see the setup guide), then try again.";
 
+/** "an app", "Telegram": where the person uses it, for the heading. */
+function usedThrough(draft: DraftView): string | null {
+  const use = (draft.surfaces ?? []).filter((s) => s.role === "use" && s.kind !== "command_line");
+  if (!use.length) return null;
+  return use[0].kind === "web_app" ? "its own app" : use[0].label;
+}
+
 function found(draft: DraftView, local: LocalState): Step {
   const name = draft.name || "This";
   const canBuild = Boolean(draft.needs_bridge && draft.bridge_possible);
+  const directSetup: StepAction = canBuild ? { id: "build", label: "Set up direct access" } : { id: "setup", label: "Set up direct access" };
 
-  // Running, with a website and nothing another program can use. Saying what
-  // it is for would not change that, so this comes before asking.
-  if (!draft.invocable && draft.web_ui && draft.availability !== "needs_start") {
+  // Bevro can't send it work, and it belongs in the hub anyway: the person
+  // uses it somewhere of its own, or has said what it is for. That is a
+  // result, not a failure, so adding it is the thing to do next.
+  if (!draft.invocable && draft.can_add && draft.availability !== "needs_start") {
+    const through = usedThrough(draft);
     return {
-      kind: "needs_interface",
-      heading: draft.mechanism === "local" ? `${name} is running on this machine.` : `${name} is running.`,
-      message: "It only has its own website so far: nothing another program can send work to.",
-      primary: canBuild ? { id: "build", label: "Set up how to use it" } : { id: "setup", label: "Set up how to use it" },
-      tertiary: canBuild ? [{ id: "setup", label: "Set it up by hand" }] : undefined,
+      kind: "found_app",
+      heading: through ? `${name} is available through ${through}.` : `Bevro knows what ${name} is for.`,
+      message: `Bevro understands what ${name} does, but can't send it tasks directly yet.`,
+      primary: { id: "connect", label: "Add to Bevro" },
+      secondary: directSetup,
       help: {
-        question: "Why can't Bevro use it yet?",
+        question: "Why can't Bevro use it directly?",
         answer:
-          `Bevro can see that ${name} is running, but hasn't found a safe way for another program to send it work - its website is made for people. ` +
+          `Bevro looked for a way for other programs to hand ${name} a task and didn't find one` +
+          (through === "its own app" ? ` - its app is made for people, and that's fine.` : ".") +
+          ` Adding it keeps it with your other apps and agents, and Bevro can point you to it when it's the right place for something. ` +
           (canBuild
-            ? `Setting it up has one of your coding agents build a small connection for it, kept inside Bevro. ${name} itself isn't changed.`
-            : `If ${name} does have one that Bevro didn't recognise, the next page lets you describe it.`),
+            ? `Setting up direct access has one of your coding agents build a small connection for it, kept inside Bevro. ${name} itself isn't changed.`
+            : `If ${name} has a way in Bevro didn't recognise, setting up direct access lets you describe it.`),
       },
     };
   }
@@ -136,16 +149,15 @@ function found(draft: DraftView, local: LocalState): Step {
     }
     return {
       kind: "needs_interface",
-      heading: `${name} is almost ready.`,
-      message: "Bevro found it, but not yet a way to send it a task.",
-      primary: canBuild ? { id: "build", label: "Set up how to use it" } : { id: "setup", label: "Set up how to use it" },
+      heading: `Bevro found ${name}, but not how you use it.`,
+      message: `It has no app of its own that Bevro could see, and nothing Bevro can send tasks to yet.`,
+      primary: directSetup,
       tertiary: canBuild ? [{ id: "setup", label: "Set it up by hand" }] : undefined,
       help: {
-        question: "Why can't Bevro use it yet?",
+        question: "What can I do?",
         answer: canBuild
-          ? `Bevro can see ${name}, but nothing in it can be handed a task as it is. Setting it up has one of your coding agents build a small connection for it, kept inside Bevro. ${name} itself isn't changed.`
-          : `Bevro can see ${name}, but couldn't find a way for other programs to send it work - it may only have a screen for people. If it does have one that Bevro didn't recognise, the next page lets you describe it.` +
-            (draft.needs_bridge ? " A coding agent connected to Bevro could also build one." : ""),
+          ? `Setting up direct access has one of your coding agents build a small connection for ${name}, kept inside Bevro. ${name} itself isn't changed.`
+          : `If ${name} has a way in that Bevro didn't recognise, setting up direct access lets you describe it.` + (draft.needs_bridge ? " A coding agent connected to Bevro could also build one." : ""),
       },
     };
   }
@@ -157,7 +169,7 @@ function found(draft: DraftView, local: LocalState): Step {
       kind: "needs_choice",
       heading: scoped ? `Bevro found ${draft.scope_choices!.length}. Which should this connection use?` : "Bevro found two ways to connect this. Which should it use?",
       input: "choice",
-      primary: { id: "connect", label: "Connect" },
+      primary: { id: "connect", label: "Add to Bevro" },
       help: scoped
         ? { question: "Why choose?", answer: `${name} holds more than one of these. A connection works with one, so Bevro asks rather than guessing.` }
         : { question: "What's the difference?", answer: "Both work. They differ in how Bevro reaches it and what they need; Bevro keeps the other as a fallback." },
@@ -174,7 +186,7 @@ function found(draft: DraftView, local: LocalState): Step {
       primary: { id: "add_credential", label: "Add credential" },
       // What else is in place can be checked before the credential is added.
       secondary: { id: "test", label: "Test" },
-      tertiary: [{ id: "connect_without_credential", label: "Connect now, add it later" }],
+      tertiary: [{ id: "connect_without_credential", label: "Add it now, credential later" }],
       help: draft.auth.why
         ? { question: "Why can't Bevro use the existing one?", answer: draft.auth.why }
         : { question: "What is this credential for?", answer: `${name} needs it to do its work. Bevro gives it to ${name} only when it runs a task. It's stored encrypted and never shown again.` },
@@ -183,13 +195,13 @@ function found(draft: DraftView, local: LocalState): Step {
 
   return {
     kind: "found_ready",
-    heading: "Ready to connect.",
-    message: local.credentialAdded ? `${draft.auth.label ?? "Credential"} added. It's stored encrypted when you connect.` : undefined,
-    primary: { id: "connect", label: "Connect" },
+    heading: "Bevro can work with it directly.",
+    message: local.credentialAdded ? `${draft.auth.label ?? "Credential"} added. It's stored encrypted when you add ${name}.` : undefined,
+    primary: { id: "connect", label: "Add to Bevro" },
     secondary: { id: "test", label: "Test" },
     help: {
-      question: "What does Connect do?",
-      answer: `It adds ${name} to your agents, so Bevro can send it suitable work. Nothing about ${name} itself is changed, and you can pause or remove it any time.`,
+      question: "What does adding it do?",
+      answer: `It puts ${name} with your other apps and agents, and Bevro can send it suitable work. Nothing about ${name} itself is changed, and you can pause or remove it any time.`,
     },
   };
 }
@@ -199,7 +211,7 @@ export function connectStep(d: ConnectDraft | null, local: LocalState = {}): Ste
 
   if (local.bridge) {
     const b = local.bridge;
-    if (b.state === "ready") return { kind: "connected", heading: "Connected", message: b.note, primary: { id: "open", label: "Go to Agents" } };
+    if (b.state === "ready") return { kind: "connected", heading: "Added to Bevro", message: b.note, primary: { id: "open", label: "Go to Apps & agents" } };
     if (b.state === "failed") return { kind: "failed", heading: b.note, primary: { id: "build", label: "Try again" }, tertiary: [{ id: "setup", label: "Set it up by hand" }] };
     return { kind: "building", heading: b.note, message: "This usually takes a few minutes. You can leave this page; it carries on.", busy: true };
   }
@@ -232,7 +244,7 @@ export function connectStep(d: ConnectDraft | null, local: LocalState = {}): Ste
     case "testing":
       return { kind: "testing", heading: "Testing…", busy: true };
     case "connected":
-      return { kind: "connected", heading: "Connected", primary: { id: "open", label: "Go to Agents" } };
+      return { kind: "connected", heading: "Added to Bevro", primary: { id: "open", label: "Go to Apps & agents" } };
     case "failed": {
       const error = d.error ?? "Bevro couldn't connect that.";
       if (d.problem === "worker") {
@@ -266,9 +278,9 @@ export function connectStep(d: ConnectDraft | null, local: LocalState = {}): Ste
       if (d.already_connected) {
         return {
           kind: "already_connected",
-          heading: `${d.already_connected.name} is already connected.`,
-          primary: { id: "open", label: "Open in Agents" },
-          help: { question: "Can I connect it again?", answer: "There's no need: it's already one of your agents. Manage it there to test it, add a credential, or look at it again." },
+          heading: `${d.already_connected.name} is already in Bevro.`,
+          primary: { id: "open", label: `Go to ${d.already_connected.name}` },
+          help: { question: "Can I add it again?", answer: "There's no need: it's already with your apps and agents. Its page lets you test it, add a credential, or have Bevro look at it again." },
         };
       }
       // A failed Test must not leave the old, misleading Connect button in
@@ -279,7 +291,7 @@ export function connectStep(d: ConnectDraft | null, local: LocalState = {}): Ste
           kind: "failed",
           heading: `${d.draft.name || "This"} needs attention.`,
           message: d.test.detail ?? "Bevro found it, but one of the checks did not pass.",
-          primary: { id: "setup", label: "Set up how to use it" },
+          primary: { id: "setup", label: "Set it up by hand" },
           secondary: { id: "test", label: "Try again" },
           help: {
             question: "What did Bevro check?",
@@ -293,6 +305,9 @@ export function connectStep(d: ConnectDraft | null, local: LocalState = {}): Ste
   return null;
 }
 
+/** Words that belong under Advanced details, never in the ordinary path. */
+export const TECHNICAL_WORDS = /\b(runtime|systemd|compose|stdio|openapi|environmentfile|provider|adapter|endpoint|schema|http|mcp|docker|proxy|execution context)\b/i;
+
 /**
  * What is wrong with a step, as the page would show it. Empty when nothing.
  * The rule: a step either says Bevro is working, or offers one thing to do.
@@ -303,7 +318,7 @@ export function stepProblems(step: Step): string[] {
   if (!step.busy && !step.primary) problems.push(`${step.kind}: nothing to do next`);
   if (step.input && !step.primary) problems.push(`${step.kind}: asks for input with no way to confirm it`);
   if (step.primary && step.secondary && step.primary.label === step.secondary.label) problems.push(`${step.kind}: two buttons say the same thing`);
-  if (/runtime|systemd|compose|stdio|openapi|environmentfile/i.test(`${step.heading} ${step.message ?? ""} ${step.primary?.label ?? ""}`)) {
+  if (TECHNICAL_WORDS.test(`${step.heading} ${step.message ?? ""} ${step.primary?.label ?? ""} ${step.secondary?.label ?? ""}`)) {
     problems.push(`${step.kind}: technical words in the normal path`);
   }
   return problems;

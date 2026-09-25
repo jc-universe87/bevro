@@ -43,7 +43,7 @@ export default function CommandLauncher({ open, onClose }: { open: boolean; onCl
     const pages = NAV.filter((n) => !q || n.label.toLowerCase().includes(q)).map((n) => ({ id: `page:${n.to}`, label: n.label, hint: "Go to", to: n.to }));
     const agents = providers
       .filter((p) => !q || p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q))
-      .map((p) => ({ id: `agent:${p.id}`, label: p.name, hint: p.description, to: "/agents" }));
+      .map((p) => ({ id: `agent:${p.id}`, label: p.name, hint: p.description, to: `/apps/${p.id}` }));
     const recent = tasks.slice(0, 6).map((t) => ({ id: `task:${t.id}`, label: t.title, hint: t.summary ?? "Recent", to: `/tasks/${t.id}` }));
     return [...pages, ...agents, ...recent].slice(0, 12);
   }, [query, providers, tasks]);
@@ -74,14 +74,14 @@ export default function CommandLauncher({ open, onClose }: { open: boolean; onCl
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center px-4 pt-[12vh]" onKeyDown={onKeyDown}>
       <div className="absolute inset-0 bg-ink/20" onClick={onClose} aria-hidden="true" />
-      <div role="dialog" aria-modal="true" aria-label="Search Bevro" className="relative w-full max-w-lg rounded-lg border border-line bg-surface shadow-lg overflow-hidden">
-        <div className="flex items-center gap-3 border-b border-line px-4">
+      <div role="dialog" aria-modal="true" aria-label="Search Bevro" className="relative w-full max-w-lg rounded-lg border bv-sep bg-surface shadow-lg overflow-hidden">
+        <div className="flex items-center gap-3 border-b bv-sep px-4">
           <Icon name="search" className="text-muted shrink-0" />
           <input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search pages, agents and recent work"
+            placeholder="Search pages, apps and agents, and recent work"
             aria-label="Search"
             aria-controls="launcher-results"
             className="w-full bg-transparent py-3 text-base outline-none placeholder:text-subtle"

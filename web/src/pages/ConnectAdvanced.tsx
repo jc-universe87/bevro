@@ -89,7 +89,7 @@ export default function ConnectAdvanced() {
         secrets,
         app_url: null,
       });
-      navigate("/agents");
+      navigate("/apps");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Bevro couldn't reach the server.");
       setBusy(false);
@@ -108,16 +108,16 @@ export default function ConnectAdvanced() {
       </PageHeader>
       {foundName && (
         <p className="mb-3">
-          Setting up {foundName}. {websiteOnly ? "Bevro found it running, but only its own website." : "Bevro found it, but not how to send it a task."} Tell Bevro how it takes one: an address it answers requests on, an MCP server, or a command.
+          Setting up {foundName}. {websiteOnly ? "It has its own app, but nothing Bevro can send tasks to yet." : "Bevro found it, but not how to send it a task."} Tell Bevro how it takes one: an address it answers requests on, an MCP server, or a command.
         </p>
       )}
       <p className="bv-hint mb-5">For things Bevro couldn't work out on its own. The normal way is to type an address or folder under Connect.</p>
       <form onSubmit={submit} className="space-y-5" aria-label="Advanced setup">
         <fieldset>
           <legend className="bv-label">Connection type</legend>
-          <div className="inline-flex rounded-md border border-line overflow-hidden" role="radiogroup" aria-label="Connection type">
+          <div className="inline-flex rounded-md border bv-sep overflow-hidden" role="radiogroup" aria-label="Connection type">
             {METHODS.map((m) => (
-              <label key={m.value} className={`px-4 py-2 text-sm cursor-pointer min-h-[40px] flex items-center ${method === m.value ? "bg-sunken font-medium" : "hover:bg-sunken"}`}>
+              <label key={m.value} className={`px-4 py-2 text-sm cursor-pointer min-h-[44px] sm:min-h-[40px] flex items-center has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-focus has-[:focus-visible]:-outline-offset-2 ${method === m.value ? "bg-[var(--bv-raised-hover)] font-medium text-ink" : "text-muted hover:bg-[var(--bv-raised)]"}`}>
                 <input type="radio" name="method" value={m.value} checked={method === m.value} onChange={() => setMethod(m.value)} className="sr-only" />
                 {m.label}
               </label>

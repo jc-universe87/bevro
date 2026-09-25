@@ -1,29 +1,29 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { OpenLink } from "../components/Hub";
 import Icon from "../components/Icon";
-import { api, ApiError, type Notification, type ScheduleIntent } from "../lib/api";
+import { api, ApiError, type Notification, type Provider, type ScheduleIntent } from "../lib/api";
+import { here, hubView } from "../lib/hub";
+import { isUnusableBuiltIn } from "./Apps";
 
 const TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+const SHOWN_ON_HOME = 6;
 
-// What the two built-in providers are for, in the person's own words. A first
-// visit should be able to start without reading anything.
-const SUGGESTIONS = [
-  "Compare three note-taking apps",
-  "Allocate participants for the spring conference",
-];
+type HomeError = { message: string; reason: string | null; suggestion: { id: string; name: string } | null };
 
 export default function Home() {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<{ message: string; reason: string | null } | null>(null);
+  const [error, setError] = useState<HomeError | null>(null);
   // When someone asks for work to happen again, Bevro shows what it would set
   // up and waits: recurring work is never created behind their back.
   const [intent, setIntent] = useState<ScheduleIntent | null>(null);
   // Anything Bevro found while the person was away. Quiet when there is none.
   const [waiting, setWaiting] = useState<Notification[]>([]);
-  // Nothing connected yet: say so honestly rather than looking broken when a
-  // request comes back with nowhere to go.
-  const [hasAgents, setHasAgents] = useState<boolean | null>(null);
+  // The person's own apps and agents. None yet: say so honestly rather than
+  // looking broken when a request comes back with nowhere to go.
+  const [mine, setMine] = useState<Provider[] | null>(null);
+  const hasAgents = mine === null ? null : mine.length > 0;
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const navigate = useNavigate();
 
@@ -35,9 +35,14 @@ export default function Home() {
       .catch(() => setWaiting([]));
     api
       .listProviders()
-      .then((list) => setHasAgents(list.some((p) => p.origin !== "example" || p.actions.includes("ask"))))
-      .catch(() => setHasAgents(null));
+      .then((list) => setMine(list.filter((p) => !isUnusableBuiltIn(p) && (p.origin !== "example" || p.actions.includes("ask")))))
+      .catch(() => setMine(null));
   }, []);
+
+  const failed = (err: unknown) => {
+    setError(err instanceof ApiError ? { message: err.message, reason: err.reason, suggestion: err.suggestion } : { message: "Bevro couldn't reach the server. Try again in a moment.", reason: null, suggestion: null });
+    setBusy(false);
+  };
 
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();
@@ -59,8 +64,7 @@ export default function Home() {
       const task = await api.submitTask({ request });
       navigate(`/tasks/${task.id}`);
     } catch (err) {
-      setError(err instanceof ApiError ? { message: err.message, reason: err.reason } : { message: "Bevro couldn't reach the server.", reason: null });
-      setBusy(false);
+      failed(err);
     }
   };
 
@@ -72,8 +76,7 @@ export default function Home() {
       await api.createAutomation({ when: text.trim(), instruction: intent.instruction ?? text.trim(), timezone: TIMEZONE });
       navigate("/scheduled");
     } catch (err) {
-      setError(err instanceof ApiError ? { message: err.message, reason: err.reason } : { message: "Bevro couldn't reach the server.", reason: null });
-      setBusy(false);
+      failed(err);
     }
   };
 
@@ -84,8 +87,7 @@ export default function Home() {
       const task = await api.submitTask({ request: text.trim() });
       navigate(`/tasks/${task.id}`);
     } catch (err) {
-      setError(err instanceof ApiError ? { message: err.message, reason: err.reason } : { message: "Bevro couldn't reach the server.", reason: null });
-      setBusy(false);
+      failed(err);
     }
   };
 
@@ -99,10 +101,10 @@ export default function Home() {
   return (
     <div className="flex min-h-[calc(100vh-3.5rem-5rem)] md:min-h-screen items-center justify-center px-4 sm:px-6">
       <div className="w-full max-w-prompt -mt-[8vh]">
-        <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-center mb-6">What should we get done?</h1>
+        <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-center mb-6">What do you want to get done?</h1>
         <form onSubmit={submit} className="relative">
           <label htmlFor="ask" className="sr-only">
-            Ask Bevro
+            What do you want to get done?
           </label>
           <textarea
             id="ask"
@@ -113,7 +115,7 @@ export default function Home() {
               setIntent(null);
             }}
             onKeyDown={onKeyDown}
-            placeholder="Ask Bevro..."
+            placeholder="Say it in your own words…"
             rows={3}
             disabled={busy}
             className="bv-input resize-none rounded-lg px-4 py-3 pr-14 text-base md:text-lg shadow-sm"
@@ -121,14 +123,14 @@ export default function Home() {
           <button
             type="submit"
             disabled={busy || !text.trim()}
-            aria-label="Ask"
-            className="bv-btn-primary absolute right-2.5 bottom-2.5 h-10 w-10 px-0 rounded-md"
+            aria-label="Go"
+            className="bv-btn-primary absolute right-2.5 bottom-2.5 h-11 w-11 sm:h-10 sm:w-10 px-0 rounded-md"
           >
             <Icon name="arrow" />
           </button>
         </form>
         {intent && (
-          <section aria-label="Repeating work" className="mt-4 rounded-md border border-line bg-sunken/40 p-4">
+          <section aria-label="Repeating work" className="mt-4 bv-panel">
             <p className="font-medium">{intent.title}</p>
             <p className="mt-0.5 text-sm text-muted">
               {intent.schedule}
@@ -146,8 +148,9 @@ export default function Home() {
         )}
 
         {hasAgents === false && !intent && (
-          <section aria-label="Getting started" className="mt-4 rounded-md border border-line p-4">
-            <p className="text-sm">Connect something you already use, or create an agent, to get started.</p>
+          <section aria-label="Getting started" className="mt-4 bv-panel">
+            <p className="font-medium">Start with the apps and agents you already use.</p>
+            <p className="bv-hint mt-1">Connect them and Bevro learns what each one does, so it can send you to the right one.</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Link to="/connect" className="bv-btn-primary">
                 Connect
@@ -160,8 +163,8 @@ export default function Home() {
         )}
 
         {waiting.length > 0 && !intent && (
-          <section aria-labelledby="attention-heading" className="mt-4 rounded-md border border-line p-4">
-            <h2 id="attention-heading" className="text-sm font-medium">
+          <section aria-labelledby="attention-heading" className="mt-4 bv-panel">
+            <h2 id="attention-heading" className="bv-subheading">
               Needs your attention
             </h2>
             <ul className="mt-2 space-y-2">
@@ -184,37 +187,72 @@ export default function Home() {
 
         <div className="mt-3 flex items-start justify-between gap-4 text-sm text-muted min-h-[1.5rem]">
           {error ? (
-            <p role="alert" className="text-ink">
-              {error.message}
-              {error.reason === "no_provider" && (
-                <>
-                  {" "}
-                  <Link to="/connect" className="bv-link">
-                    Connect
-                  </Link>
-                  <span className="text-subtle"> · </span>
-                  <Link to="/create" className="bv-link">
-                    Create
-                  </Link>
-                </>
-              )}
-            </p>
+            <HomeAnswer error={error} mine={mine ?? []} />
           ) : (
-            <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1 empty:hidden">
-              {hasAgents !== false && <span className="hidden sm:inline">Try </span>}
-              {(hasAgents === false ? [] : SUGGESTIONS).map((suggestion, i) => (
-                <span key={suggestion} className="flex items-baseline gap-x-1.5">
-                  <button type="button" className="bv-link text-left" onClick={() => { setText(suggestion); inputRef.current?.focus(); }}>
-                    “{suggestion}”
-                  </button>
-                  {i < SUGGESTIONS.length - 1 && <span className="text-subtle" aria-hidden="true">·</span>}
-                </span>
-              ))}
-            </p>
+            <span />
           )}
           <span className="hidden sm:inline shrink-0 whitespace-nowrap text-subtle">Enter to send</span>
         </div>
+
+        {mine && mine.length > 0 && !error && !intent && (
+          <nav aria-label="Your apps and agents" className="mt-10 text-center">
+            <p className="bv-meta">Your apps & agents</p>
+            <ul className="mt-2 flex flex-wrap justify-center gap-x-1 gap-y-1">
+              {mine.slice(0, SHOWN_ON_HOME).map((p) => (
+                <li key={p.id}>
+                  <Link to={`/apps/${p.id}`} className="bv-btn-quiet min-h-[36px] px-3 py-1 text-sm">
+                    {p.name}
+                  </Link>
+                </li>
+              ))}
+              {mine.length > SHOWN_ON_HOME && (
+                <li>
+                  <Link to="/apps" className="bv-btn-quiet min-h-[36px] px-3 py-1 text-sm">
+                    All {mine.length}
+                  </Link>
+                </li>
+              )}
+            </ul>
+          </nav>
+        )}
       </div>
     </div>
+  );
+}
+
+/** What Bevro says when it can't take the request itself - and where to go instead, when it knows. */
+function HomeAnswer({ error, mine }: { error: HomeError; mine: Provider[] }) {
+  const target = error.suggestion ? mine.find((p) => p.id === error.suggestion!.id) : undefined;
+  if (error.reason === "use_elsewhere" && error.suggestion) {
+    const view = target ? hubView(target, here()) : null;
+    const open = view?.opening?.kind === "link" ? view.opening.href : null;
+    return (
+      <div role="alert" className="text-ink">
+        <p>{error.message}</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {open && <OpenLink href={open} label={`Open ${error.suggestion.name}`} primary />}
+          <Link to={`/apps/${error.suggestion.id}#use`} className={open ? "bv-btn-quiet" : "bv-btn"}>
+            {open ? "More about it" : `How to open ${error.suggestion.name}`}
+          </Link>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <p role="alert" className="text-ink">
+      {error.message}
+      {error.reason === "no_provider" && (
+        <>
+          {" "}
+          <Link to="/connect" className="bv-link">
+            Connect
+          </Link>
+          <span className="text-subtle"> · </span>
+          <Link to="/create" className="bv-link">
+            Create
+          </Link>
+        </>
+      )}
+    </p>
   );
 }

@@ -49,10 +49,33 @@ export interface Provider {
   credentials: { note?: string | null; why?: string | null; name: string; label: string; present: boolean; source?: "bevro" | "host" | "project" | "missing" | string; status?: string }[];
   /** How this installation runs, in words. Mechanism stays on the server. */
   runtime: { display_name: string; runs_at?: string | null; availability: string; credentials_label: string; runtimes_found: number; alternatives: number; health: string; built?: boolean; review?: string | null; abilities: Record<string, boolean> } | null;
+  /** How the person uses it apart from Bevro. A web app comes with how its address was published. */
+  surfaces?: Surface[];
+  /** Can Bevro itself send it work. "not_set_up" is not a fault. */
+  direct?: { state: DirectState; note?: string };
   /** For agents Bevro created: what it is for and which version is in use. */
   build?: { purpose: string; version: number; state: string; built_by: string | null; needs: string[]; can_rebuild: boolean } | null;
   created_at: string;
   updated_at: string;
+}
+
+export type DirectState = "ready" | "needs_credential" | "waiting_for_worker" | "needs_start" | "unreachable" | "paused" | "not_set_up";
+
+/** One way of using an app or agent, or one place its results go. See docs/HUB.md. */
+export interface Surface {
+  kind: "web_app" | "telegram" | "slack" | "discord" | "schedule" | "command_line" | string;
+  /** use: the person uses it there. delivers: it sends results there. runs: it works by itself. */
+  role: "use" | "delivers" | "runs" | string;
+  label: string;
+  sentence: string;
+  url?: string;
+  /** How the address was published, which decides where a browser can open it from. */
+  reach?: "explicit" | "shared" | "network" | "all_interfaces" | "loopback" | string;
+  /** For a shared address: the one on this machine behind it. */
+  local_url?: string;
+  title?: string;
+  when?: string | null;
+  installed?: boolean | null;
 }
 
 /** What Bevro is asking permission for: one folder, or one program. */
@@ -400,6 +423,10 @@ export interface DraftView {
    * work. `routes` are paths its website passes on to another part of it.
    */
   web_ui?: { running: boolean; title: string | null; routes: string[] } | null;
+  /** How the person uses it apart from Bevro. */
+  surfaces?: Surface[];
+  /** Bevro can't send it work, but it is worth adding: the person uses it somewhere, or has said what it's for. */
+  can_add?: boolean;
   /** `why`: the optional explanation behind `hint`, for "Why?". */
   auth: { required: boolean; secret_name: string | null; label: string | null; hint: string | null; why?: string | null };
   invocable: boolean;
@@ -447,12 +474,15 @@ export type HealthOut = TestResult;
 
 export class ApiError extends Error {
   status: number;
-  /** Short machine code from the API, e.g. "no_provider". */
+  /** Short machine code from the API, e.g. "no_provider", "use_elsewhere". */
   reason: string | null;
-  constructor(status: number, message: string, reason: string | null = null) {
+  /** With "use_elsewhere": the app the person has for this. */
+  suggestion: { id: string; name: string } | null;
+  constructor(status: number, message: string, reason: string | null = null, suggestion: { id: string; name: string } | null = null) {
     super(message);
     this.status = status;
     this.reason = reason;
+    this.suggestion = suggestion;
   }
 }
 
@@ -464,17 +494,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     let message = "Something went wrong.";
     let reason: string | null = null;
+    let suggestion: { id: string; name: string } | null = null;
     try {
       const body = await res.json();
       if (typeof body?.detail === "string") message = body.detail;
+      else if (Array.isArray(body?.detail) && typeof body.detail[0]?.msg === "string") message = String(body.detail[0].msg).replace(/^Value error, /, "");
       else if (body?.detail && typeof body.detail.message === "string") {
         message = body.detail.message;
         reason = typeof body.detail.reason === "string" ? body.detail.reason : null;
+        const s = body.detail.suggestion;
+        suggestion = s && typeof s.id === "string" && typeof s.name === "string" ? { id: s.id, name: s.name } : null;
       }
     } catch {
       /* keep the generic message */
     }
-    throw new ApiError(res.status, message, reason);
+    throw new ApiError(res.status, message, reason, suggestion);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -519,6 +553,7 @@ export const api = {
   retryNotification: (id: string) => request<Notification>(`/notifications/${id}/retry`, { method: "POST" }),
   dismissNotification: (id: string) => request<void>(`/notifications/${id}`, { method: "DELETE" }),
   listProviders: () => request<Provider[]>("/providers"),
+  getProvider: (id: string) => request<Provider>(`/providers/${id}`),
   /** Advanced setup: the technical escape hatch. Normal Connect goes through connectDiscover. */
   connectProvider: (body: {
     name: string;
@@ -539,7 +574,7 @@ export const api = {
     request<ConnectDraft>(`/connect/drafts/${id}/test`, { method: "POST", body: JSON.stringify({ secrets }) }),
   connectConfirm: (id: string, body: { name?: string; description?: string; capability_summary?: string; secrets?: Record<string, string>; app_url?: string | null; runtime_id?: string; scope?: string }) =>
     request<Provider>(`/connect/drafts/${id}/confirm`, { method: "POST", body: JSON.stringify(body) }),
-  updateProvider: (id: string, body: { enabled?: boolean; name?: string; description?: string }) =>
+  updateProvider: (id: string, body: { enabled?: boolean; name?: string; description?: string; web_address?: string }) =>
     request<Provider>(`/providers/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   checkProvider: (id: string) => request<HealthOut>(`/providers/${id}/check`, { method: "POST" }),
   providerDetails: (id: string) => request<ProviderDetails>(`/providers/${id}/details`),

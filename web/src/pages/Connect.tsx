@@ -1,11 +1,14 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Help from "../components/Help";
+import { OpenLink } from "../components/Hub";
 import Icon from "../components/Icon";
 import PageHeader, { Page } from "../components/PageHeader";
 import TestResults from "../components/TestResults";
 import { api, ApiError, type BridgeStatus, type ConnectDraft, type DraftView } from "../lib/api";
 import { connectStep, type ActionId, type Step } from "../lib/connectSteps";
+import { here, hubView } from "../lib/hub";
+import type { Provider } from "../lib/api";
 
 const POLL_MS = 800;
 
@@ -26,7 +29,7 @@ export default function Connect() {
   // What was last looked for: "Try again" looks for it again.
   const [lookedFor, setLookedFor] = useState("");
   const [draft, setDraft] = useState<ConnectDraft | null>(null);
-  const [connected, setConnected] = useState<{ id: string; name: string; needsWorker: boolean; needsCredential: boolean } | null>(null);
+  const [connected, setConnected] = useState<{ provider: Provider; direct: boolean; needsWorker: boolean; needsCredential: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // What the person typed along the way. Kept across steps: nothing typed is lost.
@@ -155,10 +158,10 @@ export default function Connect() {
       const provider = await api.connectConfirm(draft.id, body);
       stopPolling();
       setConnected({
-        id: provider.id,
-        name: provider.name,
-        needsWorker: found.availability === "needs_worker",
-        needsCredential: found.auth.required && !(withCredential && secret.trim()),
+        provider,
+        direct: found.invocable,
+        needsWorker: found.invocable && found.availability === "needs_worker",
+        needsCredential: found.invocable && found.auth.required && !(withCredential && secret.trim()),
       });
       setDraft(null);
       setTarget("");
@@ -205,7 +208,7 @@ export default function Connect() {
         targetRef.current?.select();
         return;
       case "open":
-        return navigate(draft?.already_connected ? `/agents?manage=${draft.already_connected.id}` : "/agents");
+        return navigate(draft?.already_connected ? `/apps/${draft.already_connected.id}` : "/apps");
       case "choose":
         return; // each match has its own button
     }
@@ -226,7 +229,7 @@ export default function Connect() {
   const primaryButton = (s: Step, submit = false) =>
     s.primary && (
       <button type={submit ? "submit" : "button"} className="bv-btn-primary" onClick={submit ? undefined : () => act(s.primary!.id)} disabled={primaryDisabled}>
-        {busy && (s.primary.id === "describe" || s.primary.id === "connect") ? (s.primary.id === "describe" ? "Saving…" : "Connecting…") : s.primary.label}
+        {busy && (s.primary.id === "describe" || s.primary.id === "connect") ? (s.primary.id === "describe" ? "Saving…" : "Adding…") : s.primary.label}
       </button>
     );
 
@@ -247,10 +250,10 @@ export default function Connect() {
 
   /** The one thing to do next, with whatever it needs typed or picked. */
   const stepPanel = (s: Step) => (
-    <section aria-label="Next step" className={found ? "mt-6 rounded-md border border-line p-4" : "mt-6 border-t border-line pt-5"}>
+    <section aria-label="Next step" className={found ? "mt-6 bv-panel" : "mt-6 border-t bv-sep pt-5"}>
       {s.input === "description" ? (
         <form onSubmit={describe}>
-          <label htmlFor={`${inputId}-summary`} className="font-medium block">
+          <label htmlFor={`${inputId}-summary`} className="bv-subheading block text-base">
             <span ref={stepRef as React.Ref<HTMLSpanElement>} tabIndex={-1} className="outline-none">
               {s.heading}
             </span>
@@ -259,7 +262,7 @@ export default function Connect() {
             id={`${inputId}-summary`}
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
-            placeholder="e.g. search documents, create reports"
+            placeholder="For example: search documents, write reports"
             className="bv-input mt-2"
             aria-describedby={helpId}
             autoComplete="off"
@@ -274,7 +277,7 @@ export default function Connect() {
         </form>
       ) : s.input === "credential" && found ? (
         <form onSubmit={addCredential}>
-          <h2 ref={stepRef} tabIndex={-1} className="font-medium outline-none">
+          <h2 ref={stepRef} tabIndex={-1} className="bv-subheading text-base outline-none">
             {s.heading}
           </h2>
           {s.message && (
@@ -304,7 +307,7 @@ export default function Connect() {
         </form>
       ) : (
         <>
-          <h2 ref={stepRef} tabIndex={-1} className="font-medium outline-none">
+          <h2 ref={stepRef} tabIndex={-1} className="bv-subheading text-base outline-none">
             {s.heading}
           </h2>
           {s.message && <p className="mt-1 text-sm text-muted">{s.message}</p>}
@@ -312,7 +315,7 @@ export default function Connect() {
           {s.kind === "trust_required" && draft?.trust?.kind === "folder" && draft.trust.path && <p className="mt-2 break-all font-mono text-sm">{draft.trust.path}</p>}
 
           {s.input === "list" && draft?.choices && (
-            <ul className="mt-3 divide-y divide-line border-t border-b border-line">
+            <ul className="mt-3 bv-divide">
               {draft.choices.map((c, i) => (
                 <li key={c.where} className="flex flex-wrap items-baseline justify-between gap-2 py-2.5">
                   <div className="min-w-0">
@@ -404,10 +407,10 @@ export default function Connect() {
 
   return (
     <Page narrow>
-      <PageHeader title="Connect" />
+      <PageHeader title="Connect" lead="Add an app or agent you already use. Bevro works out what it is and how you use it." />
       <form onSubmit={discover} aria-label="Connect">
-        <label htmlFor="connect-target" className="text-lg font-medium block mb-3">
-          Connect an agent, app or service to Bevro.
+        <label htmlFor="connect-target" className="bv-label">
+          What is it called, or where is it?
         </label>
         <input
           id="connect-target"
@@ -415,7 +418,7 @@ export default function Connect() {
           autoFocus
           value={target}
           onChange={(e) => setTarget(e.target.value)}
-          placeholder="Paste an address, folder, command, or name"
+          placeholder="A name, a web address, a folder or a command"
           className="bv-input py-3"
           autoComplete="off"
           spellCheck={false}
@@ -440,27 +443,38 @@ export default function Connect() {
 
       {error && (
         <p role="alert" className="mt-4 text-sm">
-          {error}
+          {error} <span className="text-muted">Nothing was changed.</span>
         </p>
       )}
 
       {step && !found && stepPanel(step)}
 
       {found && step && (
-        <section aria-label="Found" className="mt-8 border-t border-line pt-6">
-          <p className="text-xs uppercase tracking-wide text-subtle mb-2">{draft?.found_by_name ? "Found on this machine" : "Found"}</p>
-          <h2 className="text-xl font-semibold tracking-tight">{found.name}</h2>
+        <section aria-label="Found" className="mt-8 border-t bv-sep pt-6">
+          <p className="bv-meta mb-1">{draft?.found_by_name ? "Found on this machine" : "Found"}</p>
+          <h2 className="bv-heading text-xl">{found.name}</h2>
           {found.description && <p className="mt-1 text-muted">{found.description}</p>}
 
           {/* Once described, the sentence above is made of these same words. */}
-          {!found.needs_description && !found.described && found.capabilities.length > 0 && (
-            <div className="mt-4">
-              <p className="text-sm text-muted mb-1">Can:</p>
-              <ul className="space-y-0.5" aria-label="Capabilities">
+          {!found.described && found.capabilities.length > 0 && (
+            <div className="mt-5">
+              <h3 className="bv-subheading">What it can do</h3>
+              <ul className="mt-1 space-y-0.5" aria-label="Capabilities">
                 {found.capabilities.map((c) => (
                   <li key={c.id} className="text-sm">
-                    • {c.title ?? c.id}
+                    {c.title ?? c.id}
                   </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {(found.surfaces ?? []).length > 0 && (
+            <div className="mt-5">
+              <h3 className="bv-subheading">How you use it</h3>
+              <ul className="mt-1 space-y-0.5 text-sm" aria-label="How you use it">
+                {found.surfaces!.map((sf) => (
+                  <li key={`${sf.kind}-${sf.role}-${sf.when ?? ""}`}>{sf.sentence}</li>
                 ))}
               </ul>
             </div>
@@ -468,11 +482,11 @@ export default function Connect() {
 
           {found.connected_for && !(found.scope_choices ?? []).length && (
             <p className="mt-4 text-sm">
-              <span className="text-muted">Connected for:</span> {found.connected_for}
+              <span className="text-muted">For:</span> {found.connected_for}
             </p>
           )}
 
-          {!found.auth.required && found.auth.hint && (
+          {found.invocable && !found.auth.required && found.auth.hint && (
             <p className="mt-4 text-sm">
               <span className="text-muted">Credentials:</span> {found.auth.hint}
             </p>
@@ -480,7 +494,7 @@ export default function Connect() {
 
           {stepPanel(step)}
 
-          <details className="mt-5 text-sm">
+          <details className="mt-6 text-sm">
             <summary className="cursor-pointer text-muted hover:text-ink">How Bevro found this</summary>
             <ul className="mt-2 space-y-0.5 text-muted">
               {howItRuns(found) && <li>Runs via: {howItRuns(found)}</li>}
@@ -504,36 +518,59 @@ export default function Connect() {
         </section>
       )}
 
-      {connected && (
-        <section aria-label="Connected" className="mt-8 border-t border-line pt-6">
-          <p className="flex items-center gap-2 text-lg font-medium">
-            <Icon name="check" size={20} />
-            Connected
-          </p>
-          {connected.needsCredential ? (
-            <>
-              <p className="mt-2 text-muted">{connected.name} is one of your agents now, but it needs a credential before it can run.</p>
-              <div className="mt-4 flex gap-3">
-                <Link to={`/agents?manage=${connected.id}&credential=1`} className="bv-btn-primary">
-                  Add credential
-                </Link>
-              </div>
-            </>
-          ) : (
-            <>
-              <p className="mt-2 text-muted">
-                {connected.name} is available under Agents. Bevro can now route suitable work here.
-                {connected.needsWorker && " It will show as available once the worker on this machine confirms it, usually within a minute."}
-              </p>
-              <div className="mt-4 flex gap-3">
-                <Link to="/agents" className="bv-btn-primary">
-                  Go to Agents
-                </Link>
-              </div>
-            </>
-          )}
-        </section>
-      )}
+      {connected && <Added {...connected} />}
     </Page>
+  );
+}
+
+/** What adding it did, and the one thing worth doing next. */
+function Added({ provider, direct, needsWorker, needsCredential }: { provider: Provider; direct: boolean; needsWorker: boolean; needsCredential: boolean }) {
+  const view = hubView(provider, here());
+  const open = view.opening?.kind === "link" ? view.opening.href : null;
+  return (
+    <section aria-labelledby="added-heading" className="mt-8 border-t bv-sep pt-6">
+      <h2 id="added-heading" className="bv-heading flex items-center gap-2">
+        <Icon name="check" size={20} />
+        Added to Bevro
+      </h2>
+      {needsCredential ? (
+        <>
+          <p className="mt-2 text-muted">{provider.name} is with your apps and agents now. Bevro needs a credential before it can send it work.</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link to={`/apps/${provider.id}?credential=1`} className="bv-btn-primary">
+              Add credential
+            </Link>
+            <Link to={`/apps/${provider.id}`} className="bv-btn-quiet">
+              Go to {provider.name}
+            </Link>
+          </div>
+        </>
+      ) : direct ? (
+        <>
+          <p className="mt-2 text-muted">
+            {provider.name} is with your apps and agents. Bevro can now send it suitable work.
+            {needsWorker && " It shows as ready once the helper on this computer confirms it, usually within a minute."}
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link to={`/apps/${provider.id}`} className="bv-btn-primary">
+              Go to {provider.name}
+            </Link>
+            <Link to="/apps" className="bv-btn-quiet">
+              All apps & agents
+            </Link>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="mt-2 text-muted">{provider.name} is with your apps and agents. Bevro can point you to it whenever it's the right place for something.</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {open ? <OpenLink href={open} label={`Open ${provider.name}`} primary /> : null}
+            <Link to={`/apps/${provider.id}`} className={open ? "bv-btn-quiet" : "bv-btn-primary"}>
+              Go to {provider.name}
+            </Link>
+          </div>
+        </>
+      )}
+    </section>
   );
 }

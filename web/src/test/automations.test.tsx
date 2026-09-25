@@ -38,7 +38,7 @@ test("home confirms repeating work instead of creating it silently", async () =>
   });
   const user = userEvent.setup();
   renderAt("/");
-  await user.type(screen.getByPlaceholderText("Ask Bevro..."), "Every Friday, research new competitors{Enter}");
+  await user.type(screen.getByRole("textbox", { name: "What do you want to get done?" }), "Every Friday, research new competitors{Enter}");
   const card = await screen.findByRole("region", { name: "Repeating work" });
   expect(within(card).getByText("Every Friday · 09:00")).toBeInTheDocument();
   // Nothing was submitted or created until the person agreed.
@@ -60,7 +60,7 @@ test("home can still do it just once", async () => {
   });
   const user = userEvent.setup();
   renderAt("/");
-  await user.type(screen.getByPlaceholderText("Ask Bevro..."), "Check the rota every day{Enter}");
+  await user.type(screen.getByRole("textbox", { name: "What do you want to get done?" }), "Check the rota every day{Enter}");
   await user.click(within(await screen.findByRole("region", { name: "Repeating work" })).getByRole("button", { name: "Just once" }));
   expect(calls.some((c) => c.url === "/api/tasks" && c.method === "POST")).toBe(true);
 });

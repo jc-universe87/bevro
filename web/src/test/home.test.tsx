@@ -12,9 +12,11 @@ test("home shows one obvious place to type and no agent selector", async () => {
       <App />
     </MemoryRouter>,
   );
-  expect(screen.getByRole("heading", { level: 1, name: "What should we get done?" })).toBeInTheDocument();
-  const input = screen.getByPlaceholderText("Ask Bevro...");
+  expect(screen.getByRole("heading", { level: 1, name: "What do you want to get done?" })).toBeInTheDocument();
+  const input = screen.getByRole("textbox", { name: "What do you want to get done?" });
+  expect(input).toHaveAttribute("placeholder", "Say it in your own words…");
   expect(input).toHaveFocus();
+  expect(screen.getByRole("button", { name: "Go" })).toBeInTheDocument();
   expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
 });
 
@@ -40,7 +42,7 @@ test("asking creates a task, shows it working, then shows the outcome and deep l
       <App />
     </MemoryRouter>,
   );
-  await user.type(screen.getByPlaceholderText("Ask Bevro..."), "Allocate participants for the spring conference{Enter}");
+  await user.type(screen.getByRole("textbox", { name: "What do you want to get done?" }), "Allocate participants for the spring conference{Enter}");
 
   // Home checks whether this repeats, then sends the one-off task as always.
   expect(calls.find((c) => c.url === "/api/automations/intent")?.body).toMatchObject({ text: "Allocate participants for the spring conference" });
@@ -66,7 +68,7 @@ test("when nothing can take the request, Home says so and offers Connect and Cre
       <App />
     </MemoryRouter>,
   );
-  await user.type(screen.getByPlaceholderText("Ask Bevro..."), "Write a poem about autumn{Enter}");
+  await user.type(screen.getByRole("textbox", { name: "What do you want to get done?" }), "Write a poem about autumn{Enter}");
   const alert = await screen.findByRole("alert");
   expect(alert).toHaveTextContent("Bevro doesn't have anything connected that can do this yet.");
   const { getByRole } = within(alert);

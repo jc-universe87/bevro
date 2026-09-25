@@ -11,7 +11,7 @@ const view = (over: Partial<DraftView> = {}): DraftView => ({
   choice_needed: false,
   scope_choices: [],
   credentials_label: "None needed",
-  name: "Archivist",
+  name: "Filing Cabinet",
   description: "Searches and organises documents.",
   capabilities: [{ id: "search_documents", title: "Search documents" }],
   mechanism: "local",
@@ -35,7 +35,7 @@ const draft = (over: Partial<ConnectDraft> = {}): ConnectDraft => ({
   id: "d1",
   state: "found",
   target_kind: "local",
-  target_label: "Archivist",
+  target_label: "Filing Cabinet",
   draft: view(),
   error: null,
   test: null,
@@ -51,21 +51,27 @@ function step(over: Partial<ConnectDraft> = {}, local = {}): Step {
 }
 
 test("the primary action follows the first unresolved fact", () => {
-  expect(step().primary).toEqual({ id: "connect", label: "Connect" });
+  expect(step().primary).toEqual({ id: "connect", label: "Add to Bevro" });
 
   const description = step({ draft: view({ needs_description: true, capabilities: [], description: "", confidence: "low" }) });
   expect(description).toMatchObject({ kind: "needs_description", input: "description", primary: { id: "describe", label: "Continue" } });
 
+  // Found, with no way in for Bevro and nowhere the person uses it: setting up is what's left.
   const noInterface = step({ draft: view({ invocable: false, availability: "not_invocable" }) });
-  expect(noInterface.primary).toEqual({ id: "setup", label: "Set up how to use it" });
+  expect(noInterface.primary).toEqual({ id: "setup", label: "Set up direct access" });
+
+  // Found, with its own app: adding it is the result, not a failure.
+  const app = step({ draft: view({ invocable: false, availability: "not_invocable", can_add: true, surfaces: [{ kind: "web_app", role: "use", label: "Web app", sentence: "It has its own web app." }] }) });
+  expect(app.primary).toEqual({ id: "connect", label: "Add to Bevro" });
+  expect(app.secondary).toEqual({ id: "setup", label: "Set up direct access" });
 
   const credential = step({ draft: view({ auth: { required: true, secret_name: "OPENAI_API_KEY", label: "OpenAI credential", hint: null, why: null } }) });
   expect(credential).toMatchObject({ kind: "needs_credential", input: "credential", primary: { id: "add_credential", label: "Add credential" }, secondary: { id: "test", label: "Test" } });
 
-  expect(step({ state: "trust_required", draft: null, trust: { kind: "folder", label: "Archivist", path: "/allowed/archivist" } }).primary).toEqual({ id: "allow", label: "Allow folder" });
-  expect(step({ state: "choice_required", draft: null, choices: [{ label: "archivist", where: "~/agents/archivist" }] }).primary).toEqual({ id: "choose", label: "Choose" });
+  expect(step({ state: "trust_required", draft: null, trust: { kind: "folder", label: "Filing Cabinet", path: "/allowed/filing-cabinet" } }).primary).toEqual({ id: "allow", label: "Allow folder" });
+  expect(step({ state: "choice_required", draft: null, choices: [{ label: "filing-cabinet", where: "~/projects/filing-cabinet" }] }).primary).toEqual({ id: "choose", label: "Choose" });
   expect(step({ state: "failed", draft: null, problem: "worker", error: "The worker did not answer." }).primary).toEqual({ id: "retry", label: "Try again" });
-  expect(step({ already_connected: { id: "p1", name: "Archivist" } }).primary).toEqual({ id: "open", label: "Open in Agents" });
+  expect(step({ already_connected: { id: "p1", name: "Filing Cabinet" } }).primary).toEqual({ id: "open", label: "Go to Filing Cabinet" });
 });
 
 test("a failed granular test replaces a misleading Connect action with recovery", () => {
@@ -77,20 +83,20 @@ test("a failed granular test replaces a misleading Connect action with recovery"
       next: null,
     },
   });
-  expect(result.primary).toEqual({ id: "setup", label: "Set up how to use it" });
+  expect(result.primary).toEqual({ id: "setup", label: "Set it up by hand" });
   expect(result.secondary).toEqual({ id: "test", label: "Try again" });
 });
 
 test("plain credential copy explains an existing scheduled credential without system jargon", () => {
   const result = step({
     draft: view({
-      name: "Moimio Research",
+      name: "Market Watch",
       auth: {
         required: true,
         secret_name: "OPENAI_API_KEY",
         label: "OpenAI credential",
-        hint: "Moimio Research already has a credential for its scheduled runs, but that credential isn't available when Bevro starts a new task.",
-        why: "The credential is handed over only when its scheduled service starts. When Bevro starts a task, it runs Moimio Research separately, so the credential doesn't reach it.",
+        hint: "Market Watch already has a credential for its scheduled runs, but that credential isn't available when Bevro starts a new task.",
+        why: "The credential is handed over only when its scheduled service starts. When Bevro starts a task, it runs Market Watch separately, so the credential doesn't reach it.",
       },
     }),
   });
@@ -119,7 +125,7 @@ describe("every Connect state has one safe way forward", () => {
     ["not found", step({ state: "failed", draft: null, problem: "not_found", error: "Nothing found" })],
     ["unreachable", step({ state: "failed", draft: null, problem: "unreachable", error: "It did not answer" })],
     ["failed", step({ state: "failed", draft: null, problem: "failed", error: "Something went wrong" })],
-    ["already connected", step({ already_connected: { id: "p1", name: "Archivist" } })],
+    ["already connected", step({ already_connected: { id: "p1", name: "Filing Cabinet" } })],
     [
       "two ways",
       step({
@@ -144,6 +150,8 @@ describe("every Connect state has one safe way forward", () => {
     ["bridge failed", step({}, { bridge: { state: "failed", note: "Building didn't work.", provider_id: "p1", task_id: "t1", steps: [] } })],
     ["lost draft", step({ draft: null })],
     ["website only", step({ draft: view({ invocable: false, availability: "not_invocable", needs_description: true, web_ui: { running: true, title: null, routes: ["/api"] } }) })],
+    ["its own app", step({ draft: view({ invocable: false, availability: "not_invocable", can_add: true, surfaces: [{ kind: "web_app", role: "use", label: "Web app", sentence: "It has its own web app." }] }) })],
+    ["described, no app", step({ draft: view({ invocable: false, availability: "not_invocable", can_add: true, described: true }) })],
   ];
 
   test.each(states)("%s", (_name, current) => {
@@ -152,35 +160,48 @@ describe("every Connect state has one safe way forward", () => {
   });
 });
 
-describe("a website is not a way to send work", () => {
+describe("an app with its own website belongs in Bevro", () => {
+  const webApp = { kind: "web_app", role: "use", label: "Web app", sentence: "It has its own web app." };
   const websiteOnly = (over: Partial<DraftView> = {}) =>
-    view({ name: "Notebook", invocable: false, availability: "not_invocable", web_ui: { running: true, title: "Notebook", routes: ["/api"] }, ...over });
+    view({ name: "Notebook", invocable: false, availability: "not_invocable", can_add: true, surfaces: [webApp], web_ui: { running: true, title: "Notebook", routes: ["/api"] }, ...over });
 
-  test("says what was found, and offers setup - before asking what it is for", () => {
+  test("says where it is used, and adds it - before asking what it is for", () => {
     const s = step({ draft: websiteOnly({ needs_description: true, capabilities: [], confidence: "low" }) });
-    expect(s).toMatchObject({ kind: "needs_interface", heading: "Notebook is running on this machine.", primary: { id: "setup", label: "Set up how to use it" } });
-    expect(s.message).toMatch(/only has its own website/);
-    expect(s.help?.answer).toMatch(/hasn't found a safe way for another program to send it work/);
+    expect(s).toMatchObject({ kind: "found_app", heading: "Notebook is available through its own app.", primary: { id: "connect", label: "Add to Bevro" }, secondary: { id: "setup", label: "Set up direct access" } });
+    expect(s.message).toBe("Bevro understands what Notebook does, but can't send it tasks directly yet.");
+    expect(s.help?.question).toBe("Why can't Bevro use it directly?");
     expect(stepProblems(s)).toEqual([]);
+  });
+
+  test("it is not presented as a fault", () => {
+    const s = step({ draft: websiteOnly() });
+    const said = `${s.heading} ${s.message} ${s.primary?.label}`;
+    expect(said).not.toMatch(/not usable|can't be used|no connection|failed|error|only has|almost ready|needs setup/i);
   });
 
   test("normal copy never names the machinery behind it", () => {
     const s = step({ draft: websiteOnly() });
-    const said = `${s.heading} ${s.message} ${s.help?.question} ${s.help?.answer} ${s.primary?.label}`;
-    expect(said).not.toMatch(/fastapi|openapi|nginx|proxy|cookie|session|docker|compose|port|\/api/i);
+    const said = `${s.heading} ${s.message} ${s.help?.question} ${s.help?.answer} ${s.primary?.label} ${s.secondary?.label}`;
+    expect(said).not.toMatch(/fastapi|openapi|nginx|proxy|cookie|session|docker|compose|port|\/api|provider|runtime|endpoint/i);
   });
 
-  test("an address that is only a website says running, not on this machine", () => {
-    expect(step({ draft: websiteOnly({ mechanism: "http" }) }).heading).toBe("Notebook is running.");
+  test("a chat it answers is named as where it is used", () => {
+    const s = step({ draft: websiteOnly({ surfaces: [{ kind: "telegram", role: "use", label: "Telegram", sentence: "You can use it through Telegram." }] }) });
+    expect(s.heading).toBe("Notebook is available through Telegram.");
   });
 
   test("a usable way in wins over the website being there", () => {
     expect(step({ draft: websiteOnly({ invocable: true, availability: "ready" }) }).kind).toBe("found_ready");
   });
 
-  test("a building agent is offered when one could build a connection", () => {
+  test("a building agent is offered as the way to direct access", () => {
     const s = step({ draft: websiteOnly({ needs_bridge: true, bridge_possible: true }) });
-    expect(s.primary).toEqual({ id: "build", label: "Set up how to use it" });
-    expect(s.tertiary).toEqual([{ id: "setup", label: "Set it up by hand" }]);
+    expect(s.primary).toEqual({ id: "connect", label: "Add to Bevro" });
+    expect(s.secondary).toEqual({ id: "build", label: "Set up direct access" });
+  });
+
+  test("with nowhere to use it and nothing said about it, it asks what it is for", () => {
+    const s = step({ draft: view({ invocable: false, availability: "not_invocable", can_add: false, needs_description: true, capabilities: [], description: "" }) });
+    expect(s.kind).toBe("needs_description");
   });
 });

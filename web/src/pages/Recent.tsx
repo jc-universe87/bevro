@@ -17,7 +17,7 @@ const OPEN = new Set(["created", "queued", "working", "waiting", "needs_input", 
 export const REMOVE_TASK_QUESTION = "Remove this task and its results from Bevro?";
 export const REMOVE_TASK_DETAIL = "This removes the task, what the agent did and anything it produced. The agent itself, and any scheduled work that asked for it, stay.";
 export const CLEAR_HISTORY_QUESTION = "Remove all finished work from Bevro?";
-export const CLEAR_HISTORY_DETAIL = "This clears Recent: every finished task and its results. Your agents, scheduled work and settings stay. Anything still running is left alone.";
+export const CLEAR_HISTORY_DETAIL = "This clears Recent: every finished task and its results. Your apps and agents, scheduled work and settings stay. Anything still running is left alone.";
 
 export default function Recent() {
   const [tasks, setTasks] = useState<Task[] | null>(null);
@@ -95,7 +95,7 @@ export default function Recent() {
       {error && <p role="alert">{error}</p>}
 
       {clearing ? (
-        <section aria-label="Clear history" className="mb-4 rounded-md border border-line p-4">
+        <section aria-label="Clear history" className="mb-4 bv-panel">
           <p className="font-medium">{CLEAR_HISTORY_QUESTION}</p>
           <p className="bv-hint mt-1">{CLEAR_HISTORY_DETAIL}</p>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -127,7 +127,7 @@ export default function Recent() {
         </p>
       )}
 
-      <ul className="divide-y divide-line border-t border-b border-line" aria-label="Recent work">
+      <ul className="bv-divide" aria-label="Recent work">
         {visible.map((t) => (
           <li key={t.id}>
             <Link to={`/tasks/${t.id}`} className="block pt-3 -mx-2 px-2 rounded-md hover:bg-sunken">

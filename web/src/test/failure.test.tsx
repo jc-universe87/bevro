@@ -8,8 +8,8 @@ const providerRef = { id: "p9", slug: "market-research", name: "Market Research"
 const failedRun = {
   id: "run-1", provider: providerRef, state: "failed", result_summary: null, error_summary: "Market Research needs a credential before it can run.",
   failure: {
-    category: "credential_required", title: "Credential required", message: "Market Research needs an OpenAI credential before it can run.",
-    actions: [{ kind: "add_credential", label: "Add credential", secret_name: "OPENAI_API_KEY", secret_label: "OpenAI credential" }, { kind: "retry", label: "Retry", secret_name: null, secret_label: null }],
+    category: "credential_required", title: "Needs a credential", message: "Market Research needs an OpenAI credential before it can run.",
+    actions: [{ kind: "add_credential", label: "Add credential", secret_name: "OPENAI_API_KEY", secret_label: "OpenAI credential" }, { kind: "retry", label: "Try again", secret_name: null, secret_label: null }],
   },
   recovered: false, phase: null, steps: ["Running Market Research"], workspace: null, permissions: [], started_at: "2026-09-21T21:17:04Z", completed_at: "2026-09-21T21:17:08Z",
 };
@@ -23,7 +23,7 @@ function renderAt(path: string) {
   );
 }
 
-test("a failed task explains itself, offers Add credential and Retry, and hides internals behind Details", async () => {
+test("a failed task explains itself, offers Add credential and Try again, and hides internals behind Details", async () => {
   const failed = task({ id: "t5", state: "failed", summary: "Market Research stopped with an error.", provider: providerRef, runs: [failedRun] });
   let retried = false;
   const calls = mockApi({
@@ -34,49 +34,56 @@ test("a failed task explains itself, offers Add credential and Retry, and hides 
   const user = userEvent.setup();
   renderAt("/tasks/t5");
   const card = await screen.findByRole("region", { name: "What went wrong" });
-  expect(within(card).getByRole("heading", { name: "Credential required" })).toBeInTheDocument();
+  expect(within(card).getByRole("heading", { name: "Needs a credential" })).toBeInTheDocument();
   expect(within(card).getByText("Market Research needs an OpenAI credential before it can run.")).toBeInTheDocument();
-  expect(within(card).getByRole("link", { name: "Add credential" })).toHaveAttribute("href", "/agents?manage=p9&credential=1");
-  expect(within(card).getByRole("link", { name: "Manage provider" })).toHaveAttribute("href", "/agents?manage=p9");
+  expect(within(card).getByRole("link", { name: "Add credential" })).toHaveAttribute("href", "/apps/p9?credential=1");
+  expect(within(card).getByRole("link", { name: "Go to Market Research" })).toHaveAttribute("href", "/apps/p9");
   expect(screen.queryByText("Market Research stopped with an error.")).not.toBeInTheDocument();
   expect(document.body.textContent).not.toMatch(/Traceback|argv|exit_code|\/home\//);
 
   await user.click(within(card).getByText("Details"));
   expect(within(card).getByText("run-1")).toBeInTheDocument();
-  expect(within(card).getByText("Credential required", { selector: "dd" })).toBeInTheDocument();
+  expect(within(card).getByText("Done by", { selector: "dt" })).toBeInTheDocument();
+  expect(within(card).getByText("Market Research", { selector: "dd" })).toBeInTheDocument();
+  expect(within(card).getByText("Needs a credential", { selector: "dd" })).toBeInTheDocument();
 
-  await user.click(within(card).getByRole("button", { name: "Retry" }));
+  await user.click(within(card).getByRole("button", { name: "Try again" }));
   expect(calls.some((c) => c.method === "POST" && c.url === "/api/tasks/t5/retry")).toBe(true);
   expect(await screen.findByText("Queued")).toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "What went wrong" })).not.toBeInTheDocument();
 });
 
 test("a provider that has its own credential is not asked for one", async () => {
-  mockApi({ "GET /api/providers": [{ ...provider, credentials: [{ name: "OPENAI_API_KEY", label: "OpenAI credential", present: true, source: "host", status: "From this machine" }] }] });
-  renderAt("/agents?manage=p9");
-  const panel = await screen.findByLabelText("Manage Market Research");
-  expect(within(panel).getByText("OpenAI credential · From this machine")).toBeInTheDocument();
-  expect(within(panel).queryByLabelText("OpenAI credential")).not.toBeInTheDocument();
+  mockApi({ "GET /api/providers/p9": { ...provider, credentials: [{ name: "OPENAI_API_KEY", label: "OpenAI credential", present: true, source: "host", status: "From this machine" }] } });
+  renderAt("/apps/p9");
+  const care = await screen.findByRole("region", { name: "Settings" });
+  expect(within(care).getByText("OpenAI credential · From this machine")).toBeInTheDocument();
+  expect(screen.queryByLabelText("OpenAI credential")).not.toBeInTheDocument();
   expect(screen.queryByText(/Needs openai credential/)).not.toBeInTheDocument();
+  expect(screen.queryByText("Needs a credential")).not.toBeInTheDocument();
 });
 
-test("Add credential opens Manage with the field ready; saving never echoes the value", async () => {
+test("Add credential opens its page with the field ready; saving never echoes the value", async () => {
+  const needsKey = { ...provider, direct: { state: "needs_credential", note: "Bevro needs a credential before it can send it work." } };
   const calls = mockApi({
-    "GET /api/providers": [provider],
-    "PUT /api/providers/p9/secrets/OPENAI_API_KEY": { ...provider, secret_names: ["OPENAI_API_KEY"], credentials: [{ name: "OPENAI_API_KEY", label: "OpenAI credential", present: true }] },
+    "GET /api/providers/p9": needsKey,
+    "PUT /api/providers/p9/secrets/OPENAI_API_KEY": { ...provider, direct: { state: "ready", note: "Bevro can send it work." }, secret_names: ["OPENAI_API_KEY"], credentials: [{ name: "OPENAI_API_KEY", label: "OpenAI credential", present: true }] },
   });
   const user = userEvent.setup();
-  renderAt("/agents?manage=p9&credential=1");
-  const panel = await screen.findByLabelText("Manage Market Research");
-  expect(within(panel).getByText("OpenAI credential · Missing")).toBeInTheDocument();
-  const field = within(panel).getByLabelText("OpenAI credential");
+  renderAt("/apps/p9?credential=1");
+  const direct = await screen.findByRole("region", { name: "Direct Bevro access" });
+  expect(within(direct).getByText("OpenAI credential · Missing")).toBeInTheDocument();
+  const field = within(direct).getByLabelText("OpenAI credential");
+  expect(field).toHaveFocus();
   expect(field).toHaveAttribute("type", "password");
   await user.type(field, "sk-live-secret");
-  await user.click(within(panel).getByRole("button", { name: "Save" }));
+  await user.click(within(direct).getByRole("button", { name: "Save" }));
   expect(calls.find((c) => c.method === "PUT")?.body).toEqual({ value: "sk-live-secret" });
-  expect(await within(panel).findByText("OpenAI credential · Added")).toBeInTheDocument();
-  expect(within(panel).queryByDisplayValue("sk-live-secret")).not.toBeInTheDocument();
-  expect(panel.textContent).not.toContain("sk-live-secret");
+  const care = screen.getByRole("region", { name: "Settings" });
+  expect(await within(care).findByText("OpenAI credential · Added")).toBeInTheDocument();
+  expect(await screen.findByText("Bevro can send it work.")).toBeInTheDocument();
+  expect(screen.queryByDisplayValue("sk-live-secret")).not.toBeInTheDocument();
+  expect(document.body.textContent).not.toContain("sk-live-secret");
 });
 
 test("a run that needed a second connection says so quietly, with no mechanism", async () => {
@@ -92,19 +99,23 @@ test("a run that needed a second connection says so quietly, with no mechanism",
   expect(document.body.textContent).not.toMatch(/HTTP|CLI|runtime|fallback|attempt/i);
 });
 
-test("Manage says which way in is used, and leaves the fallbacks to Advanced", async () => {
+test("its page tests every way in, and says which one is used only under Advanced details", async () => {
+  const running = { ...provider, credentials: [], runtime: { display_name: "Already running on this machine", availability: "ready", credentials_label: "Managed by provider", runtimes_found: 2, alternatives: 1, health: "available", built: false, review: null, abilities: {} } };
   mockApi({
-    "GET /api/providers": [{ ...provider, credentials: [], runtime: { display_name: "Already running on this machine", availability: "ready", credentials_label: "Managed by provider", runtimes_found: 2, alternatives: 1, health: "available", built: false, review: null, abilities: {} } }],
-    "POST /api/providers/p9/check": { ok: true, detail: "Already running on this machine. All 2 ways work." },
+    "GET /api/providers/p9": running,
+    "GET /api/providers/p9/details": { id: "p9", active_runtime: null, runtimes: [], source_kind: null },
+    "POST /api/providers/p9/check": { ok: true, detail: "Already running on this machine. All 2 ways work.", checks: [] },
   });
   const user = userEvent.setup();
-  renderAt("/agents?manage=p9");
-  const panel = await screen.findByLabelText("Manage Market Research");
-  expect(within(panel).getByText("Runs via")).toBeInTheDocument();
-  expect(within(panel).getByText("Already running on this machine")).toBeInTheDocument();
+  renderAt("/apps/p9");
+  const care = await screen.findByRole("region", { name: "Settings" });
   // Fallback machinery is not what someone came to this page for.
-  expect(panel.textContent).not.toMatch(/Preferred|Alternatives|1 available/);
-  await user.click(within(panel).getByRole("button", { name: "Test all connections" }));
-  expect(await within(panel).findByText(/All 2 ways work/)).toBeInTheDocument();
-  expect(panel.textContent).not.toMatch(/http|stdio|argv|adapter/i);
+  expect(document.body.textContent).not.toMatch(/Preferred|Alternatives|1 available|Runs via/);
+  await user.click(within(care).getByRole("button", { name: "Test all connections" }));
+  expect(await within(care).findByText(/All 2 ways work/)).toBeInTheDocument();
+  expect(document.body.textContent).not.toMatch(/http|stdio|argv|adapter/i);
+
+  await user.click(within(care).getByText("Advanced details"));
+  expect(await within(care).findByText("Runs via")).toBeInTheDocument();
+  expect(within(care).getByText("Already running on this machine")).toBeInTheDocument();
 });

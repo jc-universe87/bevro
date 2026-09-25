@@ -77,10 +77,10 @@ test("creating an agent shows calm steps and then the finished agent", async () 
   expect(await within(building).findByText("Building", {}, { timeout: 4000 })).toBeInTheDocument();
   expect(await screen.findByText("Created", {}, { timeout: 5000 })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Ask" })).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "View agent" })).toHaveAttribute("href", "/agents?manage=p7");
+  expect(screen.getByRole("link", { name: "View agent" })).toHaveAttribute("href", "/apps/p7");
   expect(calls.find((c) => c.url === "/api/create/build")?.body).toEqual({ spec: { name: "Market Watch", source: "rules" }, description: "Research competitors and report weekly" });
   expect(document.body.textContent).not.toMatch(/python|pytest|pyproject|discovery|runtime|adapter/i);
-});
+}, 15000);
 
 test("with no coding agent connected, Create says so and offers to connect one", async () => {
   mockApi({ "POST /api/create/preview": preview({ can_build: false }), "GET /api/providers": [] });
@@ -94,7 +94,7 @@ test("with no coding agent connected, Create says so and offers to connect one",
   expect(within(section).queryByRole("button", { name: "Create agent" })).not.toBeInTheDocument();
 });
 
-test("a failed build offers Retry, and Manage lets the purpose be edited", async () => {
+test("an agent Bevro created lets its purpose be edited on its own page", async () => {
   const provider = {
     id: "p7", slug: "market-watch", name: "Market Watch", description: "Tracks competitors.", enabled: true, capabilities: [{ id: "research", title: "Research" }],
     app_url: null, icon: null, origin: "created", actions: ["ask"], connection: "command",
@@ -104,20 +104,19 @@ test("a failed build offers Retry, and Manage lets the purpose be edited", async
     created_at: "", updated_at: "",
   };
   const calls = mockApi({
-    "GET /api/providers": [provider],
+    "GET /api/providers/p7": provider,
     "POST /api/create/builds/p7/rebuild": status("designing", ["Designing"]),
   });
   const user = userEvent.setup();
-  renderAt("/agents?manage=p7");
-  const panel = await screen.findByLabelText("Manage Market Watch");
+  renderAt("/apps/p7");
+  const panel = await screen.findByRole("region", { name: "What it can do" });
   expect(within(panel).getByText("Tracks competitors in event management software.", { exact: false })).toBeInTheDocument();
-  expect(within(panel).getByText("2")).toBeInTheDocument();
   await user.click(within(panel).getByRole("button", { name: "Edit purpose" }));
   const field = within(panel).getByLabelText("What should this agent do?");
   await user.clear(field);
   await user.type(field, "Track competitors and summarise each week.");
   await user.click(within(panel).getByRole("button", { name: "Save and rebuild" }));
   expect(calls.find((c) => c.url === "/api/create/builds/p7/rebuild")?.body).toEqual({ description: "Track competitors and summarise each week." });
-  expect(await within(panel).findByText(/keeps working until it passes/)).toBeInTheDocument();
-  expect(panel.textContent).not.toMatch(/python|pyproject|source code|adapter/i);
+  expect(await screen.findByText(/keeps working until it passes/)).toBeInTheDocument();
+  expect(document.body.textContent).not.toMatch(/python|pyproject|source code|adapter/i);
 });

@@ -5,18 +5,20 @@ import CommandLauncher from "./CommandLauncher";
 import Icon, { type IconName } from "./Icon";
 import Logo from "./Logo";
 
-export const NAV: { to: string; label: string; icon: IconName; end?: boolean }[] = [
+/** `short` is what fits under an icon on a phone; screen readers get the full label. */
+export const NAV: { to: string; label: string; short?: string; icon: IconName; end?: boolean }[] = [
   { to: "/", label: "Home", icon: "home", end: true },
   { to: "/recent", label: "Recent", icon: "recent" },
   { to: "/scheduled", label: "Scheduled", icon: "schedule" },
-  { to: "/agents", label: "Agents", icon: "agents" },
+  { to: "/apps", label: "Apps & agents", short: "Apps", icon: "apps" },
   { to: "/create", label: "Create", icon: "create" },
   { to: "/connect", label: "Connect", icon: "connect" },
   { to: "/settings", label: "Settings", icon: "settings" },
 ];
 
-const PRIMARY_MOBILE = NAV.slice(0, 3);
-const MORE_MOBILE = NAV.slice(3);
+// On a phone: the places people go every day, then More.
+const PRIMARY_MOBILE = [NAV[0], NAV[3], NAV[1]];
+const MORE_MOBILE = NAV.filter((n) => !PRIMARY_MOBILE.includes(n));
 
 /** How often Bevro looks for anything new to tell you. Quiet and cheap. */
 const UNREAD_POLL_MS = 30_000;
@@ -59,8 +61,8 @@ function NotificationsButton({ unread, className = "" }: { unread: number; class
 
 function navClass(isActive: boolean) {
   return [
-    "flex items-center gap-3 rounded-md px-3 py-2 text-sm min-h-[40px]",
-    isActive ? "bg-sunken text-ink font-medium" : "text-muted hover:text-ink hover:bg-sunken",
+    "relative flex items-center gap-3 rounded-md px-3 py-2 text-sm min-h-[44px] md:min-h-[40px] transition-colors",
+    isActive ? "bg-[var(--bv-raised)] text-ink font-medium" : "text-muted hover:text-ink hover:bg-[var(--bv-raised)]",
   ].join(" ");
 }
 
@@ -82,15 +84,16 @@ export default function Shell() {
   }, []);
 
   useEffect(() => setMoreOpen(false), [location.pathname]);
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMoreOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [moreOpen]);
 
   const isActivePath = (to: string, end?: boolean) =>
     end ? location.pathname === to : location.pathname.startsWith(to);
   const moreActive = MORE_MOBILE.some((n) => isActivePath(n.to));
-  const pageTitle = location.pathname.startsWith("/tasks/")
-    ? "Recent"
-    : location.pathname.startsWith("/notifications")
-      ? "Notifications"
-      : NAV.find((n) => isActivePath(n.to, n.end))?.label ?? "Bevro";
 
   return (
     <div className="min-h-screen md:flex">
@@ -99,15 +102,20 @@ export default function Shell() {
       </a>
 
       {/* Desktop / tablet sidebar */}
-      <aside className="hidden md:flex md:w-56 lg:w-60 shrink-0 flex-col border-r border-line bg-bg sticky top-0 h-screen">
+      <aside className="hidden md:flex md:w-56 lg:w-60 shrink-0 flex-col border-r bv-sep bg-bg sticky top-0 h-screen">
         <NavLink to="/" className="inline-block rounded-md m-2" aria-label="Bevro home">
           <Logo variant="lockup" height={50} />
         </NavLink>
         <nav aria-label="Main" className="flex flex-col gap-0.5 px-3 mt-2">
           {NAV.map((item) => (
             <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => navClass(isActive)}>
-              <Icon name={item.icon} />
-              {item.label}
+              {({ isActive }) => (
+                <>
+                  {isActive && <span aria-hidden="true" className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-accent" />}
+                  <Icon name={item.icon} />
+                  {item.label}
+                </>
+              )}
             </NavLink>
           ))}
         </nav>
@@ -124,12 +132,11 @@ export default function Shell() {
       </aside>
 
       {/* Mobile top bar */}
-      <header className="md:hidden sticky top-0 z-20 flex items-center justify-between border-b border-line bg-bg px-2 h-14">
+      <header className="md:hidden sticky top-0 z-20 flex items-center justify-between border-b bv-sep bg-bg px-2 h-14">
         <div className="flex items-center gap-2 min-w-0">
-          <NavLink to="/" className="rounded-md" aria-label="Bevro home">
+          <NavLink to="/" className="rounded-md p-1" aria-label="Bevro home">
             <Logo variant="mark" height={28} />
           </NavLink>
-          <span className="text-sm font-medium truncate">{pageTitle}</span>
         </div>
         <div className="flex items-center gap-1">
           <NavLink
@@ -151,11 +158,11 @@ export default function Shell() {
       </main>
 
       {/* Mobile bottom navigation */}
-      <nav aria-label="Main" className="md:hidden fixed bottom-0 inset-x-0 z-20 border-t border-line bg-bg">
+      <nav aria-label="Main" className="md:hidden fixed bottom-0 inset-x-0 z-20 border-t bv-sep bg-bg">
         {moreOpen && (
-          <div className="border-b border-line px-2 py-2 grid grid-cols-3 gap-1">
+          <div id="more-nav" className="border-b bv-sep px-2 py-2 grid grid-cols-2 gap-1">
             {MORE_MOBILE.map((item) => (
-              <NavLink key={item.to} to={item.to} className={({ isActive }) => navClass(isActive) + " justify-center"}>
+              <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => navClass(isActive)}>
                 <Icon name={item.icon} />
                 {item.label}
               </NavLink>
@@ -168,18 +175,20 @@ export default function Shell() {
               key={item.to}
               to={item.to}
               end={item.end}
+              aria-label={item.short ? item.label : undefined}
               className={({ isActive }) =>
                 `flex flex-col items-center justify-center gap-1 text-xs ${isActive ? "text-ink font-medium" : "text-muted"}`
               }
             >
               <Icon name={item.icon} size={22} />
-              {item.label}
+              <span aria-hidden={item.short ? true : undefined}>{item.short ?? item.label}</span>
             </NavLink>
           ))}
           <button
             type="button"
             onClick={() => setMoreOpen((v) => !v)}
             aria-expanded={moreOpen}
+            aria-controls="more-nav"
             className={`flex flex-col items-center justify-center gap-1 text-xs ${moreActive ? "text-ink font-medium" : "text-muted"}`}
           >
             <Icon name="more" size={22} />

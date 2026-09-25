@@ -1,13 +1,46 @@
-/* Bevro application styles. Colour only ever comes from the token sheet. */
+/* Bevro application styles. Colour only ever comes from the token sheet:
+   the few tokens added here are mixed from its palette, never new colours. */
 @import "./bevro-tokens.css";
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* Derived tokens. Surfaces are told apart by luminance and space, not lines:
+   a raised surface is the page's own surface lifted slightly towards the
+   text colour, and a separator is the border colour, softened. */
+:root {
+  --bv-raised: color-mix(in srgb, var(--bv-surface) 96%, var(--bv-text));
+  --bv-raised-hover: color-mix(in srgb, var(--bv-surface) 91%, var(--bv-text));
+  --bv-line-soft: color-mix(in srgb, var(--bv-border) 70%, transparent);
+  /* Interactive emphasis is mauve; strong brand emphasis is burgundy; gold
+     marks the rare thing that needs the person, and nothing else. */
+  --bv-attention: var(--bv-gold);
+  --bv-positive: var(--bv-mauve);
+  --bv-danger-text: var(--bv-burgundy);
+  --bv-danger-subtle: color-mix(in srgb, var(--bv-burgundy) 10%, transparent);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bv-raised: color-mix(in srgb, var(--bv-surface) 94%, var(--bv-text));
+    --bv-raised-hover: color-mix(in srgb, var(--bv-surface) 88%, var(--bv-text));
+    --bv-positive: var(--bv-mauve-soft);
+    --bv-danger-text: var(--bv-mauve-soft);
+    --bv-danger-subtle: color-mix(in srgb, var(--bv-burgundy) 28%, transparent);
+  }
+}
+:root[data-theme="dark"] {
+  --bv-raised: color-mix(in srgb, var(--bv-surface) 94%, var(--bv-text));
+  --bv-raised-hover: color-mix(in srgb, var(--bv-surface) 88%, var(--bv-text));
+  --bv-positive: var(--bv-mauve-soft);
+  --bv-danger-text: var(--bv-mauve-soft);
+  --bv-danger-subtle: color-mix(in srgb, var(--bv-burgundy) 28%, transparent);
+}
+
 @layer base {
   html {
     color-scheme: light;
+    -webkit-text-size-adjust: 100%;
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
@@ -22,6 +55,13 @@
     font-family: var(--bv-family-sans);
     font-size: var(--bv-size-base);
     line-height: var(--bv-leading-normal);
+    text-rendering: optimizeLegibility;
+  }
+  h1, h2, h3 {
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
   }
   /* Visible keyboard focus everywhere, from the focus token. */
   :focus-visible {
@@ -36,24 +76,86 @@
     *, *::before, *::after {
       animation-duration: 0.001ms !important;
       transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
     }
   }
 }
 
 @layer components {
+  /* ---- type: three levels do the work borders used to do ---- */
+  /* The page's own name. */
+  .bv-title {
+    @apply text-2xl font-semibold tracking-tight text-ink;
+  }
+  /* One part of a page. */
+  .bv-heading {
+    @apply text-lg font-semibold tracking-tight text-ink;
+  }
+  /* A group inside a part: quieter, still a heading. */
+  .bv-subheading {
+    @apply text-sm font-semibold text-ink;
+  }
+  /* What something is about, in a sentence. Never shouted. */
+  .bv-lead {
+    @apply text-base text-muted max-w-prose;
+  }
+  .bv-meta {
+    @apply text-sm text-subtle;
+  }
+
+  /* ---- surfaces ---- */
+  /* A quiet area that belongs together. Luminance, not a frame. */
+  .bv-panel {
+    @apply rounded-lg p-4 sm:p-5;
+    background: var(--bv-raised);
+  }
+  .bv-sep {
+    border-color: var(--bv-line-soft);
+  }
+  /* A list whose items are set apart by a soft line between them. */
+  .bv-divide > * + * {
+    border-top: 1px solid var(--bv-line-soft);
+  }
+
+  /* ---- controls ---- */
   .bv-input {
     @apply w-full bg-surface text-ink placeholder:text-subtle border border-line rounded-md px-3 py-2 text-base;
     @apply hover:border-line-strong focus:border-line-strong focus-visible:outline-focus;
   }
   .bv-btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium min-h-[40px];
-    @apply border border-line bg-surface text-ink hover:border-line-strong disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3.5 py-2 text-sm font-medium min-h-[44px] sm:min-h-[40px] transition-colors;
+    @apply text-ink disabled:opacity-50 disabled:cursor-not-allowed;
+    background: var(--bv-raised);
+    border: 1px solid var(--bv-line-soft);
+  }
+  .bv-btn:hover:not(:disabled) {
+    background: var(--bv-raised-hover);
   }
   .bv-btn-primary {
-    @apply bv-btn border-transparent bg-accent text-accent-fg hover:bg-accent-hover hover:border-transparent;
+    @apply bv-btn text-accent-fg;
+    background: var(--bv-accent);
+    border-color: transparent;
+  }
+  .bv-btn-primary:hover:not(:disabled) {
+    background: var(--bv-accent-hover);
   }
   .bv-btn-quiet {
-    @apply bv-btn border-transparent bg-transparent text-muted hover:text-ink hover:bg-sunken hover:border-transparent;
+    @apply bv-btn text-muted hover:text-ink;
+    background: transparent;
+    border-color: transparent;
+  }
+  .bv-btn-quiet:hover:not(:disabled) {
+    background: var(--bv-raised);
+  }
+  /* Takes something away. Kept apart from the rest, and never the loudest thing. */
+  .bv-btn-danger {
+    @apply bv-btn;
+    background: transparent;
+    color: var(--bv-danger-text);
+    border-color: transparent;
+  }
+  .bv-btn-danger:hover:not(:disabled) {
+    background: var(--bv-danger-subtle);
   }
   .bv-link {
     @apply text-accent hover:text-accent-hover underline-offset-2 hover:underline;
@@ -64,15 +166,36 @@
   .bv-hint {
     @apply text-sm text-muted;
   }
+
+  /* ---- status: a shape and words, never colour alone ---- */
+  .bv-status {
+    @apply inline-flex items-center gap-1.5 text-sm text-muted;
+  }
+  .bv-dot {
+    @apply inline-block h-2 w-2 shrink-0 rounded-full;
+    background: var(--bv-positive);
+  }
+  /* Something the person should look at: filled gold, the one place gold is used. */
+  .bv-dot-attention {
+    @apply rounded-sm;
+    background: var(--bv-attention);
+  }
+  /* Neither good nor bad: an outline. */
+  .bv-dot-neutral {
+    background: transparent;
+    box-shadow: inset 0 0 0 1.5px var(--bv-border-strong);
+  }
+
   /* "Why?": small, optional, never louder than the action it explains. */
   .bv-help {
-    @apply inline-flex items-center gap-1.5 py-1 text-sm text-muted hover:text-ink;
+    @apply inline-flex items-center gap-1.5 py-1 text-sm text-muted hover:text-ink min-h-[32px];
   }
   .bv-help-mark {
     @apply inline-flex h-4 w-4 items-center justify-center rounded-full border border-line-strong text-[11px] leading-none;
   }
   .bv-row {
-    @apply flex items-start gap-4 py-3 border-b border-line last:border-b-0;
+    @apply flex items-start gap-4 py-3 border-b last:border-b-0;
+    border-color: var(--bv-line-soft);
   }
   .bv-kbd {
     @apply inline-block rounded-sm border border-line px-1.5 text-xs text-muted leading-5;

@@ -9,9 +9,9 @@ import { REMOVE_TASK_DETAIL, REMOVE_TASK_QUESTION } from "./Recent";
 
 /** Where a failure's actions lead. add_credential opens Manage for that provider with the field ready. */
 function actionTarget(kind: string, providerId: string): string {
-  if (kind === "add_credential") return `/agents?manage=${providerId}&credential=1`;
-  if (kind === "test_connection") return `/agents?manage=${providerId}&test=1`;
-  return `/agents?manage=${providerId}`;
+  if (kind === "add_credential") return `/apps/${providerId}?credential=1`;
+  if (kind === "test_connection") return `/apps/${providerId}?test=1`;
+  return `/apps/${providerId}`;
 }
 
 // Quick work deserves a quick answer; a coding run that takes ten minutes does
@@ -184,7 +184,7 @@ export default function TaskPage() {
       </nav>
 
       <section aria-label="Request" className="mb-8">
-        <p className="text-lg md:text-xl leading-snug">{task.original_request}</p>
+        <h1 className="text-lg md:text-xl leading-snug font-normal">{task.original_request}</h1>
         <p className="bv-hint mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
           {task.provider && (
             <span>
@@ -210,7 +210,7 @@ export default function TaskPage() {
       </section>
 
       {waitingForYou && task.input_request && (
-        <section aria-label="Question" className="border-t border-line pt-6">
+        <section aria-label="Question" className="border-t bv-sep pt-6">
           <p className="text-base md:text-lg">{task.input_request.question}</p>
           {task.input_request.kind === "text" ? (
             <form
@@ -241,7 +241,7 @@ export default function TaskPage() {
       )}
 
       {showSteps && (
-        <section aria-label="Progress" className="border-t border-line pt-6">
+        <section aria-label="Progress" className="border-t bv-sep pt-6">
           <ol className="space-y-1 text-sm">
             {steps.map((step, i) => (
               <li key={i} className={i === steps.length - 1 ? "text-ink" : "text-muted"}>
@@ -253,14 +253,14 @@ export default function TaskPage() {
       )}
 
       {failure && run && (
-        <section aria-label="What went wrong" className="border-t border-line pt-6">
-          <h2 className="font-medium">{failure.title}</h2>
+        <section aria-label="What went wrong" className="border-t bv-sep pt-6">
+          <h2 className="bv-subheading text-base">{failure.title}</h2>
           <p className="mt-1 text-base md:text-lg text-muted">{failure.message}</p>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             {failure.actions.map((a, i) =>
               a.kind === "retry" ? (
                 <button key={a.kind} type="button" onClick={retry} disabled={retrying} className={i === 0 ? "bv-btn-primary" : "bv-btn"}>
-                  {retrying ? "Retrying…" : a.label}
+                  {retrying ? "Trying again…" : a.label}
                 </button>
               ) : run.provider.id ? (
                 <Link key={a.kind} to={actionTarget(a.kind, run.provider.id)} className={i === 0 ? "bv-btn-primary" : "bv-btn"}>
@@ -270,7 +270,7 @@ export default function TaskPage() {
             )}
             {run.provider.id && !failure.actions.some((a) => a.kind === "manage") && (
               <Link to={actionTarget("manage", run.provider.id)} className="bv-btn-quiet">
-                Manage provider
+                Go to {run.provider.name}
               </Link>
             )}
             {retryError && (
@@ -291,7 +291,7 @@ export default function TaskPage() {
           <details className="mt-5 text-sm">
             <summary className="cursor-pointer text-muted hover:text-ink">Details</summary>
             <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-muted">
-              <dt>Provider</dt>
+              <dt>Done by</dt>
               <dd>{run.provider.name}</dd>
               <dt>Failure</dt>
               <dd>{failure.title}</dd>
@@ -311,7 +311,7 @@ export default function TaskPage() {
       )}
 
       {hasOutcome && (
-        <section aria-label="Outcome" className="border-t border-line pt-6">
+        <section aria-label="Outcome" className="border-t bv-sep pt-6">
           {task.summary && <p className={`text-base md:text-lg ${failed ? "text-muted" : ""}`}>{task.summary}</p>}
           {run?.recovered && <p className="bv-hint mt-1">Recovered using another connection.</p>}
           {task.artifacts.length > 0 && (
@@ -327,13 +327,13 @@ export default function TaskPage() {
       )}
 
       {!hasOutcome && active && !waitingForYou && !showSteps && (
-        <p className="bv-hint border-t border-line pt-6">
+        <p className="bv-hint border-t bv-sep pt-6">
           {task.state === "queued" ? "Waiting for an agent to pick this up." : "Bevro will show the result here as soon as it's ready."}
         </p>
       )}
 
       {task.state === "completed" && (
-        <section aria-label="Next" className="mt-8 border-t border-line pt-6">
+        <section aria-label="Next" className="mt-8 border-t bv-sep pt-6">
           <div className="flex flex-wrap items-center gap-3">
             <button type="button" className="bv-btn" onClick={runAgain} disabled={busy}>
               Run again

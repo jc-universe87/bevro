@@ -234,7 +234,7 @@ export default function Automations() {
           Nothing is scheduled yet. Finish a task and choose <Link to="/recent" className="bv-link">Schedule</Link>, or say when on Home — “every Monday morning”.
         </p>
       )}
-      <ul className="divide-y divide-line border-t border-b border-line empty:hidden" aria-label="Scheduled work">
+      <ul className="bv-divide empty:hidden" aria-label="Scheduled work">
         {(automations ?? []).map((automation) => (
           <Row key={automation.id} automation={automation} channels={channels} onChange={replace} onRemoved={() => drop(automation.id)} />
         ))}

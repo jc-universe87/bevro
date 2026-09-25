@@ -1,9 +1,13 @@
 import type { ReactNode } from "react";
 
-export default function PageHeader({ title, children }: { title: string; children?: ReactNode }) {
+/** A page's name, one light line about it, and at most a couple of quiet actions. */
+export default function PageHeader({ title, lead, children }: { title: string; lead?: ReactNode; children?: ReactNode }) {
   return (
-    <header className="mb-4 md:mb-6 flex flex-wrap items-end justify-between gap-3 empty:hidden">
-      <h1 className="sr-only md:not-sr-only text-xl font-semibold tracking-tight">{title}</h1>
+    <header className="mb-6 md:mb-8 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+      <div className="min-w-0">
+        <h1 className="bv-title">{title}</h1>
+        {lead && <p className="bv-lead mt-1">{lead}</p>}
+      </div>
       {children}
     </header>
   );

@@ -2,7 +2,7 @@
  * open; these are deliberately plain strokes in currentColor. */
 import type { SVGProps } from "react";
 
-export type IconName = "home" | "recent" | "schedule" | "agents" | "create" | "connect" | "settings" | "search" | "more" | "arrow" | "external" | "close" | "check" | "bell";
+export type IconName = "home" | "recent" | "schedule" | "agents" | "apps" | "create" | "connect" | "settings" | "search" | "more" | "arrow" | "external" | "close" | "check" | "bell" | "back";
 
 const PATHS: Record<IconName, JSX.Element> = {
   home: <path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z" />,
@@ -25,6 +25,15 @@ const PATHS: Record<IconName, JSX.Element> = {
       <path d="M15.5 6a3 3 0 0 1 0 5.5M20.5 19a5.5 5.5 0 0 0-4-5.3" />
     </>
   ),
+  apps: (
+    <>
+      <rect x="4" y="4" width="6.5" height="6.5" rx="1.5" />
+      <rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5" />
+      <rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5" />
+      <circle cx="16.75" cy="16.75" r="3.25" />
+    </>
+  ),
+  back: <path d="M15 5l-7 7 7 7" />,
   create: <path d="M12 5v14M5 12h14" />,
   connect: <path d="M9 7 7 9a4 4 0 0 0 5.7 5.7l1-1M15 17l2-2a4 4 0 0 0-5.7-5.7l-1 1M8 16l-3 3M16 8l3-3" />,
   settings: (

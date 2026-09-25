@@ -119,7 +119,7 @@ test("home stays quiet when there is nothing to say", async () => {
   });
   renderAt("/");
 
-  expect(await screen.findByRole("heading", { name: "What should we get done?" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "What do you want to get done?" })).toBeInTheDocument();
   expect(screen.queryByText("Needs your attention")).not.toBeInTheDocument();
 });
 

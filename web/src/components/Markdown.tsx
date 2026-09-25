@@ -28,7 +28,7 @@ export default function Markdown({ text }: { text: string }) {
       i++;
       while (i < lines.length && !lines[i].startsWith("```")) code.push(lines[i++]);
       i++;
-      out.push(<pre key={key++} className="my-2 overflow-x-auto rounded-md border border-line bg-sunken p-3 text-xs leading-relaxed">{code.join("\n")}</pre>);
+      out.push(<pre key={key++} className="my-2 overflow-x-auto rounded-md border bv-sep bg-sunken p-3 text-xs leading-relaxed">{code.join("\n")}</pre>);
       continue;
     }
     const heading = /^(#{1,4})\s+(.*)$/.exec(line);

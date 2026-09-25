@@ -85,9 +85,9 @@ export default function Create() {
 
   return (
     <Page narrow>
-      <PageHeader title="Create" />
+      <PageHeader title="Create" lead={<>Describe something new, and Bevro has it built. To add something you already use, go to <Link to="/connect" className="bv-link">Connect</Link>.</>} />
       <form onSubmit={getPreview}>
-        <label htmlFor="create-description" className="text-lg font-medium block mb-3">
+        <label htmlFor="create-description" className="bv-label">
           What should this agent do?
         </label>
         <textarea
@@ -127,7 +127,7 @@ export default function Create() {
       </form>
 
       {preview && !status && (
-        <section aria-label="Preview" className="mt-8 border-t border-line pt-6">
+        <section aria-label="Preview" className="mt-8 border-t bv-sep pt-6">
           <h2 className="text-xl font-semibold tracking-tight">{preview.name}</h2>
           <p className="mt-1 text-muted">{preview.description}</p>
 
@@ -183,7 +183,7 @@ export default function Create() {
       )}
 
       {status && (
-        <section aria-label="Creating" className="mt-8 border-t border-line pt-6">
+        <section aria-label="Creating" className="mt-8 border-t bv-sep pt-6">
           {status.state === "ready" ? (
             <>
               <p className="flex items-center gap-2 font-medium">
@@ -196,7 +196,7 @@ export default function Create() {
                 <button type="button" className="bv-btn-primary" onClick={() => navigate("/")}>
                   Ask
                 </button>
-                <Link to={`/agents?manage=${status.provider_id}`} className="bv-btn">
+                <Link to={`/apps/${status.provider_id}`} className="bv-btn">
                   View agent
                 </Link>
               </div>
@@ -210,7 +210,7 @@ export default function Create() {
                 <button type="button" className="bv-btn" onClick={retry} disabled={busy}>
                   Retry
                 </button>
-                <Link to={`/agents?manage=${status.provider_id}`} className="bv-link text-sm">
+                <Link to={`/apps/${status.provider_id}`} className="bv-link text-sm">
                   Review details
                 </Link>
               </div>

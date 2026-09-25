@@ -43,7 +43,7 @@ function connect(over: Record<string, unknown> = {}) {
 
 test("a folder on this machine is asked about in plain words, showing where it really is", async () => {
   connect();
-  await userEvent.type(await screen.findByLabelText(/Connect an agent/), "/home/someone/projects/alpha");
+  await userEvent.type(await screen.findByLabelText("What is it called, or where is it?"), "/home/someone/projects/alpha");
   await userEvent.keyboard("{Enter}");
 
   const ask = await screen.findByLabelText("Next step");
@@ -60,7 +60,7 @@ test("a folder on this machine is asked about in plain words, showing where it r
 
 test("saying yes carries straight on, without asking anything else", async () => {
   connect();
-  await userEvent.type(await screen.findByLabelText(/Connect an agent/), "/home/someone/projects/alpha");
+  await userEvent.type(await screen.findByLabelText("What is it called, or where is it?"), "/home/someone/projects/alpha");
   await userEvent.keyboard("{Enter}");
   await screen.findByLabelText("Next step");
 
@@ -141,7 +141,7 @@ test("an address is never asked about: permission is about this machine", async 
       source_description: null,
     },
   });
-  await userEvent.type(await screen.findByLabelText(/Connect an agent/), "http://10.0.0.8:8080");
+  await userEvent.type(await screen.findByLabelText("What is it called, or where is it?"), "http://10.0.0.8:8080");
   await userEvent.keyboard("{Enter}");
 
   expect(await screen.findByLabelText("Found")).toBeInTheDocument();
@@ -233,7 +233,7 @@ test("a credential the installed service already has is explained, not asked for
       <App />
     </MemoryRouter>,
   );
-  await userEvent.type(await screen.findByLabelText(/Connect an agent/), "/home/someone/watcher");
+  await userEvent.type(await screen.findByLabelText("What is it called, or where is it?"), "/home/someone/watcher");
   await userEvent.keyboard("{Enter}");
 
   const found = await screen.findByLabelText("Found");
@@ -258,7 +258,7 @@ test("a credential nothing here has is still asked for", async () => {
       <App />
     </MemoryRouter>,
   );
-  await userEvent.type(await screen.findByLabelText(/Connect an agent/), "/home/someone/watcher");
+  await userEvent.type(await screen.findByLabelText("What is it called, or where is it?"), "/home/someone/watcher");
   await userEvent.keyboard("{Enter}");
 
   const found = await screen.findByLabelText("Found");
