@@ -216,7 +216,7 @@ export default function Settings() {
           About
         </h2>
         <Logo variant="primary" height={72} />
-        <p className="text-sm mt-2">{meta?.tagline ?? "Agents that get things done."}</p>
+        <p className="text-sm mt-2">{meta?.tagline ?? "All your agents and apps in one place."}</p>
         <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-sm mt-3">
           <dt className="text-muted">Version</dt>
           <dd>{meta?.version ?? "—"}</dd>

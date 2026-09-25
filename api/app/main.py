@@ -61,7 +61,7 @@ def create_app() -> FastAPI:
 
     @api.get("/meta", tags=["meta"])
     def meta() -> dict[str, Any]:
-        return {"name": "Bevro", "version": settings.app_version, "tagline": "Agents that get things done.", "routing": routing_status()}
+        return {"name": "Bevro", "version": settings.app_version, "tagline": "All your agents and apps in one place.", "routing": routing_status()}
 
     api.include_router(tasks.router)
     api.include_router(artifacts.router)

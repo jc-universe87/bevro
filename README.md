@@ -11,13 +11,15 @@
 
 # Bevro
 
-**Agents that get things done.**
+**All your agents and apps in one place.**
 
-Bevro is a minimal, self-hostable workspace for getting work done through
-agents, apps, workflows and other providers.
+Bevro is a personal hub for the agents and apps you build and use. Tell it
+what you want to accomplish, and it helps you find the right tool, works with
+it directly when possible, or takes you to the right interface when it isn't.
 
-Ask naturally. Bevro routes the work, tracks what happens, and keeps the
-result.
+An app belongs in Bevro because you use it, not because Bevro can drive it:
+a web app with no interface for programs is listed, described and opened
+like any other ([docs/HUB.md](docs/HUB.md)).
 
 ```
 You
@@ -165,7 +167,8 @@ python -m my_agent                a command
 
 Bevro looks (never touches), shows what it found — name, description,
 capabilities, how it will be reached — asks for a key only if one is needed,
-and connects. The agent appears under **Agents** and is routable at once.
+and connects. It appears under **Apps & agents** and, when Bevro can send it
+work, is routable at once.
 Local projects and commands are inspected and run by the host worker, which
 asks you once - in the browser, about that one folder or program - and
 remembers the answer under **Settings → Access & trust**, where you can take

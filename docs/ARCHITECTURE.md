@@ -61,7 +61,7 @@ See [CONNECT.md](CONNECT.md).
 
 | Layer | Where | Responsibility |
 |---|---|---|
-| UI | `web/` | React + Vite + Tailwind on the supplied Bevro tokens. Home, Recent, Agents, Create, Connect, Settings, Cmd/Ctrl+K. |
+| UI | `web/` | React + Vite + Tailwind on the supplied Bevro tokens. Home, Recent, Scheduled, Apps & agents (one page per item), Create, Connect, Settings, Cmd/Ctrl+K. What an item is, how it is used and whether Bevro can send it work are kept apart ([HUB.md](HUB.md)). |
 | API | `api/app/routers/` | HTTP surface. Serialises only what the browser may see (`schemas/serialise.py`). |
 | Runtime layer | `api/app/services/runtime.py`, `adapters/runtime.py` | ProviderRun talks to RuntimeProfiles here: `eligible_runtimes()` ranks and filters them at execution time, `execute()` attempts them in order (`invoke()` + `collect_artifacts()`) and falls back when a runtime - not the work - was at fault, `check_all_runtimes()` restores health. The only place that goes from a provider to an adapter; nothing else branches on a mechanism. See [RUNTIMES.md](RUNTIMES.md). |
 | Task service | `api/app/services/tasks.py` | `submit()` creates a Task and its first ProviderRun (and asks for a workspace if one is needed); `begin_run()`/`finish_run()` bracket an adapter call; `execute_run()` does both for quick providers. |
@@ -146,7 +146,7 @@ the run tries the provider's next best runtime before giving up; the person
 sees one piece of work either way. A failed
 run carries a *failure kind* (credential required, provider unavailable,
 execution failed, configuration problem) that the task page turns into a
-sentence and actions — Add credential, Retry, Test connection, Manage.
+sentence and actions — Add credential, Try again, Check *name*, Go to *name*.
 **Retry** (`POST /api/tasks/{id}/retry`) reopens the same task with a fresh
 run; it is the one deliberate way out of the terminal `failed` state, and
 only a person takes it.

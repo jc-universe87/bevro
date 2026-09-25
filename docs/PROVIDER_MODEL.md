@@ -53,7 +53,8 @@ sample data and a sample URL; Bevro does not depend on it.
   that exists on paper but cannot run yet).
 - `source` — what Connect was given, so Manage → Reconnect can look again. Server-side only.
 - `adapter.config` — non-secret transport settings. Never put credentials here.
-- `app_url` — if present, the UI offers "Open ↗" and providers can build deep links from it.
+- `app_url` — an address the person gave, or one the provider declares; providers can build deep links from it.
+- `surfaces` — how the person uses it apart from Bevro (its own web app, a chat it answers or posts to, a schedule, a command line), as evidence. A web app carries how its address was published, so the browser can tell whether it can open it. See [HUB.md](HUB.md).
 - `origin` — `example` (shipped), `created` (from Create), `connected` (from Connect).
 
 The browser only ever sees the record without `adapter` (`schemas/providers.py`);

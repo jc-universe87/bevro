@@ -74,11 +74,15 @@ Authentication required
 [ Connect ]  [ Test connection ]
 ```
 
-After Connect: *Connected ✓ — available under Agents. Bevro can now route
-suitable work here.* The agent appears in **Agents** with name, description,
-availability, **Ask**, **Open ↗** when it has an app, and **Manage**
-(pause/resume, test, remove, and a short plain-words summary of how it is
-connected — never the adapter configuration).
+Connect means *add this to my hub*, not *make this callable or fail*. Something
+Bevro can send work to is added as that; something with its own app and
+nothing for programs is added as *available through its own app*, with direct
+access as the quiet alternative ([HUB.md](HUB.md)). Nothing callable is
+invented for it. After adding: *Added to Bevro.* It appears under **Apps &
+agents** with name, purpose, how it is used, one primary action (**Use in
+Bevro**, **Open *name***, **Add credential** …), and its own page: what it
+can do, how you can use it, direct Bevro access, then settings (test, look
+again, pause, remove, and Advanced details - never the adapter configuration).
 
 ## Provider profile and runtime profile
 
@@ -628,13 +632,13 @@ step. The technical reason stays in the server log; the browser sees:
 
 | Category | Wording | Actions |
 |---|---|---|
-| `credential_required` | *X needs an OpenAI credential before it can run.* / *X couldn't use its credential.* | Add credential (opens Manage with the field ready) · Retry |
+| `credential_required` | *X needs an OpenAI credential before it can run.* / *X couldn't use its credential.* | Add credential (opens its page with the field ready) · Try again |
 | `provider_unavailable` | *X isn't available right now.* | Test connection · Retry |
-| `invocation_failed` | *X started but couldn't finish this task.* | Retry · Manage provider |
-| `timed_out` | *X took too long and was stopped.* | Retry · Manage provider |
+| `invocation_failed` | *X started but couldn't finish this task.* | Try again · Go to X |
+| `timed_out` | *X took too long and was stopped.* | Try again · Go to X |
 | `cancelled` | *This task was stopped before it finished.* | Retry |
-| `output_invalid` | *X answered, but Bevro couldn't read the result.* | Retry · Manage provider |
-| `configuration_problem` | *Bevro couldn't start X with its current connection.* | Manage connection |
+| `output_invalid` | *X answered, but Bevro couldn't read the result.* | Try again · Go to X |
+| `configuration_problem` | *Bevro couldn't start X with its current connection.* | Go to X |
 
 Two rules make this honest rather than guessed:
 

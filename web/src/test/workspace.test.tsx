@@ -183,7 +183,7 @@ test("clearing history asks first and says what survives", async () => {
 
 test("settings can clear the workspace's data without touching its agents", async () => {
   const calls = mockApi({
-    "GET /api/meta": { name: "Bevro", version: "0.1.0", tagline: "Agents that get things done.", routing: { mode: "deterministic" } },
+    "GET /api/meta": { name: "Bevro", version: "0.1.0", tagline: "All your agents and apps in one place.", routing: { mode: "deterministic" } },
     "GET /api/workspaces": [],
     "GET /api/notifications/channels": [{ name: "in_app", label: "In Bevro", available: true, offerable: true, external: false, accepts_destination: false, needs_destination: false, note: null }],
     "GET /api/notifications*": { unread: 0, items: [] },
