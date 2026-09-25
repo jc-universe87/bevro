@@ -82,7 +82,8 @@ test("the card shows one short sentence, not the service's own account of its in
 test("its page explains what it does and how it is used, in plain English", async () => {
   renderAt("/apps/p1");
   const can = await screen.findByRole("region", { name: "What it can do" });
-  expect(within(can).getByText(/Reviews applications and opportunities, prepares documents, and reports on statistics\./)).toBeInTheDocument();
+  // The list says what it can do; the same words as a sentence would only repeat it.
+  expect(within(can).queryByText(/Reviews applications and opportunities, prepares documents, and reports on statistics\./)).not.toBeInTheDocument();
   const abilities = within(can).getByRole("list", { name: "Capabilities" });
   expect(within(abilities).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Documents", "Applications"]);
 

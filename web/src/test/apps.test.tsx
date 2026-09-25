@@ -321,3 +321,15 @@ test("an agent Bevro created says which version is in use, and that a new one is
   expect(screen.getByText("Building a new version")).toBeInTheDocument();
   expect(document.querySelector(".bv-dot-attention")).toBeNull(); // progress, not a problem
 });
+
+test("on its page, Add credential appears once and opens the field where direct access is", async () => {
+  mockApi({ "GET /api/providers/p3": briefing });
+  const user = userEvent.setup();
+  renderAt("/apps/p3");
+  await screen.findByRole("heading", { level: 1, name: "Briefing" });
+  const buttons = screen.getAllByRole("button", { name: "Add credential" });
+  expect(buttons).toHaveLength(1);
+  await user.click(buttons[0]);
+  const direct = screen.getByRole("region", { name: "Direct Bevro access" });
+  expect(within(direct).getByLabelText("OpenAI credential")).toHaveFocus();
+});

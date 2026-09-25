@@ -15,7 +15,7 @@ import { here, hubView, type HubAction } from "../lib/hub";
 // the person's apps; it is offered where it is needed (Create), not listed.
 export const isUnusableBuiltIn = (p: Provider) => p.origin === "example" && p.availability?.state === "unavailable" && !p.actions.includes("ask");
 
-export function ActionButton({ action, provider, primary, onAsk, onRetry, onResume, busy }: { action: HubAction; provider: Provider; primary: boolean; onAsk: () => void; onRetry: () => void; onResume?: () => void; busy?: boolean }) {
+export function ActionButton({ action, provider, primary, onAsk, onRetry, onResume, onAddCredential, busy }: { action: HubAction; provider: Provider; primary: boolean; onAsk: () => void; onRetry: () => void; onResume?: () => void; onAddCredential?: () => void; busy?: boolean }) {
   const navigate = useNavigate();
   const cls = primary ? "bv-btn-primary" : "bv-btn-quiet";
   const detail = `/apps/${provider.id}`;
@@ -36,7 +36,7 @@ export function ActionButton({ action, provider, primary, onAsk, onRetry, onResu
       );
     case "add_credential":
       return (
-        <button type="button" className={cls} onClick={() => navigate(`${detail}?credential=1`)}>
+        <button type="button" className={cls} onClick={onAddCredential ?? (() => navigate(`${detail}?credential=1`))}>
           {action.label}
         </button>
       );

@@ -111,7 +111,7 @@ test("its page tests every way in, and says which one is used only under Advance
   const care = await screen.findByRole("region", { name: "Settings" });
   // Fallback machinery is not what someone came to this page for.
   expect(document.body.textContent).not.toMatch(/Preferred|Alternatives|1 available|Runs via/);
-  await user.click(within(care).getByRole("button", { name: "Test all connections" }));
+  await user.click(within(care).getByRole("button", { name: "Test" }));
   expect(await within(care).findByText(/All 2 ways work/)).toBeInTheDocument();
   expect(document.body.textContent).not.toMatch(/http|stdio|argv|adapter/i);
 

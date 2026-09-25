@@ -27,7 +27,7 @@ const CONNECTED_FROM: Record<string, string> = { url: "a web address", mcp: "an 
 
 const CONNECTION_WORDS: Record<string, string> = { api: "API", mcp: "MCP server", command: "Local agent", local: "Local", declared: "Described, not built" };
 
-function CredentialRow({ provider, credential, onChange, autoFocus, prominent = false }: { provider: Provider; credential: Provider["credentials"][number]; onChange: (p: Provider) => void; autoFocus: boolean; prominent?: boolean }) {
+function CredentialRow({ provider, credential, onChange, autoFocus, hideButton = false }: { provider: Provider; credential: Provider["credentials"][number]; onChange: (p: Provider) => void; autoFocus: boolean; hideButton?: boolean }) {
   const [editing, setEditing] = useState(!credential.present && autoFocus);
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -56,8 +56,8 @@ function CredentialRow({ provider, credential, onChange, autoFocus, prominent = 
         <span>
           {credential.label} · {credential.status ?? (credential.present ? "Added" : "Missing")}
         </span>
-        {!editing && (
-          <button type="button" className={prominent ? "bv-btn-primary mt-2 basis-full sm:basis-auto" : "bv-link text-sm"} onClick={() => setEditing(true)}>
+        {!editing && !hideButton && (
+          <button type="button" className="bv-link text-sm" onClick={() => setEditing(true)}>
             {credential.source === "bevro" ? "Update" : credential.present ? "Override" : "Add credential"}
           </button>
         )}
@@ -286,7 +286,7 @@ export default function AppDetail() {
   const [plan, setPlan] = useState<RemovalPlan | null>(null);
   const [editing, setEditing] = useState(false);
   const [purpose, setPurpose] = useState("");
-  const focusCredential = searchParams.get("credential") === "1";
+  const [credentialOpen, setCredentialOpen] = useState(searchParams.get("credential") === "1");
   const autoTest = searchParams.get("test") === "1";
   const testedOnOpen = useRef(false);
 
@@ -320,6 +320,10 @@ export default function AppDetail() {
     }
   };
   const refresh = async () => setProvider(await api.getProvider(id));
+  const addCredential = () => {
+    setCredentialOpen(true);
+    document.getElementById("direct")?.scrollIntoView({ block: "start" });
+  };
   const test = () =>
     run(async () => {
       setTestResult(await api.checkProvider(id));
@@ -411,7 +415,8 @@ export default function AppDetail() {
   const present = (p.credentials ?? []).filter((c) => c.present);
   const others = (p.surfaces ?? []).filter((s) => s.kind !== "web_app");
   const capabilities = p.capabilities.map((c) => c.title ?? c.id);
-  const whatItDoes = p.details?.what_it_does && p.details.what_it_does !== p.description ? p.details.what_it_does : null;
+  // The list says what it can do; a sentence made of the same words would only repeat it.
+  const whatItDoes = p.capabilities.length === 0 && p.details?.what_it_does && p.details.what_it_does !== p.description ? p.details.what_it_does : null;
   const canLookAgain = p.origin === "connected";
 
   return (
@@ -437,11 +442,11 @@ export default function AppDetail() {
       </header>
 
       <div className="mt-5 flex flex-wrap items-center gap-2">
-        <ActionButton action={view.primary} provider={p} primary onAsk={() => setAsking((v) => !v)} onRetry={test} onResume={toggle} busy={busy} />
+        <ActionButton action={view.primary} provider={p} primary onAsk={() => setAsking((v) => !v)} onRetry={test} onResume={toggle} onAddCredential={addCredential} busy={busy} />
         {view.secondary
           .filter((a) => a.id !== "how_to" && a.id !== "how_to_open")
           .map((a) => (
-            <ActionButton key={a.id} action={a} provider={p} primary={false} onAsk={() => setAsking((v) => !v)} onRetry={test} onResume={toggle} busy={busy} />
+            <ActionButton key={a.id} action={a} provider={p} primary={false} onAsk={() => setAsking((v) => !v)} onRetry={test} onResume={toggle} onAddCredential={addCredential} busy={busy} />
           ))}
       </div>
       {asking && <AskForm provider={p} onDone={() => setAsking(false)} />}
@@ -545,7 +550,7 @@ export default function AppDetail() {
             <p>{p.direct?.note ?? "Bevro needs a credential before it can send it work."}</p>
             {missingCreds.length > 0 && (
               <ul className="mt-2" aria-label="Missing credentials">
-                <CredentialRow provider={p} credential={missingCreds[0]} onChange={setProvider} autoFocus={focusCredential} prominent={view.primary.id !== "add_credential" ? false : true} />
+                <CredentialRow key={credentialOpen ? "open" : "closed"} provider={p} credential={missingCreds[0]} onChange={setProvider} autoFocus={credentialOpen} hideButton={view.primary.id === "add_credential"} />
               </ul>
             )}
           </>
@@ -610,7 +615,7 @@ export default function AppDetail() {
         <div className="mt-4 flex flex-wrap items-center gap-2">
           {direct !== "not_set_up" && (
             <button type="button" className="bv-btn" onClick={test} disabled={busy}>
-              {(p.runtime?.alternatives ?? 0) > 0 ? "Test all connections" : "Test"}
+              Test
             </button>
           )}
           {canLookAgain && direct !== "not_set_up" && (
