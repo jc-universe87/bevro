@@ -46,7 +46,13 @@ class Provider(UUIDPrimaryKey, Timestamped, Base):
     active_runtime: Mapped[str | None] = mapped_column(String(40), nullable=True)
     # What Connect was given ({"kind": "local"|"url"|..., "target": "..."}), so it can look again. Server-side only.
     source: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    # An address for the person's browser: one they gave, or one the provider
+    # declares for itself. A website Bevro merely found is a surface instead.
     app_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    # How the person uses it apart from Bevro, as evidence: its own web app, a
+    # chat bot, a schedule, a command line (app/connect/surfaces.py). Refreshed
+    # whenever discovery looks again; turned into words when shown.
+    surfaces: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     # e.g. {"kind": "letter", "text": "M"} - metadata only, never raw image bytes.
     icon: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
     # Which version of discovery gathered this provider's evidence. Below the

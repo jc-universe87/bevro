@@ -318,7 +318,10 @@ def test_D_G_J_a_website_alone_is_evidence_not_a_way_in(tmp_path, sites):
     site = sites(prefix=None)
     project = make_web_app(tmp_path, port_line=f"127.0.0.1:{site.port}:80", prefix=None)
     draft = discover(project)
-    assert draft.web_ui is not None and draft.app_url == f"http://127.0.0.1:{site.port}"
+    assert draft.web_ui is not None and draft.app_url is None  # found, not given: a surface
+    [web] = draft.surfaces
+    assert (web.kind, web.role, web.url, web.reach) == ("web_app", "use", f"http://127.0.0.1:{site.port}", "loopback")
+    assert draft.can_add  # worth adding: the person uses it through its own app
     assert not draft.invocable and draft.availability == "not_invocable"
     assert draft.runtimes == []  # the page is never ranked as a way to send work
     assert ("GET", "/openapi.json") in site.seen  # looked, and the HTML answer was refused

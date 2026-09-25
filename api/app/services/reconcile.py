@@ -169,6 +169,46 @@ def _reachable_now(db, provider: Provider, selected: RuntimeProfile) -> str:
     return "ready"
 
 
+# --------------------------------------------------------------------------- can Bevro send it work
+
+# Whether Bevro itself can send it work, as the interface says it. Only the
+# first seven describe a way in that exists; "not_set_up" means there never
+# was one, which is how a web app with no interface for programs simply is -
+# neutral, and never shown as a fault.
+DIRECT_STATES = ("ready", "needs_credential", "waiting_for_worker", "needs_start", "unreachable", "paused", "not_set_up")
+
+DIRECT_WORDS = {
+    "ready": "Bevro can send it work.",
+    "needs_credential": "Bevro needs a credential before it can send it work.",
+    "waiting_for_worker": "Bevro reaches it through the helper on this computer, which isn't running.",
+    "needs_start": "It isn't running, so Bevro can't send it work right now.",
+    "unreachable": "Bevro could send it work before, but can't reach it right now.",
+    "paused": "Paused: Bevro won't send it work until you resume it.",
+    "not_set_up": "Bevro can't send it work directly yet.",
+}
+
+
+def direct_access(db, provider: Provider) -> dict[str, Any]:
+    """{"state", "note"}: can Bevro itself send this work, and if not, why.
+
+    Kept apart from what the thing is and how the person uses it
+    (docs/HUB.md). A way in that was found but has stopped working is a
+    problem; no way in at all is not.
+    """
+    every = runtime_service.runtimes_of(provider)
+    if not any(rt.invocable for rt in every):
+        state = "not_set_up"
+    else:
+        connection = state_of(db, provider).connection
+        state = {
+            "optional_worker": "waiting_for_worker",
+            "nothing_usable": "unreachable",
+        }.get(connection, connection)
+        if state not in DIRECT_STATES:
+            state = "unreachable"
+    return {"state": state, "note": DIRECT_WORDS[state]}
+
+
 # --------------------------------------------------------------------------- bringing the record in line
 
 def reconcile(db, provider: Provider, *, commit: bool = True) -> ProviderState:

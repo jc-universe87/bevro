@@ -10,7 +10,7 @@ from typing import Any
 import yaml
 
 from app.connect.inspect import Project
-from app.connect.compose_ports import host_address, published_port
+from app.connect.compose_ports import bind_scope, host_address, published_port
 from app.connect.proxies import proxy_routes
 from app.connect.strategies.project import Finding
 
@@ -117,13 +117,15 @@ def inspect_docker(project: Project) -> Finding | None:
             score += 1
         if svc.get("healthcheck"):
             score += 1
-        candidates.append((score, str(name), {"port": ports[0], "address": host_address(entries[0]), "routes": routes, "svc": svc}))
+        candidates.append((score, str(name), {"port": ports[0], "address": host_address(entries[0]), "bind": bind_scope(entries[0]), "routes": routes, "svc": svc}))
     candidates.sort(key=lambda c: -c[0])
     for _score, name, info in candidates[:3]:
         svc = info["svc"]
         service: dict[str, Any] = {"port": info["port"], "source": f"{compose_name}: service '{name}' publishes port {info['port']}", "start": "compose", "service": name, "svc": svc}
         if info["address"]:
             service["address"] = info["address"]
+        # How the port is published, for whether a browser elsewhere can open it.
+        service["bind"] = info["bind"]
         if info["routes"]:
             # Paths its website passes on to another part of the same application.
             service["proxy_routes"] = info["routes"]

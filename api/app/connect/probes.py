@@ -10,6 +10,10 @@ is managed. Nothing here starts, stops or changes anything.
   unit is active (a read-only `systemctl show`; absent systemctl means unknown).
   A template unit is found through `list-unit-files`, and a `.socket` that
   starts the service is read for its shape.
+- systemd_timers(project): *.timer files shipped with the project, when they
+  fire, and whether systemd has them installed (read-only `systemctl show`).
+- private_shares(): ports on this machine shared to a private network for
+  browsers (`tailscale serve status --json`, read-only), port -> address.
 - may_manage_system_units(), socket_permits(), docker_permitted(): would this
   user be let in? Asked of PolicyKit and of file permissions, never by trying.
 """
@@ -234,11 +238,118 @@ def _unit_files(unit_name: str, scope: str | None) -> list[str]:
     return [p for p in (fragment, *drop_ins) if p]
 
 
+UNIT_DIRS = (".", "deploy", "deploy/systemd", "systemd", "etc", "etc/systemd", "service", "services", "ops")
+
+
+@dataclass
+class SystemdTimer:
+    name: str
+    when: str | None = None  # OnCalendar=, as written
+    installed: bool = False
+    active: bool | None = None
+
+
+def systemd_timers(project: Project, *, ask_systemd: bool = True) -> list[SystemdTimer]:
+    """Timers the project ships, and whether this machine has them set up.
+
+    `ask_systemd=False` reads the files only (tests; a look that must not
+    depend on the host)."""
+    timers: list[SystemdTimer] = []
+    for rel in UNIT_DIRS:
+        for name in project.listdir(rel):
+            if not name.endswith(".timer") or len(timers) >= 10:
+                continue
+            text = project.read_text(name if rel == "." else f"{rel}/{name}", 16_000) or ""
+            when = next((m.group(1).strip() for m in re.finditer(r"^\s*OnCalendar\s*=\s*(.+)$", text, re.MULTILINE)), None)
+            timer = SystemdTimer(name=name, when=when)
+            if ask_systemd:
+                timer.active, timer.installed, _scope = _unit_state(name)
+            timers.append(timer)
+    return timers
+
+
+_SHARES_CACHE: tuple[float, dict[int, str]] | None = None
+SHARES_TTL_SECONDS = 60.0
+
+
+def private_shares() -> dict[int, str]:
+    """Ports on this machine that are shared to a private network, for browsers.
+
+    Read from `tailscale serve status --json`: an HTTPS handler proxying to
+    a local port gives that port a browser address on the tailnet, and a
+    plain TCP forward gives it one over http. Read-only, with a short
+    timeout, and nothing at all where tailscale is not installed. Cached
+    for a minute: several projects looked at together ask once.
+    """
+    import json
+    import time
+
+    global _SHARES_CACHE
+    now = time.monotonic()
+    if _SHARES_CACHE is not None and now - _SHARES_CACHE[0] < SHARES_TTL_SECONDS:
+        return dict(_SHARES_CACHE[1])
+    shares: dict[int, str] = {}
+    if shutil.which("tailscale") is not None:
+        try:
+            out = subprocess.run(["tailscale", "serve", "status", "--json"], capture_output=True, text=True, timeout=3, check=False)
+            status = json.loads(out.stdout) if out.returncode == 0 and out.stdout.strip() else {}
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            status = {}
+        shares = shares_from_serve_status(status, _tailnet_name)
+    _SHARES_CACHE = (now, shares)
+    return dict(shares)
+
+
+def _tailnet_name() -> str | None:
+    import json
+
+    try:
+        out = subprocess.run(["tailscale", "status", "--self", "--json", "--peers=false"], capture_output=True, text=True, timeout=3, check=False)
+        name = str((json.loads(out.stdout).get("Self") or {}).get("DNSName") or "").rstrip(".")
+    except (OSError, subprocess.TimeoutExpired, ValueError, AttributeError):
+        return None
+    return name or None
+
+
+def shares_from_serve_status(status: dict, own_name=lambda: None) -> dict[int, str]:
+    """port on this machine -> browser address, from a serve status document.
+
+    HTTPS handlers first: they are what a browser is meant to use. A handler
+    mounted below "/" keeps its path. A TCP forward is used only for a port
+    no handler covers, and is named by this machine's tailnet name.
+    """
+    from urllib.parse import urlsplit
+
+    shares: dict[int, str] = {}
+    web = status.get("Web") if isinstance(status, dict) else None
+    for host_port, config in (web or {}).items() if isinstance(web, dict) else []:
+        handlers = (config or {}).get("Handlers") if isinstance(config, dict) else None
+        for mount, handler in (handlers or {}).items() if isinstance(handlers, dict) else []:
+            proxy = str((handler or {}).get("Proxy") or "") if isinstance(handler, dict) else ""
+            target = urlsplit(proxy if "://" in proxy else f"http://{proxy}")
+            if not proxy or not target.port or target.hostname not in ("127.0.0.1", "localhost", "::1"):
+                continue
+            host, _, port = str(host_port).rpartition(":")
+            address = f"https://{host}" if port in ("", "443") else f"https://{host}:{port}"
+            shares.setdefault(target.port, address + ("" if mount == "/" else "/" + str(mount).strip("/")))
+    tcp = status.get("TCP") if isinstance(status, dict) else None
+    name = None
+    for listen, config in (tcp or {}).items() if isinstance(tcp, dict) else []:
+        forward = str((config or {}).get("TCPForward") or "") if isinstance(config, dict) else ""
+        host, _, port = forward.rpartition(":")
+        if not forward or host not in ("127.0.0.1", "localhost", "[::1]") or not port.isdigit() or int(port) in shares:
+            continue
+        name = name or own_name()
+        if name:
+            shares[int(port)] = f"http://{name}:{listen}"
+    return shares
+
+
 def systemd_units(project: Project) -> list[SystemdUnit]:
     units: list[SystemdUnit] = []
     candidates: list[str] = []
     sockets: dict[str, str] = {}
-    for rel in (".", "deploy", "deploy/systemd", "systemd", "etc", "etc/systemd", "service", "services", "ops"):
+    for rel in UNIT_DIRS:
         for name in project.listdir(rel):
             path = f"{rel}/{name}" if rel != "." else name
             if name.endswith(".service"):

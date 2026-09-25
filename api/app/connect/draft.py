@@ -13,6 +13,8 @@ from pydantic import BaseModel, Field
 
 from adapters.runtime import WORKER, RuntimeProfile, credentials_label
 from app.connect.copy import NOTHING_KNOWN
+from app.connect.surfaces import Surface, has_a_way_to_use
+from app.connect.surfaces import public as surface_public
 
 Confidence = Literal["high", "medium", "low"]
 Availability = Literal["ready", "needs_worker", "needs_start", "not_invocable"]
@@ -96,6 +98,10 @@ class ProviderDraft(BaseModel):
     # a way to send it work, and never ranked as one. `routes` are the paths
     # its website passes on to another part of the same application.
     web_ui: dict[str, Any] | None = None
+    # How a person uses it, and where its results go, apart from Bevro: its
+    # own web app, a chat bot, a schedule, a command line (connect/surfaces.py).
+    # Evidence, kept on the provider; none of it is a way for Bevro in.
+    surfaces: list[Surface] = Field(default_factory=list)
     auth: DraftAuth = Field(default_factory=DraftAuth)
     invocable: bool = True
     # Where the LLM assist may have refined things; kept for the record.
@@ -226,6 +232,12 @@ class ProviderDraft(BaseModel):
         return out
 
     @property
+    def can_add(self) -> bool:
+        """Worth adding to the hub even though Bevro can't send it work:
+        there is somewhere the person uses it, or they have said what it is for."""
+        return not self.invocable and (has_a_way_to_use(self.surfaces) or self.described)
+
+    @property
     def needs_bridge(self) -> bool:
         """Worth connecting, but nothing in it can take a task as it stands."""
         evidence = self.callable_evidence or {}
@@ -269,6 +281,8 @@ class ProviderDraft(BaseModel):
             "web_ui": {"running": True, "title": self.web_ui.get("title"), "routes": list(self.web_ui.get("routes") or [])} if self.web_ui else None,
             "auth": self._auth_public(rt),
             "invocable": self.invocable,
+            "surfaces": [surface_public(x) for x in self.surfaces],
+            "can_add": self.can_add,
         }
 
 

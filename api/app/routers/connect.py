@@ -153,4 +153,4 @@ def confirm(draft_id: uuid.UUID, body: ConfirmIn, db: Session = Depends(get_db))
         names = SecretStore().names(db, provider.id)
     except RuntimeError:
         names = []
-    return provider_out(provider, names)
+    return provider_out(provider, names, db)

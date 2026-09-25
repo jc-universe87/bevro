@@ -171,8 +171,19 @@ def update_provider(provider_id: uuid.UUID, body: ProviderUpdate, db: Session = 
     provider = provider_service.get_provider(db, provider_id)
     if provider is None:
         raise HTTPException(404, "Agent not found.")
-    for field, value in body.model_dump(exclude_none=True).items():
+    changes = body.model_dump(exclude_none=True)
+    address = changes.pop("web_address", None)
+    for field, value in changes.items():
         setattr(provider, field, value)
+    if address is not None:
+        # The person's own address for the app: kept as evidence of the
+        # strongest kind, beside whatever discovery found, and never replaced
+        # by looking again. "" forgets it.
+        from app.connect.surfaces import declared_web_surface, from_stored, merge
+
+        kept = [x for x in from_stored(provider.surfaces) if not (x.kind == "web_app" and x.reach == "explicit")]
+        given = [declared_web_surface(address)] if address else []
+        provider.surfaces = [x.model_dump(mode="json", exclude_none=True) for x in merge(given, kept)]
     db.commit()
     db.refresh(provider)
     return _out(db, provider)

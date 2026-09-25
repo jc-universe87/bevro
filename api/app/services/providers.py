@@ -66,6 +66,7 @@ def register_provider(db: Session, data: dict[str, Any]) -> Provider:
         capabilities=list(data.get("capabilities") or []),
         adapter=dict(data.get("adapter") or {}),
         app_url=data.get("app_url") or None,
+        surfaces=[x if isinstance(x, dict) else x.model_dump(mode="json", exclude_none=True) for x in data.get("surfaces") or []],
         icon=data.get("icon"),
         origin=data.get("origin") or "connected",
         source=data.get("source"),

@@ -121,9 +121,26 @@ def test_what_it_is_for_is_kept_even_when_it_cannot_be_connected_yet(client, see
     assert draft["name"] == "Bare Thing" and draft["needs_description"] is False and draft["note"] is None
     # Kept on the server: asking again gives the same answer.
     assert client.get(f"/api/connect/drafts/{body['id']}").json()["draft"]["name"] == "Bare Thing"
-    # It still can't take work, and Connect says so rather than pretending.
+    # It still can't take work. Once the person has said what it is for, it
+    # is added as what it is - known, with no way in for Bevro - and nothing
+    # pretends otherwise.
     r = client.post(f"/api/connect/drafts/{body['id']}/confirm", json={})
-    assert r.status_code == 409 and "send it work" in r.json()["detail"]
+    assert r.status_code == 201, r.text
+    added = r.json()
+    assert "ask" not in added["actions"] and added["direct"]["state"] == "not_set_up"
+
+
+def test_something_nobody_can_use_is_not_added(client, seeded):
+    """No way in for Bevro, nowhere the person uses it, nothing said about it:
+    there is nothing to add yet, and Connect says so."""
+    def json_only(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"status": "ok"}) if request.url.path == "/" else httpx.Response(404)
+
+    set_discovery_service(ConnectionDiscoveryService([HttpDiscoveryStrategy(httpx.MockTransport(json_only))], use_assist=False))
+    body = client.post("/api/connect/discover", json={"target": "http://quiet.local"}).json()
+    assert body["draft"]["surfaces"] == [] and body["draft"]["can_add"] is False
+    r = client.post(f"/api/connect/drafts/{body['id']}/confirm", json={})
+    assert r.status_code == 409 and "how it's used" in r.json()["detail"]
 
 
 def test_an_empty_description_is_refused_plainly(client, seeded):

@@ -33,7 +33,9 @@ from app.connect.strategies.node import inspect_node
 from app.connect.strategies.project import SECRET_LABELS, Entrypoint, Finding
 from app.connect.strategies.python import inspect_python
 from app.connect.strategies.scripts import inspect_scripts
+from app.connect.surfaces import source_texts
 from app.connect.targets import ConnectTarget, classify_target
+from app.connect.uicopy import ui_copy
 
 # Bevro asks for permission when it needs it, so neither of these should
 # reach anybody in the ordinary course of things. They are what is said if
@@ -170,6 +172,14 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
         description = readme_prose
     description = " ".join(description.split())[:300]
     capabilities = infer_capabilities(name, description, readme_prose, readme_body(project), weights=(2.0, 2.0, 1.0, 0.34))
+    sources = source_texts(project)
+    if not description:
+        # Nothing written about it; what it says to its own users will do.
+        on_screen = ui_copy(project, sources)
+        if on_screen:
+            description = " ".join(on_screen[:2])[:300]
+            evidence.append("Its own screens say what it's for")
+            capabilities = capabilities or infer_capabilities(name, description, " ".join(on_screen), weights=(2.0, 2.0, 1.0))
 
     if not findings and not units:
         draft = not_found(name, "local", "I found this folder, but it doesn't look like a Python, Node or Docker project.", evidence)
@@ -182,6 +192,10 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
     frameworks = primary.frameworks if primary else set()
     lang = "Python" if primary and primary.kind == "python" else "Node" if primary and primary.kind == "node" else "Local"
 
+    # A website is evidence that the application is running, and where to
+    # open it; a way to send it work only if something behind it says so.
+    website: dict | None = None
+
     # 1. Already running: a process of yours in this folder that listens on a port.
     probed_ports: set[int] = set()
     if probe_host:
@@ -191,6 +205,10 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
                     continue
                 probed_ports.add(port)
                 found = _discover_url(local_base(port), context)
+                if found is not None and _described_nothing(found) and found.web_ui is not None:
+                    # A page for people, served by a process of this project.
+                    website = website or {"url": local_base(port), "title": found.web_ui.get("title"), "routes": [], "bind": None, "evidence": [f"A process from this project ({proc.program}) serves a website on port {port}"]}
+                    continue
                 if found is not None:
                     rt = _adopt_service(found, unique_id("running", ids), RuntimeKind.PROCESS, "Already running on this machine", evidence=[f"A process from this project ({proc.program}) is listening on port {port}", *found.evidence], credentials=Credentials(strategy=CredentialStrategy.RUNTIME_MANAGED, names=secret_names, supplied=list(secret_names), note="Already running with its own environment."))
                     runtimes.append(rt)
@@ -198,16 +216,13 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
                     description = description or found.description
 
     # 2. Managed: Compose services (answering, or startable) and systemd units.
-    # A website is evidence that the application is running, and where to
-    # open it; a way to send it work only if something behind it says so.
-    website: dict | None = None
     for service in (docker.services if docker else []):
         port = int(service["port"])
         answering = probe_host and port not in probed_ports and port_answers(port, address=service.get("address"))
         found, site = _discover_service(service, context) if answering else (None, None)
         creds = _compose_credentials(service.get("svc") or {}, secret_names) if service.get("start") == "compose" else Credentials(strategy=CredentialStrategy.DOCKER_ENVIRONMENT if secret_names else CredentialStrategy.RUNTIME_MANAGED, names=secret_names)
         if site is not None and website is None:
-            website = site
+            website = {**site, "bind": service.get("bind")}
             evidence += site["evidence"]
         if found is not None:
             runtimes.append(_adopt_service(found, unique_id("compose", ids), RuntimeKind.DOCKER_COMPOSE, "Runs as a local service (already running)", evidence=[service["source"], "It answers on that port", *found.evidence], credentials=creds))
@@ -266,27 +281,30 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
     runtimes += _container_runtimes(docker.containers if docker else [], secret_names, project.root, interfaces, ids)
     link_contexts(runtimes)
 
+    surfaces = _surfaces(project, findings, primary, website, runtimes, sources, probe_host=probe_host)
+
     if not runtimes:
         from app.connect.bridge import callable_surface
 
         surface = callable_surface(project, findings)
         draft = not_found(name, "local", WEBSITE_ONLY if website else "This project doesn't expose a connection Bevro can use yet.", evidence)
         if website:
-            draft.web_ui, draft.app_url = _public_site(website), website["url"]
+            draft.web_ui = _public_site(website)
         draft.description = description
         draft.capabilities = capabilities
         draft.warnings += warnings
         draft.callable_evidence = {k: v for k, v in surface.items() if v}
         draft.assist_evidence = {"readme_excerpt": readme_prose or "", "dependencies": (primary.dependencies if primary else [])[:30]}
+        draft.surfaces = surfaces
         return draft
 
     # Which way in is used is decided by `with_runtimes`, after credentials
     # have been settled across all of them. Only "is this close enough to ask
     # about" is decided here.
     _first, choice = select(runtimes)
-    draft = ProviderDraft(name=name, description=description, capabilities=capabilities, mechanism="local", evidence=evidence, warnings=warnings, confidence="medium")
+    draft = ProviderDraft(name=name, description=description, capabilities=capabilities, mechanism="local", evidence=evidence, warnings=warnings, confidence="medium", surfaces=surfaces)
     if website:
-        draft.web_ui, draft.app_url = _public_site(website), website["url"]
+        draft.web_ui = _public_site(website)
     draft.with_runtimes(runtimes, None, choice)
     rt = draft.runtime
     if rt is not None:
@@ -312,6 +330,22 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
         surface = callable_surface(project, findings)
         draft.callable_evidence = {k: v for k, v in surface.items() if v}
     return draft
+
+
+def _surfaces(project: Project, findings: list[Finding], primary: Finding | None, website: dict | None, runtimes: list[RuntimeProfile], sources: list[str], *, probe_host: bool) -> list:
+    """How a person uses this, apart from Bevro: see connect/surfaces.py."""
+    from app.connect import surfaces as surface
+    from app.connect.probes import private_shares, systemd_timers
+
+    web = []
+    if website:
+        web = [surface.web_surface(website["url"], bind=website.get("bind"), title=website.get("title"), evidence=list(website.get("evidence") or [])[:1], shares=private_shares() if probe_host else {})]
+    dependencies = sorted({d for f in findings for d in f.dependencies})
+    env_names = [*project.env_example_keys(), *(primary.env_secret_names if primary else [])]
+    chat = surface.messaging_surfaces(dependencies, sources, env_names, readme_body(project))
+    timers = surface.schedule_surfaces(project, systemd_timers(project, ask_systemd=probe_host))
+    cli = [surface.Surface(kind="command_line", role="use", confidence="medium", evidence=["It has a command-line entry point"])] if any(rt.kind in (RuntimeKind.CLI, RuntimeKind.PYTHON_ENTRYPOINT, RuntimeKind.NODE_ENTRYPOINT) and rt.invocable for rt in runtimes) else []
+    return surface.merge(web, chat, timers, cli)
 
 
 WEBSITE_ONLY = "It's running on this machine, but it only has its own website: Bevro found nothing another program can send work to."

@@ -6,6 +6,7 @@ method is reported by name only.
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime
 from typing import Any, Literal
@@ -42,6 +43,15 @@ class ProviderOut(BaseModel):
     # "credentials_label": "Managed by provider", "runtimes_found": 2, "built": false}.
     # Mechanism stays server-side.
     runtime: dict[str, Any] | None = None
+    # How the person uses it apart from Bevro (docs/HUB.md): [{"kind": "web_app",
+    # "role": "use", "label": "Web app", "sentence": ..., "url": ..., "reach": ...}].
+    # A web address comes with how it was published, so the browser can tell
+    # whether it can open it from where it is.
+    surfaces: list[dict[str, Any]] = Field(default_factory=list)
+    # Can Bevro itself send it work: {"state": "ready" | "needs_credential" |
+    # "waiting_for_worker" | "needs_start" | "unreachable" | "paused" |
+    # "not_set_up", "note": "..."}. "not_set_up" is not a fault.
+    direct: dict[str, Any] = Field(default_factory=dict)
     # For agents Bevro created: {"purpose": ..., "version": 3, "state": "ready"}.
     # Never source code or paths.
     build: dict[str, Any] | None = None
@@ -133,6 +143,18 @@ class ProviderUpdate(BaseModel):
     enabled: bool | None = None
     name: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=2000)
+    # The address the person uses to open its app. "" forgets it.
+    web_address: str | None = Field(default=None, max_length=2048)
+
+    @field_validator("web_address")
+    @classmethod
+    def _web_address(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if value and not re.match(r"^https?://[^\s/@]+(/\S*)?$", value, re.IGNORECASE):
+            raise ValueError("Give the full address, starting with http:// or https://")
+        return value
 
 
 class HealthOut(BaseModel):

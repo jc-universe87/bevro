@@ -24,12 +24,16 @@ VOCABULARY: list[tuple[str, str, re.Pattern[str]]] = [
     ("product_strategy", "Product strategy", re.compile(r"\b(strateg\w*|roadmap\w*|positioning|recommendation\w*)\b", re.I)),
     ("reporting", "Reports", re.compile(r"\b(report\w*|briefing\w*|dossier|digest\w*)\b", re.I)),
     ("summarise", "Summarise", re.compile(r"\b(summari[sz]\w*|recap\w*|tl;?dr)\b", re.I)),
-    ("draft", "Draft text", re.compile(r"\b(drafts?|drafting|write (text|emails?|posts?|replies|copy)|compose\w*|copywrit\w*)\b", re.I)),
+    # "Compose" on its own is Docker Compose in most READMEs; composing
+    # *something* is writing.
+    ("draft", "Draft text", re.compile(r"\b(drafts?|drafting|write (text|emails?|posts?|replies|copy)|compos(e|es|ing) (text|emails?|messages?|posts?|replies|letters?)|copywrit\w*)\b", re.I)),
     ("translate", "Translate", re.compile(r"\b(translat\w*)\b", re.I)),
     ("email", "Handle email", re.compile(r"\b(e-?mails?|inbox|mailbox)\b", re.I)),
     ("schedule", "Schedule", re.compile(r"\b(schedul\w*|calendar\w*|booking\w*|appointment\w*)\b", re.I)),
     ("monitor", "Monitor", re.compile(r"\b(monitor\w*|watch\w*|alert\w*|track(s|ing)? changes)\b", re.I)),
     ("search", "Search", re.compile(r"\b(search\w*|retriev\w*|index\w*)\b", re.I)),
+    ("knowledge", "Search what you know", re.compile(r"\b(knowledge (base|workspace|management)|personal knowledge|second brain|personal wiki|what you(\u2019|')ve (learned|noted|written))\b", re.I)),
+    ("archive", "Filing and finding documents", re.compile(r"\b(archiv\w*|binders?|filing (cabinet|system)|where (it|a document) (lives|is filed))\b", re.I)),
     ("coding", "Coding", re.compile(r"\b(coding|code (changes|review)|refactor\w*|programming|developer tool\w*)\b", re.I)),
     ("data_analysis", "Data analysis", re.compile(r"\b(analy[sz]\w* data|data analysis|analytics|statistic\w*|spreadsheet\w*)\b", re.I)),
     ("events.allocate", "Allocate participants", re.compile(r"\b(allocat\w*|participants?|attendees?|registration\w*)\b", re.I)),

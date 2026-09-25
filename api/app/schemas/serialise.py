@@ -16,13 +16,21 @@ from app.services.providers import availability_of, credential_status, credentia
 from app.services.workspaces import permission_sentences
 
 
-def provider_actions(provider: Provider) -> list[str]:
-    """Only what really works right now. No "Ask" for something nothing can run."""
+def provider_actions(provider: Provider, surfaces: list[Any] | None = None) -> list[str]:
+    """Only what really works right now. No "Ask" for something nothing can run.
+
+    "open" means there is a web app; whether the person's browser can open
+    it from where it is is the browser's to work out (web/src/lib/hub.ts).
+    """
+    from app.connect.surfaces import for_provider
+    from app.services.runtime import runtimes_of
+
     actions: list[str] = []
     kind = str(provider.adapter.get("kind", ""))
-    if provider.enabled and kind in adapter_kinds() and is_available(provider):
+    invocable = any(rt.invocable for rt in runtimes_of(provider))
+    if provider.enabled and invocable and kind in adapter_kinds() and is_available(provider):
         actions.append("ask")
-    if provider.app_url:
+    if any(s.kind == "web_app" for s in (surfaces if surfaces is not None else for_provider(provider.surfaces, provider.app_url))):
         actions.append("open")
     return actions
 
@@ -231,6 +239,10 @@ def provider_out(provider: Provider, secret_names: list[str] | None = None, db: 
         from app.services.agents import summary
 
         build = summary(db, provider)
+    from app.connect.surfaces import for_provider
+    from app.connect.surfaces import public as surface_public
+
+    surfaces = for_provider(provider.surfaces, provider.app_url)
     return ProviderOut(
         id=provider.id,
         slug=provider.slug,
@@ -242,9 +254,11 @@ def provider_out(provider: Provider, secret_names: list[str] | None = None, db: 
         app_url=provider.app_url,
         icon=provider.icon,
         origin=provider.origin,
-        actions=provider_actions(provider),
+        actions=provider_actions(provider, surfaces),
         connection=connection_label(provider),
         availability=availability_of(provider, db),
+        surfaces=[surface_public(x) for x in surfaces],
+        direct=_direct(provider, db),
         secret_names=stored,
         credentials=credentials_of(provider, stored),
         runtime=runtime_summary(provider, stored, db),
@@ -252,6 +266,17 @@ def provider_out(provider: Provider, secret_names: list[str] | None = None, db: 
         created_at=provider.created_at,
         updated_at=provider.updated_at,
     )
+
+
+def _direct(provider: Provider, db: Any) -> dict[str, Any]:
+    if db is None:
+        from app.services.runtime import runtimes_of
+
+        # No session: say only what is known without one.
+        return {"state": "not_set_up" if not any(rt.invocable for rt in runtimes_of(provider)) else ("paused" if not provider.enabled else "ready")}
+    from app.services.reconcile import direct_access
+
+    return direct_access(db, provider)
 
 
 def provider_ref(provider: Provider) -> ProviderRef:

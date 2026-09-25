@@ -145,6 +145,39 @@ def published_port(entry: Any, lookup: Lookup = _no_variables) -> int | None:
     return resolve_port(host, lookup)
 
 
+def bind_scope(entry: Any) -> str | None:
+    """Where one `ports:` entry publishes: "all", "loopback", "address", or None.
+
+    Compose publishes on every interface unless an address is written in
+    front, so "8080:80" is "all". An address that comes from a variable
+    cannot be known here and says None - which is treated as loopback by
+    anything deciding whether a browser elsewhere could open it.
+    """
+    if isinstance(entry, dict):
+        value = entry.get("host_ip")
+        if value is None:
+            return "all"
+    elif isinstance(entry, int):
+        return "all"
+    elif isinstance(entry, str):
+        parts = split_entry(entry.strip())
+        if not parts:
+            return None
+        if len(parts) < 3:
+            return "all"
+        value = parts[0]
+    else:
+        return None
+    if not isinstance(value, str) or "$" in value:
+        return None
+    value = value.strip().strip("[]")
+    if value in ("", "0.0.0.0", "::"):
+        return "all"
+    if value in ("localhost", "::1") or value.startswith("127."):
+        return "loopback"
+    return "address"
+
+
 def host_address(entry: Any) -> str | None:
     """The address a port is published on, when it is written literally and is not a wildcard."""
     if isinstance(entry, dict):

@@ -64,9 +64,12 @@ def transition(task: Task, target: TaskState) -> None:
 class NoProviderAvailable(Exception):
     """Nothing can take this request. `reason` is a short machine code for the UI."""
 
-    def __init__(self, message: str, reason: str = "unavailable") -> None:
+    def __init__(self, message: str, reason: str = "unavailable", suggestion: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.reason = reason
+        # An app the person has that fits, when Bevro can't do it itself:
+        # {"id", "name"}. Pointed at, never run (routing/elsewhere.py).
+        self.suggestion = suggestion
 
 
 NO_PROVIDER_MESSAGE = "Bevro doesn't have anything connected that can do this yet."
@@ -147,7 +150,7 @@ def _choose_provider(db: Session, text: str, explicit: Provider | None) -> tuple
         validated = validate_decision(db, decision)
     except InvalidDecision as exc:
         log.warning("routing decision rejected: %s", exc)
-        raise NoProviderAvailable(NO_PROVIDER_MESSAGE, reason="no_provider") from None
+        raise _nothing_here(db, text, NO_PROVIDER_MESSAGE) from None
     meta = decision.to_metadata(
         router_version=ROUTER_PROMPT_VERSION,
         backend=getattr(getattr(router, "model", None), "name", None),
@@ -155,8 +158,18 @@ def _choose_provider(db: Session, text: str, explicit: Provider | None) -> tuple
     )
     if validated.provider is None:
         log.info("routing: no suitable provider (%s)", decision.reason)
-        raise NoProviderAvailable(unavailable_message(decision) or NO_PROVIDER_MESSAGE, reason="no_provider")
+        raise _nothing_here(db, text, unavailable_message(decision) or NO_PROVIDER_MESSAGE)
     return validated.provider, decision, meta
+
+
+def _nothing_here(db: Session, text: str, message: str) -> NoProviderAvailable:
+    """Nothing Bevro can drive fits. If an app the person uses does, say so."""
+    from app.routing.elsewhere import suggest
+
+    found = suggest(db, text)
+    if found is None:
+        return NoProviderAvailable(message, reason="no_provider")
+    return NoProviderAvailable(f"{found['name']} is the place for this. Bevro can't send it work directly, but you can open it.", reason="use_elsewhere", suggestion=found)
 
 
 def _ask_question(task: Task, run: ProviderRun, prompt: str) -> None:

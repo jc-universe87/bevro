@@ -619,9 +619,14 @@ def confirm_draft(db: Session, row: ConnectDraft, *, name: str | None, descripti
         if scope not in [c.get("value") for c in pd.scope_choices]:
             raise DraftError("That isn't one of the ones Bevro found.", 422)
         pd = _scoped_to(pd, scope)
-    if not pd.adapter.get("kind") or not pd.invocable:
-        raise DraftError("Bevro found this, but doesn't yet know how to send it work.", 409)
-    if capability_summary is None and not pd.capabilities:
+    # Bevro can send it work, or it is still worth knowing about: something
+    # the person uses through its own app, or has said what it is for. The
+    # latter is added as what it is - known, with no way in for Bevro - and
+    # nothing is made up to look like one (docs/HUB.md).
+    direct = bool(pd.adapter.get("kind")) and pd.invocable
+    if not direct and not (pd.can_add or capability_summary):
+        raise DraftError("Bevro found this, but doesn't yet know how it's used. Say what it's for, or set up how to reach it.", 409)
+    if direct and capability_summary is None and not pd.capabilities:
         # Connected with nothing it can do, it would never be sent anything.
         raise DraftError("Say what Bevro should use it for first.", 422)
     capabilities = [c.model_dump(exclude_none=True) for c in pd.capabilities]
@@ -634,7 +639,7 @@ def confirm_draft(db: Session, row: ConnectDraft, *, name: str | None, descripti
             store = SecretStore()
         except RuntimeError as exc:
             raise DraftError("Secrets cannot be stored until the server has a secret key.", 503) from exc
-    adapter = dict(pd.adapter)
+    adapter = dict(pd.adapter) if direct else {}
     config = dict(adapter.get("config") or {})
     # A typed credential decides how the adapter authenticates.
     if pd.auth.secret_name and pd.auth.secret_name in values:
@@ -645,10 +650,11 @@ def confirm_draft(db: Session, row: ConnectDraft, *, name: str | None, descripti
             if pd.auth.secret_name not in names:
                 names.append(pd.auth.secret_name)
             config["secret_env"] = names
-    adapter["config"] = config
-    adapter["method"] = {"http": "api", "mcp": "mcp", "command": "command"}.get(str(adapter.get("kind")), str(adapter.get("kind")))
+    if direct:
+        adapter["config"] = config
+        adapter["method"] = {"http": "api", "mcp": "mcp", "command": "command"}.get(str(adapter.get("kind")), str(adapter.get("kind")))
     runtimes = list(pd.runtimes)
-    active = pd.runtime
+    active = pd.runtime if direct else None
     if active is not None:
         active.adapter = dict(adapter)  # the credential decision above belongs to the active profile
         if pd.auth.secret_name and pd.auth.secret_name in values:
@@ -673,6 +679,7 @@ def confirm_draft(db: Session, row: ConnectDraft, *, name: str | None, descripti
             # its own name so neither overwrites the other.
             "source": {"kind": row.target_kind, "target": row.target, **(pd.source or {}), "target_kind": row.target_kind, "validated_at": utcnow().isoformat()},
             "app_url": (app_url or pd.app_url) or None,
+            "surfaces": pd.surfaces,
             "icon": {"kind": "letter", "text": final_name[:1].upper()},
             "origin": "connected",
         },
@@ -748,7 +755,7 @@ def _reconnect_here(db: Session, provider: Provider, *, location: str = API, rul
         raise
     except (DiscoveryFailed, TargetError) as exc:
         raise DraftError(str(exc), 409) from exc
-    if not draft.runtimes:
+    if not draft.runtimes and not draft.surfaces:
         raise DraftError("Nothing usable was found there any more.", 409)
     stored = SecretStore().names(db, provider.id) if _has_secret_store() else []
     active = draft.runtime
@@ -776,6 +783,12 @@ def _reconnect_here(db: Session, provider: Provider, *, location: str = API, rul
     # operations, renamed ones. The name stays as the person left it.
     if draft.capabilities:
         provider.capabilities = [c.model_dump() for c in draft.capabilities]
+    # How it is used is looked at again too. An address the person gave is
+    # theirs, not something discovery found, so it stays.
+    from app.connect.surfaces import from_stored, merge
+
+    given = [x for x in from_stored(provider.surfaces) if x.reach == "explicit"]
+    provider.surfaces = [x.model_dump(mode="json", exclude_none=True) for x in merge(given, draft.surfaces)]
     provider.availability = None  # whoever can reach it reports afresh
     provider.discovery_version = reconcile_service.DISCOVERY_VERSION
     provider.source = {k: v for k, v in (provider.source or {}).items() if not k.startswith("reconnect_")}

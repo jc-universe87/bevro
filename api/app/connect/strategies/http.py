@@ -289,7 +289,23 @@ def _from_operational(client: httpx.Client, found: openapi.Descriptor, catalogue
         },
     )
     draft.scope_choices = choices
+    draft.surfaces = _own_app(client, found.origin + found.entered_path)
     return draft.with_runtimes([runtime], active_id="openapi")
+
+
+def _own_app(client: httpx.Client, url: str) -> list:
+    """The address the person gave, when it is also a page for people.
+
+    A service can be both: typed operations for Bevro and an app for the
+    person. One more look at the same address, through the same client and
+    rules, says which."""
+    from app.connect.surfaces import web_surface
+
+    try:
+        _answered, title, page = _root(client, url)
+    except _NoContact:
+        return []
+    return [web_surface(url, title=title, evidence=["The address you gave is also its web app"])] if page else []
 
 
 def _auth_from(spec: dict[str, Any]) -> tuple[DraftAuth, dict[str, Any]]:
@@ -589,7 +605,11 @@ def _from_bare(url: str, title: str | None, health_path: str | None, *, page: bo
         source={"kind": "http", "discovery_method": "none", "health_path": health_path},
     )
     if page:
-        # A page for people. Something is running; that is all it shows.
+        # A page for people. Something is running, and it is somewhere the
+        # person can go - which is a way of using it, if not one for Bevro.
+        from app.connect.surfaces import web_surface
+
         draft.web_ui = {"url": base + prefix, "title": title}
+        draft.surfaces = [web_surface(base + prefix, title=title, evidence=["A website answers at that address"])]
     rt = http_runtime("http", kind=RuntimeKind.HTTP, adapter=draft.adapter, display_name="Connected over the network", availability="not_invocable", confidence="low", credentials=Credentials(strategy=CredentialStrategy.UNKNOWN), evidence=evidence, warnings=warnings, accepts_prompt=False)
     return draft.with_runtimes([rt])
