@@ -254,7 +254,7 @@ def test_node_mcp_server_is_drafted_as_mcp(tmp_path):
     draft = discover(str(project), [root])
     assert draft.mechanism == "mcp" and draft.adapter["kind"] == "mcp"
     assert draft.adapter["config"]["argv"] == ["node", "bin/cli.js"]
-    assert any("Test connection" in w for w in draft.warnings)
+    assert any("Choose Test" in w for w in draft.warnings)
 
 
 # ----------------------------------------------------------------------------- docker

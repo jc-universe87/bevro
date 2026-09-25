@@ -42,7 +42,8 @@ log = logging.getLogger("bevro.reconcile")
 #   2  credentials belong to runtimes; systemd environment files
 #   3  execution contexts; installed template units; the installed unit's own ExecStart
 #   4  what a credential held elsewhere is for; a program's own self-check option
-DISCOVERY_VERSION = 4
+#   5  how a person uses it apart from Bevro (surfaces); how a port is published
+DISCOVERY_VERSION = 5
 
 
 @dataclass

@@ -49,7 +49,7 @@ def test_missing_credential_is_explained_and_fixed_from_the_browser(client, seed
 
         detail = client.get(f"/api/tasks/{task.id}").json()
         failure = detail["runs"][-1]["failure"]
-        assert failure["category"] == "credential_required" and failure["title"] == "Credential required"
+        assert failure["category"] == "credential_required" and failure["title"] == "Needs a credential"
         assert failure["message"] == "Fixture Research Agent needs an OpenAI credential before it can run."
         assert [a["kind"] for a in failure["actions"]] == ["add_credential", "retry"]
         assert failure["actions"][0]["secret_name"] == "OPENAI_API_KEY"
@@ -82,13 +82,13 @@ def test_missing_credential_is_explained_and_fixed_from_the_browser(client, seed
 def test_failure_categories_map_to_actions(client, seeded, monkeypatch):
     research = provider_service.get_by_slug(seeded, "research")
     cases = {
-        FailureKind.PROVIDER_UNAVAILABLE: ("Provider unavailable", "Research isn't available right now.", ["test_connection", "retry"]),
-        FailureKind.INVOCATION_FAILED: ("Execution failed", "Research started but couldn't finish this task.", ["retry", "manage"]),
-        FailureKind.CONFIGURATION_PROBLEM: ("Configuration problem", "Bevro couldn't start Research with its current connection.", ["manage"]),
+        FailureKind.PROVIDER_UNAVAILABLE: ("Couldn't be reached", "Research isn't available right now.", ["test_connection", "retry"]),
+        FailureKind.INVOCATION_FAILED: ("Didn't finish", "Research started but couldn't finish this task.", ["retry", "manage"]),
+        FailureKind.CONFIGURATION_PROBLEM: ("Needs setting up again", "Bevro couldn't start Research with its current connection.", ["manage"]),
         FailureKind.TIMED_OUT: ("Took too long", "Research took too long and was stopped.", ["retry", "manage"]),
         FailureKind.OUTPUT_INVALID: ("Unreadable answer", "Research answered, but Bevro couldn't read the result.", ["retry", "manage"]),
-        FailureKind.EXECUTION_FAILED: ("Execution failed", "Research started but couldn't finish this task.", ["retry", "manage"]),  # the old name still reads
-        None: ("Execution failed", "Research started but couldn't finish this task.", ["retry", "manage"]),
+        FailureKind.EXECUTION_FAILED: ("Didn't finish", "Research started but couldn't finish this task.", ["retry", "manage"]),  # the old name still reads
+        None: ("Didn't finish", "Research started but couldn't finish this task.", ["retry", "manage"]),
     }
     for kind, (title, message, actions) in cases.items():
         monkeypatch.setattr(task_service, "execute", lambda *a, kind=kind, **k: (InvocationResult(state=ResultState.FAILED, error="technical words", failure=kind), []))

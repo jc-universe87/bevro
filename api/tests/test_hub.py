@@ -313,3 +313,26 @@ def test_reachability_is_not_browser_reachability():
     rt = fx.network_runtime("openapi", api="unavailable", worker="available", base="http://127.0.0.1:6300")
     assert rt.reachability == Reachability(api="unavailable", worker="available")
     assert surface.web_surface("http://127.0.0.1:6300", bind="loopback").reach == "loopback"
+
+
+def test_an_agents_own_words_beat_a_general_keyword_family():
+    """"Review my job openings" is one agent's own vocabulary, not a request
+    for research in general - even when a research agent is also there."""
+    from app.routing.catalogue import CatalogueCapability, CatalogueEntry
+    from app.routing.deterministic import DeterministicRouter
+
+    def entry(slug, caps):
+        return CatalogueEntry(id=slug, name=slug.title(), description="", capabilities=[CatalogueCapability(id=c.lower().replace(" ", "_"), title=c) for c in caps], available=True, can_invoke=True)
+
+    researcher = entry("analyst", ["Research", "Market analysis"])
+    openings = entry("openings", ["Review openings", "Prepare documents"])
+    decision = DeterministicRouter().decide("Help me review my current job openings", [researcher, openings])
+    assert decision.selected_provider_ids == ["openings"]
+    # A plain research request still goes by the rule.
+    assert DeterministicRouter().decide("Research the market for bikes", [researcher, openings]).selected_provider_ids == ["analyst"]
+
+
+def test_a_filing_question_points_at_the_filing_app(client, db):
+    _provider(db, "Cabinet", surfaces=[WEB], capabilities=[{"id": "archive", "title": "Filing and finding documents"}])
+    detail = client.post("/api/tasks", json={"request": "Where is my passport filed?"}).json()["detail"]
+    assert detail["suggestion"]["name"] == "Cabinet"

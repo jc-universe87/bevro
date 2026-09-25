@@ -26,7 +26,7 @@ from app.routing.deterministic import _words
 _INTENTS: list[tuple[re.Pattern[str], set[str]]] = [
     (re.compile(r"\b(where did i|did i (write|note|save|say)|what did i (write|note|say)|find (my|the) notes?|my notes|i (wrote|noted))\b", re.I), {"search", "knowledge", "note", "learned", "noted"}),
     (re.compile(r"\b(search|look (for|up)|find)\b", re.I), {"search", "find"}),
-    (re.compile(r"\b(file|filing|where (is|does) .{0,40}(document|letter|paper)|binder|archive)\b", re.I), {"archive", "filing", "document", "finding"}),
+    (re.compile(r"\b(file|filed|filing|where (is|are|does|do) .{0,40}(document|letter|paper|certificate|form)s?|binders?|archived?)\b", re.I), {"archive", "filing", "document", "finding"}),
 ]
 
 MIN_SCORE = 2

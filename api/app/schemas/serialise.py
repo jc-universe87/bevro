@@ -295,10 +295,10 @@ def run_provider_ref(run: ProviderRun) -> ProviderRef:
 
 
 FAILURE_TITLES = {
-    "configuration_problem": "Configuration problem",
-    "credential_required": "Credential required",
-    "provider_unavailable": "Provider unavailable",
-    "invocation_failed": "Execution failed",
+    "configuration_problem": "Needs setting up again",
+    "credential_required": "Needs a credential",
+    "provider_unavailable": "Couldn't be reached",
+    "invocation_failed": "Didn't finish",
     "timed_out": "Took too long",
     "cancelled": "Stopped",
     "output_invalid": "Unreadable answer",
@@ -330,8 +330,8 @@ def failure_out(run: ProviderRun, stored_secret_names: list[str] | None = None) 
         category = "credential_required"
     if category not in FAILURE_TITLES:
         category = "invocation_failed"
-    retry = FailureAction(kind="retry", label="Retry")
-    manage = FailureAction(kind="manage", label="Manage provider")
+    retry = FailureAction(kind="retry", label="Try again")
+    manage = FailureAction(kind="manage", label=f"Go to {name}")
     if category == "credential_required":
         target = missing[0] if missing else (required_secrets(provider) or ["api_key"])[0]
         label = secret_label(target)
@@ -341,10 +341,10 @@ def failure_out(run: ProviderRun, stored_secret_names: list[str] | None = None) 
         actions = [FailureAction(kind="add_credential", label="Add credential" if missing else "Update credential", secret_name=target, secret_label=label), retry]
     elif category == "provider_unavailable":
         message = f"{name} isn't available right now."
-        actions = [FailureAction(kind="test_connection", label="Test connection"), retry]
+        actions = [FailureAction(kind="test_connection", label=f"Check {name}"), retry]
     elif category == "configuration_problem":
         message = f"Bevro couldn't start {name} with its current connection."
-        actions = [FailureAction(kind="manage", label="Manage connection")]
+        actions = [FailureAction(kind="manage", label=f"Go to {name}")]
     elif category == "timed_out":
         message = f"{name} took too long and was stopped."
         actions = [retry, manage]

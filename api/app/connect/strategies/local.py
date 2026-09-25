@@ -241,7 +241,7 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
                     confidence="medium",
                     credentials=creds,
                     evidence=[service["source"]],
-                    warnings=[f"It isn't running. Bevro won't start it: {how}, then use Test connection so Bevro can read its API."],
+                    warnings=[f"It isn't running. Bevro won't start it: {how}, then choose Check again so Bevro can read how to use it."],
                 )
             )
     for unit in units:
@@ -271,7 +271,7 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
                 confidence="low",
                 credentials=Credentials(strategy=CredentialStrategy.RUNTIME_MANAGED, names=secret_names),
                 evidence=["It is a web service (framework found in the project)"],
-                warnings=[f"It runs as a web service on port {port}. Bevro won't start it: start it as you normally do, then use Test connection so Bevro can read its API."],
+                warnings=[f"It runs as a web service on port {port}. Bevro won't start it: start it as you normally do, then choose Check again so Bevro can read how to use it."],
             )
         )
 
@@ -348,7 +348,7 @@ def _surfaces(project: Project, findings: list[Finding], primary: Finding | None
     return surface.merge(web, chat, timers, cli)
 
 
-WEBSITE_ONLY = "It's running on this machine, but it only has its own website: Bevro found nothing another program can send work to."
+WEBSITE_ONLY = "It's running on this machine with its own website. Bevro found nothing there it can send tasks to."
 
 
 def _discover_url(url: str, context: DiscoveryContext | None) -> ProviderDraft | None:
@@ -518,7 +518,7 @@ def _entrypoint_runtime(project: Project, primary: Finding | None, entry: Entryp
     warnings: list[str] = []
     if entry.mechanism == "mcp":
         adapter = {"kind": "mcp", "config": {"argv": list(entry.argv), "cwd": str(project.root), "env": dict(primary.env) if primary else {}, "secret_env": list(creds.names), "self_configured": self_configured, "tool": {}}}
-        return mcp_runtime(rid, stdio=True, adapter=adapter, display_name="Uses MCP on this machine", availability="needs_worker", confidence="medium", credentials=creds, evidence=[f"Entry point: {entry.source}"], warnings=["Use Test connection to start the server once and read its tools; nothing in the project is changed."], target=str(project.root))
+        return mcp_runtime(rid, stdio=True, adapter=adapter, display_name="Uses MCP on this machine", availability="needs_worker", confidence="medium", credentials=creds, evidence=[f"Entry point: {entry.source}"], warnings=["Choose Test to start the server once and read its tools; nothing in the project is changed."], target=str(project.root))
     if not entry.input_known:
         warnings.append("I couldn't tell how this program takes a request; it will be passed as the last argument. Change that under Advanced setup if needed.")
     adapter = {

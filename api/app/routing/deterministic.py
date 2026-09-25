@@ -147,16 +147,27 @@ class DeterministicRouter:
         """`catalogue` may include unavailable entries; they are never selected."""
         capability = wanted_capability(request)
         usable = [e for e in catalogue if e.available and e.can_invoke]
+        words = _words(request)
+        # An agent the request describes in that agent's own terms - two or
+        # more of the words it uses for what it does - is a better answer than
+        # a general keyword family: "review my job opportunities" is one
+        # agent's own vocabulary, not a request for research in general.
+        named = max(usable, key=lambda e: _mention_score(words, e), default=None)
+        named_score = _mention_score(words, named) if named is not None else 0
         if capability is not None:
             fitting = [e for e in usable if _has(e, capability)]
             if fitting:
-                return self._select(_prefer_mentioned(request, fitting), f"request matched the {capability!r} rule", 0.5)
+                best = _prefer_mentioned(request, fitting)
+                if named is not None and named not in fitting and named_score >= 2 and named_score > _mention_score(words, best):
+                    return self._select(named, f"request uses {named.id!r}'s own words rather than the {capability!r} rule", 0.45)
+                return self._select(best, f"request matched the {capability!r} rule", 0.5)
+            if named is not None and named_score >= 2:
+                return self._select(named, f"request names {named.id!r} or its capabilities", 0.35)
             if any(_has(entry, capability) for entry in catalogue):
                 return RoutingDecision(routing_source=RoutingSource.DETERMINISTIC, reason=f"{UNAVAILABLE_PREFIX}{capability}")
         # No keyword family fits (or nothing declares it): a provider the request
         # names outright, by its name or a capability it declares, still counts.
         # Connected agents become reachable this way without a rule for each.
-        words = _words(request)
         scored = sorted(((_mention_score(words, e), e) for e in usable), key=lambda pair: -pair[0])
         if scored and scored[0][0] >= 2:
             return self._select(scored[0][1], f"request names {scored[0][1].id!r} or its capabilities", 0.35)

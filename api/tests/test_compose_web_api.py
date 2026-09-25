@@ -328,7 +328,7 @@ def test_D_G_J_a_website_alone_is_evidence_not_a_way_in(tmp_path, sites):
     public = draft.public()
     assert public["web_ui"] == {"running": True, "title": "Example App", "routes": []}
     assert any("Website: running" in e for e in public["evidence"])
-    assert any("only has its own website" in w for w in public["warnings"])
+    assert any("with its own website" in w for w in public["warnings"])
     assert_private(draft)
 
 

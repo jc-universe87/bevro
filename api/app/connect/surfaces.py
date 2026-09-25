@@ -390,6 +390,9 @@ def public(s: Surface) -> dict[str, Any]:
     if s.kind == "web_app" and s.url:
         out["url"] = s.url
         out["reach"] = s.reach
+        if s.reach == "shared" and s.local_url:
+            # For a browser on this machine itself, which may not resolve the shared name.
+            out["local_url"] = s.local_url
         if s.title:
             out["title"] = s.title
     if s.kind == "schedule":
