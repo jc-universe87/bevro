@@ -91,6 +91,11 @@ class ProviderDraft(BaseModel):
     evidence: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     app_url: str | None = None
+    # A page for people that answered: {"url", "title", "routes": ["/api"]}.
+    # Evidence that something is running, and where it can be opened - never
+    # a way to send it work, and never ranked as one. `routes` are the paths
+    # its website passes on to another part of the same application.
+    web_ui: dict[str, Any] | None = None
     auth: DraftAuth = Field(default_factory=DraftAuth)
     invocable: bool = True
     # Where the LLM assist may have refined things; kept for the record.
@@ -260,6 +265,8 @@ class ProviderDraft(BaseModel):
             "evidence": list(self.evidence),
             "warnings": list(self.warnings),
             "app_url": self.app_url,
+            # Paths only: the names of the services behind them stay here.
+            "web_ui": {"running": True, "title": self.web_ui.get("title"), "routes": list(self.web_ui.get("routes") or [])} if self.web_ui else None,
             "auth": self._auth_public(rt),
             "invocable": self.invocable,
         }

@@ -395,6 +395,11 @@ export interface DraftView {
   evidence: string[];
   warnings: string[];
   app_url: string | null;
+  /**
+   * A page for people answered: something is running. Never a way to send it
+   * work. `routes` are paths its website passes on to another part of it.
+   */
+  web_ui?: { running: boolean; title: string | null; routes: string[] } | null;
   /** `why`: the optional explanation behind `hint`, for "Why?". */
   auth: { required: boolean; secret_name: string | null; label: string | null; hint: string | null; why?: string | null };
   invocable: boolean;

@@ -85,6 +85,27 @@ const WORKER_HELP =
 
 function found(draft: DraftView, local: LocalState): Step {
   const name = draft.name || "This";
+  const canBuild = Boolean(draft.needs_bridge && draft.bridge_possible);
+
+  // Running, with a website and nothing another program can use. Saying what
+  // it is for would not change that, so this comes before asking.
+  if (!draft.invocable && draft.web_ui && draft.availability !== "needs_start") {
+    return {
+      kind: "needs_interface",
+      heading: draft.mechanism === "local" ? `${name} is running on this machine.` : `${name} is running.`,
+      message: "It only has its own website so far: nothing another program can send work to.",
+      primary: canBuild ? { id: "build", label: "Set up how to use it" } : { id: "setup", label: "Set up how to use it" },
+      tertiary: canBuild ? [{ id: "setup", label: "Set it up by hand" }] : undefined,
+      help: {
+        question: "Why can't Bevro use it yet?",
+        answer:
+          `Bevro can see that ${name} is running, but hasn't found a safe way for another program to send it work - its website is made for people. ` +
+          (canBuild
+            ? `Setting it up has one of your coding agents build a small connection for it, kept inside Bevro. ${name} itself isn't changed.`
+            : `If ${name} does have one that Bevro didn't recognise, the next page lets you describe it.`),
+      },
+    };
+  }
 
   if (draft.needs_description) {
     return {
@@ -113,7 +134,6 @@ function found(draft: DraftView, local: LocalState): Step {
         },
       };
     }
-    const canBuild = Boolean(draft.needs_bridge && draft.bridge_possible);
     return {
       kind: "needs_interface",
       heading: `${name} is almost ready.`,

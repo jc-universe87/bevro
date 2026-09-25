@@ -79,7 +79,7 @@ class HttpDiscoveryStrategy:
             # for every path it is asked about, and discovering that five
             # times over is a minute the person spends watching nothing.
             try:
-                reached, title = _root(client, url)
+                reached, title, page = _root(client, url)
             except _NoContact:
                 raise NotReachable(UNREACHABLE_MESSAGE) from None
 
@@ -101,8 +101,9 @@ class HttpDiscoveryStrategy:
             # status code.
             found = _find_descriptor(client, url)
             if found is not None:
+                health_path = _health_from_api_base(found, health_path)
                 catalogue = openapi.compile_catalogue(found.spec)
-                prompt_draft = _from_openapi(found.spec, found.origin, health_path)
+                prompt_draft = _from_openapi(found.spec, found.api_base, health_path)
                 # A single operation that takes natural language is the simple
                 # case. Anything else is a system of typed operations, and is
                 # read as one.
@@ -117,7 +118,19 @@ class HttpDiscoveryStrategy:
             # 4. Something that does not describe itself, or nothing usable.
             if not reached:
                 raise NotReachable(UNREACHABLE_MESSAGE)
-            return _from_bare(url, title, health_path)
+            return _from_bare(url, title, health_path, page=page)
+
+
+def _health_from_api_base(found: openapi.Descriptor, health_path: str | None) -> str | None:
+    """The health path, relative to where the operations are called from.
+
+    It was looked for under the typed path. When the description was found
+    there too but its operations are called from the origin, the typed path
+    belongs in front of it.
+    """
+    if health_path is None or not found.under_entered_path or found.api_base != found.origin:
+        return health_path
+    return found.entered_path.rstrip("/") + health_path
 
 
 def _find_descriptor(client: httpx.Client, entered_url: str) -> openapi.Descriptor | None:
@@ -204,7 +217,7 @@ def _from_operational(client: httpx.Client, found: openapi.Descriptor, catalogue
     info = found.spec.get("info") if isinstance(found.spec.get("info"), dict) else {}
     name = str(info.get("title") or "Service")[:120]
     description = " ".join(str(info.get("description") or "").split())[:2000]
-    base = found.origin
+    base = found.api_base
 
     context, choices, scope_evidence = _resolve_scope(client, base, catalogue, found.entered_path)
     # Everything the compiler worked out travels with the draft, so the
@@ -216,14 +229,14 @@ def _from_operational(client: httpx.Client, found: openapi.Descriptor, catalogue
     config: dict[str, Any] = {
         "base_url": base,
         "descriptor_url": found.url,
-        "app_url": base + found.entered_path,
+        "app_url": found.origin + found.entered_path,
         "operations": openapi.catalogue_to_json(catalogue),
         "context": context,
         "health_path": health_path,
         **auth_config,
     }
     evidence = [
-        f"Describes itself with OpenAPI at {found.url.replace(base, '') or '/'}",
+        f"Describes itself with OpenAPI at {found.url.replace(found.origin, '') or '/'}",
         f"{len(catalogue)} operations, grouped into {len(capabilities)} things it can do",
         *scope_evidence,
     ]
@@ -262,13 +275,13 @@ def _from_operational(client: httpx.Client, found: openapi.Descriptor, catalogue
         confidence="high",
         evidence=evidence,
         warnings=warnings,
-        app_url=base + found.entered_path,
+        app_url=found.origin + found.entered_path,
         auth=auth,
         invocable=bool(usable) and not choices,
         source={
             "kind": "http",
-            "entered_url": base + found.entered_path,
-            "origin": base,
+            "entered_url": found.origin + found.entered_path,
+            "origin": found.origin,
             "ui_base_path": found.entered_path,
             "descriptor_url": found.url,
             "connection_context": context,
@@ -328,43 +341,47 @@ def _get_json(client: httpx.Client, bases: list[str], paths: str | tuple[str, ..
 
 
 def _find_health(client: httpx.Client, base: str) -> str | None:
+    """A health endpoint, if there is one. A web page answering 200 on every
+    path is a website being a website, not a health check."""
     for path in HEALTH_PATHS:
         try:
             r = client.get(base + path)
         except httpx.HTTPError:
             return None
-        if r.status_code == 200:
+        if r.status_code == 200 and "html" not in r.headers.get("content-type", "").lower():
             return path
     return None
 
 
-def _root(client: httpx.Client, url: str) -> tuple[bool, str | None]:
-    """Did anything answer here, and what does it call itself?
+def _root(client: httpx.Client, url: str) -> tuple[bool, str | None, bool]:
+    """Did anything answer here, what does it call itself, and is it a page for people?
 
     "Answered" and "answered usefully" are separated from "could not be
     reached at all", because only the last one is a statement about this
-    process rather than about the service.
+    process rather than about the service. A web page is worth knowing about
+    - it means something is running - but it is not a way to send work.
     """
     try:
         r = client.get(url, headers={"Accept": "text/html, application/json"})
     except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
         raise _NoContact() from exc
     except httpx.HTTPError:
-        return False, None
+        return False, None, False
     if r.status_code >= 500:
-        return False, None
+        return False, None, False
     ctype = r.headers.get("content-type", "")
+    page = r.status_code < 400 and "html" in ctype.lower()
     if "json" in ctype:
         try:
             data = r.json()
             if isinstance(data, dict):
                 for key in ("name", "title", "app", "service"):
                     if isinstance(data.get(key), str):
-                        return True, data[key]
+                        return True, data[key], False
         except ValueError:
             pass
     m = _TITLE.search(r.text[:20_000] if "html" in ctype else "")
-    return True, (" ".join(m.group(1).split())[:80] if m else None)
+    return True, (" ".join(m.group(1).split())[:80] if m else None), page
 
 
 def _probe_mcp(url: str, context: DiscoveryContext, headers: dict[str, str]) -> ProviderDraft | None:
@@ -549,7 +566,7 @@ def _from_openapi(spec: dict[str, Any], base_url: str, health_path: str | None) 
     return draft.with_runtimes([rt])
 
 
-def _from_bare(url: str, title: str | None, health_path: str | None) -> ProviderDraft:
+def _from_bare(url: str, title: str | None, health_path: str | None, *, page: bool = False) -> ProviderDraft:
     host = urlsplit(url).hostname or url
     name = title or humanise(host.split(".")[0])
     base, prefix = _split_base(url)
@@ -568,6 +585,11 @@ def _from_bare(url: str, title: str | None, health_path: str | None) -> Provider
         evidence=evidence,
         warnings=warnings,
         invocable=False,
+        # Nothing it published said how to use it: what answered is all there is.
+        source={"kind": "http", "discovery_method": "none", "health_path": health_path},
     )
+    if page:
+        # A page for people. Something is running; that is all it shows.
+        draft.web_ui = {"url": base + prefix, "title": title}
     rt = http_runtime("http", kind=RuntimeKind.HTTP, adapter=draft.adapter, display_name="Connected over the network", availability="not_invocable", confidence="low", credentials=Credentials(strategy=CredentialStrategy.UNKNOWN), evidence=evidence, warnings=warnings, accepts_prompt=False)
     return draft.with_runtimes([rt])

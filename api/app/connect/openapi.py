@@ -56,6 +56,29 @@ class Descriptor:
     # it may carry scope, and because reconnecting should start where they did.
     entered_path: str
 
+    @property
+    def under_entered_path(self) -> bool:
+        """Found under the path that was typed, rather than at the origin."""
+        prefix = self.entered_path.rstrip("/")
+        return bool(prefix) and self.url.startswith(self.origin + prefix + "/")
+
+    @property
+    def api_base(self) -> str:
+        """Where its operations' paths start from.
+
+        Usually the origin. When the description was found under the path
+        that was typed - a website passing that path on to the service behind
+        it - and none of the operations' own paths start with it, that
+        service sees them without it: they are called under it.
+        """
+        prefix = self.entered_path.rstrip("/")
+        if not self.under_entered_path:
+            return self.origin
+        paths = self.spec.get("paths") if isinstance(self.spec.get("paths"), dict) else {}
+        if any(str(p) == prefix or str(p).startswith(prefix + "/") for p in paths):
+            return self.origin
+        return self.origin + prefix
+
 
 def origin_of(url: str) -> str:
     parts = urlsplit(url)

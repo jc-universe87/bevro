@@ -10,6 +10,8 @@ from typing import Any
 import yaml
 
 from app.connect.inspect import Project
+from app.connect.compose_ports import host_address, published_port
+from app.connect.proxies import proxy_routes
 from app.connect.strategies.project import Finding
 
 COMPOSE_FILES = ("compose.yml", "compose.yaml", "docker-compose.yml", "docker-compose.yaml")
@@ -75,24 +77,6 @@ def _containers(project: Project, compose_name: str, services: dict[str, Any]) -
     return out[:6]
 
 
-def _host_port(entry: Any) -> int | None:
-    if isinstance(entry, int):
-        return entry
-    if isinstance(entry, str):
-        parts = entry.split(":")
-        try:
-            return int(parts[-2]) if len(parts) >= 2 else int(parts[0].split("/")[0])
-        except ValueError:
-            return None
-    if isinstance(entry, dict):
-        published = entry.get("published") or entry.get("target")
-        try:
-            return int(published)
-        except (TypeError, ValueError):
-            return None
-    return None
-
-
 def inspect_docker(project: Project) -> Finding | None:
     compose_name = next((n for n in COMPOSE_FILES if project.is_file(n)), None)
     has_dockerfile = project.is_file("Dockerfile")
@@ -117,9 +101,13 @@ def inspect_docker(project: Project) -> Finding | None:
         if not isinstance(svc, dict):
             continue
         image = str(svc.get("image") or "")
-        if any(image.startswith(i) or f"/{i}" in image for i in INFRA_IMAGES) and not svc.get("build"):
+        # A stock web server is infrastructure - unless it is the website of
+        # this application, passing paths on to another part of it.
+        routes = proxy_routes(project, svc, {str(n) for n in services}, str(name))
+        if any(image.startswith(i) or f"/{i}" in image for i in INFRA_IMAGES) and not svc.get("build") and not routes:
             continue
-        ports = [p for p in (_host_port(e) for e in (svc.get("ports") or [])) if p]
+        entries = [e for e in (svc.get("ports") or []) if published_port(e, project.env_port)]
+        ports = [published_port(e, project.env_port) for e in entries]
         if not ports:
             continue
         score = 0
@@ -129,11 +117,16 @@ def inspect_docker(project: Project) -> Finding | None:
             score += 1
         if svc.get("healthcheck"):
             score += 1
-        candidates.append((score, str(name), {"port": ports[0], "svc": svc}))
+        candidates.append((score, str(name), {"port": ports[0], "address": host_address(entries[0]), "routes": routes, "svc": svc}))
     candidates.sort(key=lambda c: -c[0])
     for _score, name, info in candidates[:3]:
         svc = info["svc"]
         service: dict[str, Any] = {"port": info["port"], "source": f"{compose_name}: service '{name}' publishes port {info['port']}", "start": "compose", "service": name, "svc": svc}
+        if info["address"]:
+            service["address"] = info["address"]
+        if info["routes"]:
+            # Paths its website passes on to another part of the same application.
+            service["proxy_routes"] = info["routes"]
         health = svc.get("healthcheck") or {}
         test = health.get("test") if isinstance(health, dict) else None
         test_text = " ".join(test) if isinstance(test, list) else str(test or "")

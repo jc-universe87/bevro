@@ -32,6 +32,7 @@ export default function ConnectAdvanced() {
   const [params] = useSearchParams();
   const from = params.get("from");
   const [foundName, setFoundName] = useState<string | null>(null);
+  const [websiteOnly, setWebsiteOnly] = useState(false);
   useEffect(() => {
     if (!from) return;
     let live = true;
@@ -40,6 +41,7 @@ export default function ConnectAdvanced() {
       .then((d) => {
         if (!live || !d.draft) return;
         setFoundName(d.draft.name);
+        setWebsiteOnly(Boolean(d.draft.web_ui) && !d.draft.invocable);
         setName((current) => current || d.draft!.name);
         setCapabilities((current) => current || d.draft!.capabilities.map((c) => c.title ?? c.id).join(", "));
       })
@@ -106,7 +108,7 @@ export default function ConnectAdvanced() {
       </PageHeader>
       {foundName && (
         <p className="mb-3">
-          Setting up {foundName}. Bevro found it, but not how to send it a task. Tell Bevro how it takes one: an address it answers requests on, an MCP server, or a command.
+          Setting up {foundName}. {websiteOnly ? "Bevro found it running, but only its own website." : "Bevro found it, but not how to send it a task."} Tell Bevro how it takes one: an address it answers requests on, an MCP server, or a command.
         </p>
       )}
       <p className="bv-hint mb-5">For things Bevro couldn't work out on its own. The normal way is to type an address or folder under Connect.</p>

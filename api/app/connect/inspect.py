@@ -119,6 +119,41 @@ class Project:
                 continue
         return False
 
+    def env_port(self, name: str) -> tuple[str, int | None]:
+        """What the project's .env sets a Compose port variable to, as a port only.
+
+        The second narrow look at a credential file, for the one thing Compose
+        itself reads it for: filling in `${NAME}` in a port. The answer is a
+        state - "unset", "empty", "port" or "other" - and the number when it
+        is a port. Any other value is dropped where it is read: never kept,
+        never returned, never logged. Only `.env`, because that is the file
+        Compose reads for this.
+        """
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", name):
+            return "unset", None
+        pattern = re.compile(r"^\s*(?:export\s+)?" + re.escape(name) + r"\s*=(.*)$")
+        path = self._inside(self.root / ".env")
+        if path is None or not path.is_file():
+            return "unset", None
+        state: tuple[str, int | None] = ("unset", None)
+        try:
+            with path.open("r", encoding="utf-8", errors="replace") as fh:
+                for line in fh:
+                    m = pattern.match(line.rstrip("\n"))
+                    if m is None:
+                        continue
+                    value = m.group(1).split(" #", 1)[0].strip().strip("\"'")
+                    # The last assignment wins, as it does for Compose.
+                    if not value:
+                        state = ("empty", None)
+                    elif value.isdigit() and 0 < int(value) < 65536:
+                        state = ("port", int(value))
+                    else:
+                        state = ("other", None)
+        except OSError:
+            return "unset", None
+        return state
+
     def env_example_keys(self) -> list[str]:
         """Variable names (only names) from .env.example-style files."""
         keys: list[str] = []

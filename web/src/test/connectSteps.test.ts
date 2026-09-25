@@ -143,10 +143,44 @@ describe("every Connect state has one safe way forward", () => {
     ],
     ["bridge failed", step({}, { bridge: { state: "failed", note: "Building didn't work.", provider_id: "p1", task_id: "t1", steps: [] } })],
     ["lost draft", step({ draft: null })],
+    ["website only", step({ draft: view({ invocable: false, availability: "not_invocable", needs_description: true, web_ui: { running: true, title: null, routes: ["/api"] } }) })],
   ];
 
   test.each(states)("%s", (_name, current) => {
     expect(stepProblems(current)).toEqual([]);
     if (!current.busy) expect(current.primary).toBeDefined();
+  });
+});
+
+describe("a website is not a way to send work", () => {
+  const websiteOnly = (over: Partial<DraftView> = {}) =>
+    view({ name: "Notebook", invocable: false, availability: "not_invocable", web_ui: { running: true, title: "Notebook", routes: ["/api"] }, ...over });
+
+  test("says what was found, and offers setup - before asking what it is for", () => {
+    const s = step({ draft: websiteOnly({ needs_description: true, capabilities: [], confidence: "low" }) });
+    expect(s).toMatchObject({ kind: "needs_interface", heading: "Notebook is running on this machine.", primary: { id: "setup", label: "Set up how to use it" } });
+    expect(s.message).toMatch(/only has its own website/);
+    expect(s.help?.answer).toMatch(/hasn't found a safe way for another program to send it work/);
+    expect(stepProblems(s)).toEqual([]);
+  });
+
+  test("normal copy never names the machinery behind it", () => {
+    const s = step({ draft: websiteOnly() });
+    const said = `${s.heading} ${s.message} ${s.help?.question} ${s.help?.answer} ${s.primary?.label}`;
+    expect(said).not.toMatch(/fastapi|openapi|nginx|proxy|cookie|session|docker|compose|port|\/api/i);
+  });
+
+  test("an address that is only a website says running, not on this machine", () => {
+    expect(step({ draft: websiteOnly({ mechanism: "http" }) }).heading).toBe("Notebook is running.");
+  });
+
+  test("a usable way in wins over the website being there", () => {
+    expect(step({ draft: websiteOnly({ invocable: true, availability: "ready" }) }).kind).toBe("found_ready");
+  });
+
+  test("a building agent is offered when one could build a connection", () => {
+    const s = step({ draft: websiteOnly({ needs_bridge: true, bridge_possible: true }) });
+    expect(s.primary).toEqual({ id: "build", label: "Set up how to use it" });
+    expect(s.tertiary).toEqual([{ id: "setup", label: "Set it up by hand" }]);
   });
 });

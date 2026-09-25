@@ -107,3 +107,25 @@ def test_runtime_kinds_are_not_provider_types():
     from app.models import Provider
 
     assert not hasattr(Provider, "type") and not hasattr(Provider, "provider_type")
+
+
+# The real projects discovery was accepted against. Their shapes are modelled
+# in synthetic fixtures; their names, paths and service names belong nowhere
+# in what ships.
+ACCEPTANCE_PROJECTS = re.compile(r"\b(zekor|archivist|moimio)\b", re.IGNORECASE)
+
+
+def test_no_acceptance_project_is_named_in_shipped_code():
+    """The web app has the same check among its own tests (neutrality.test.ts)."""
+    offenders = []
+    for path in [*sorted(APP.rglob("*.py")), *sorted(ADAPTERS.glob("*.py"))]:
+        offenders += [f"{path.name}: {line.strip()}" for line in _without_comments_or_docstrings(path) if ACCEPTANCE_PROJECTS.search(line)]
+    assert offenders == [], offenders
+
+
+def test_proxy_and_port_discovery_take_their_paths_from_the_project():
+    """The path behind a website comes from its configuration: none is assumed."""
+    for name in ("proxies.py", "compose_ports.py"):
+        code = "\n".join(_without_comments_or_docstrings(APP / "connect" / name))
+        assert not re.search(r"[\"']/(api|v\d|svc|backend)\b", code), name
+        assert not re.search(r"[\"'](backend|frontend|web|api|app)[\"']", code), name

@@ -141,6 +141,43 @@ healthchecks, `depends_on`; `Dockerfile` `EXPOSE`. Infrastructure images
 it with `docker compose up -d`, then Test connection*, and the test reads the
 running service's API description.
 
+Published ports are read the way Compose reads them, including variables:
+`127.0.0.1:${WEB_PORT:-8080}:80` is port 8080, or whatever the project's
+`.env` sets `WEB_PORT` to. The `.env` is asked about that one variable and
+answers with a port number or nothing; no other value in it is read into
+Bevro. A port that cannot be known (a variable with no value and no default,
+a range, Docker's own choice) is left out rather than guessed.
+
+### A website is not a way in
+
+Many Compose applications publish one port, for their website, and keep the
+service that does the work on their private network, behind a path the
+website's web server passes on (`/api/` → the backend). So when what answers
+on a published port is a page for people, Bevro:
+
+1. keeps it as evidence - the application is running - and never as a way to
+   send work: it is not a runtime, is not ranked, and never makes a provider
+   Ready;
+2. reads the web server's own configuration for the paths it passes on to
+   another service **of the same application** - the files the service's
+   Dockerfile copies into `/etc/nginx/` or `/etc/caddy/`, files mounted there,
+   or failing those `nginx.conf` / `Caddyfile` in its build directory. Only
+   simple forms: nginx `location /x/ { proxy_pass http://service:port; }`
+   (also `^~`, `=`, and a one-server `upstream`), Caddy
+   `reverse_proxy /x/* service:port` and `handle`/`handle_path` blocks.
+   Regular-expression locations and variables are skipped;
+3. reads each such path exactly as an address is read (description,
+   health), under the website's own published address - so the service
+   behind it never has to be reachable directly. A description found there
+   is the way in; when the proxy strips the path, operations are called
+   under it.
+
+If nothing behind the website describes itself, Connect says so plainly -
+*"It's running on this machine. It only has its own website so far: nothing
+another program can send work to."* - with **Set up how to use it** as the
+next step. Advanced details list what was checked: the website, the paths
+behind it and whether they answer, and that no API description was found.
+
 ## ProviderDraft
 
 `api/app/connect/draft.py`. Discovery never creates a provider directly; it
@@ -238,6 +275,9 @@ look like a hit and be a web page. Bevro therefore:
 2. looks for a description under that path **and** at the origin;
 3. checks the content type *and* the shape of the document — a description
    has to declare `openapi`/`swagger` and carry `paths`, or it is not one.
+
+The same rule applies to health: a web page answering 200 at `/health` is a
+website being a website, and is not recorded as a health check.
 
 ### The operation catalogue
 
@@ -647,3 +687,10 @@ run id — never paths, secrets, command lines, output or tracebacks.
   point needs structured arguments gets defaults and a note ([BRIDGES.md](BRIDGES.md)).
 - Capability inference from text is a small vocabulary. The person can
   always edit the plain summary.
+- An application whose API needs a browser sign-in (a session cookie from a
+  login form) is not usable by Bevro, and Bevro does not try: it needs a
+  credential another program can hold, such as a token.
+- Operations that answer as a stream (Server-Sent Events) are not read by
+  the operational HTTP runtime yet.
+- Reverse-proxy reading covers the simple nginx and Caddy forms above;
+  Traefik labels and anything computed at run time are not read.

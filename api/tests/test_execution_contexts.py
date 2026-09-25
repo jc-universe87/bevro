@@ -606,7 +606,17 @@ def test_no_production_code_names_a_real_project():
     app = Path(__file__).resolve().parents[1] / "app"
     adapters = Path(__file__).resolve().parents[2] / "adapters"
     pattern = re.compile(r"moimio|career[-_ ]?agent|/etc/[a-z]", re.IGNORECASE)
-    offenders = [f"{p.name}: {line.strip()}" for p in [*app.rglob("*.py"), *adapters.glob("*.py")] for line in p.read_text(encoding="utf-8").splitlines() if pattern.search(line.split("#", 1)[0]) and '"/etc"' not in line]
+    # Where a web server image keeps its configuration *inside the container*:
+    # matched against a Dockerfile's COPY targets, never opened on this machine.
+    container_conventions = ('"/etc/nginx/"', '"/etc/caddy/"')
+
+    def code(line: str) -> str:
+        line = line.split("#", 1)[0]
+        for convention in container_conventions:
+            line = line.replace(convention, "")
+        return line
+
+    offenders = [f"{p.name}: {line.strip()}" for p in [*app.rglob("*.py"), *adapters.glob("*.py")] for line in p.read_text(encoding="utf-8").splitlines() if pattern.search(code(line)) and '"/etc"' not in line]
     assert offenders == [], offenders
 
 

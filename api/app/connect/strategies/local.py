@@ -24,7 +24,7 @@ from adapters.runtime import ContextInput, CredentialStrategy, Credentials, Runt
 from app.connect.capabilities import infer_capabilities
 from app.connect.draft import ProviderDraft, not_found
 from app.connect.inspect import Project, humanise, readme_body, readme_excerpt
-from app.connect.probes import SystemdUnit, listening_processes, port_answers, systemd_units
+from app.connect.probes import SystemdUnit, listening_processes, local_base, port_answers, systemd_units
 from app.connect.contexts import WORK_INTERFACES, compose_context, link_contexts, systemd_context
 from app.connect.runtimes import cli_runtime, http_runtime, managed_only_runtime, mcp_runtime, select, unique_id
 from app.connect.strategies.base import DiscoveryContext, DiscoveryFailed
@@ -190,7 +190,7 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
                 if port in probed_ports:
                     continue
                 probed_ports.add(port)
-                found = _discover_port(port, context)
+                found = _discover_url(local_base(port), context)
                 if found is not None:
                     rt = _adopt_service(found, unique_id("running", ids), RuntimeKind.PROCESS, "Already running on this machine", evidence=[f"A process from this project ({proc.program}) is listening on port {port}", *found.evidence], credentials=Credentials(strategy=CredentialStrategy.RUNTIME_MANAGED, names=secret_names, supplied=list(secret_names), note="Already running with its own environment."))
                     runtimes.append(rt)
@@ -198,14 +198,22 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
                     description = description or found.description
 
     # 2. Managed: Compose services (answering, or startable) and systemd units.
+    # A website is evidence that the application is running, and where to
+    # open it; a way to send it work only if something behind it says so.
+    website: dict | None = None
     for service in (docker.services if docker else []):
         port = int(service["port"])
-        answering = probe_host and port not in probed_ports and port_answers(port)
-        found = _discover_port(port, context) if answering else None
+        answering = probe_host and port not in probed_ports and port_answers(port, address=service.get("address"))
+        found, site = _discover_service(service, context) if answering else (None, None)
         creds = _compose_credentials(service.get("svc") or {}, secret_names) if service.get("start") == "compose" else Credentials(strategy=CredentialStrategy.DOCKER_ENVIRONMENT if secret_names else CredentialStrategy.RUNTIME_MANAGED, names=secret_names)
+        if site is not None and website is None:
+            website = site
+            evidence += site["evidence"]
         if found is not None:
             runtimes.append(_adopt_service(found, unique_id("compose", ids), RuntimeKind.DOCKER_COMPOSE, "Runs as a local service (already running)", evidence=[service["source"], "It answers on that port", *found.evidence], credentials=creds))
             capabilities = capabilities or found.capabilities
+        elif site is not None:
+            continue  # running, with a website and nothing behind it that takes work
         else:
             how = "docker compose up -d" if service.get("start") == "compose" else "start its container"
             runtimes.append(
@@ -262,7 +270,9 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
         from app.connect.bridge import callable_surface
 
         surface = callable_surface(project, findings)
-        draft = not_found(name, "local", "This project doesn't expose a connection Bevro can use yet.", evidence)
+        draft = not_found(name, "local", WEBSITE_ONLY if website else "This project doesn't expose a connection Bevro can use yet.", evidence)
+        if website:
+            draft.web_ui, draft.app_url = _public_site(website), website["url"]
         draft.description = description
         draft.capabilities = capabilities
         draft.warnings += warnings
@@ -275,6 +285,8 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
     # about" is decided here.
     _first, choice = select(runtimes)
     draft = ProviderDraft(name=name, description=description, capabilities=capabilities, mechanism="local", evidence=evidence, warnings=warnings, confidence="medium")
+    if website:
+        draft.web_ui, draft.app_url = _public_site(website), website["url"]
     draft.with_runtimes(runtimes, None, choice)
     rt = draft.runtime
     if rt is not None:
@@ -302,16 +314,59 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
     return draft
 
 
-def _discover_port(port: int, context: DiscoveryContext | None) -> ProviderDraft | None:
-    """Read what answers on a local port the way a URL target is read."""
+WEBSITE_ONLY = "It's running on this machine, but it only has its own website: Bevro found nothing another program can send work to."
+
+
+def _discover_url(url: str, context: DiscoveryContext | None) -> ProviderDraft | None:
+    """Read what answers at a local address the way a URL target is read."""
     from app.connect.strategies.http import HttpDiscoveryStrategy
 
     try:
         ctx = DiscoveryContext(roots=[], secrets=dict(context.secrets) if context else {}, timeout=3.0, transport=context.transport if context else None)
-        found = HttpDiscoveryStrategy().discover(classify_target(f"http://127.0.0.1:{port}"), ctx)
+        found = HttpDiscoveryStrategy().discover(classify_target(url), ctx)
     except DiscoveryFailed:
         return None
     return found if found.runtime is not None else None
+
+
+def _described_nothing(draft: ProviderDraft) -> bool:
+    return (draft.source or {}).get("discovery_method") == "none"
+
+
+def _discover_service(service: dict, context: DiscoveryContext | None) -> tuple[ProviderDraft | None, dict | None]:
+    """What a running Compose service offers: (a way to send it work, its website).
+
+    What answers on the published port is read first. If that is a page for
+    people, the paths its own web-server configuration passes on to another
+    part of the application are read the same way - the only places behind
+    it worth looking, and the only ones looked at. A way in is whatever
+    describes itself; a website is kept as evidence either way.
+    """
+    base = local_base(int(service["port"]), service.get("address"))
+    root = _discover_url(base, context)
+    if root is None:
+        return None, None
+    if not _described_nothing(root) or root.web_ui is None:
+        # It describes itself, or it is not a page for people: read as always.
+        return root, None
+    site: dict = {"url": base, "title": root.web_ui.get("title"), "routes": [], "evidence": ["Website: running on this machine"]}
+    for route in service.get("proxy_routes") or []:
+        site["routes"].append(route.prefix)
+        behind = _discover_url(base + route.prefix + "/", context)
+        if behind is not None and not _described_nothing(behind):
+            behind.evidence = [f"Its website passes {route.prefix} on to another part of the application, which describes itself", *behind.evidence]
+            return behind, site
+        answers = behind is not None and bool((behind.source or {}).get("health_path"))
+        site["evidence"].append(f"Behind the website: {route.prefix} goes to another part of the application" + (", which answers" if answers else ""))
+    site["evidence"].append(
+        "Ways for programs to send it work: none found"
+        + (f" (no API description under {', '.join(site['routes'])} or at the website's root)" if site["routes"] else " (the website publishes no API description)")
+    )
+    return None, site
+
+
+def _public_site(site: dict) -> dict:
+    return {"url": site["url"], "title": site.get("title"), "routes": list(site.get("routes") or [])}
 
 
 def _adopt_service(found: ProviderDraft, rid: str, kind: RuntimeKind, display_name: str, *, evidence: list[str], credentials: Credentials) -> RuntimeProfile:

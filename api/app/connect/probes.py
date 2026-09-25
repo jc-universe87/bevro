@@ -97,9 +97,15 @@ def listening_processes(root: Path) -> list[RunningProcess]:
     return found
 
 
-def port_answers(port: int, timeout: float = 1.5) -> bool:
+def local_base(port: int, address: str | None = None) -> str:
+    """The address of a port published on this machine: loopback, unless it is published on one address only."""
+    host = address or "127.0.0.1"
+    return f"http://[{host}]:{port}" if ":" in host else f"http://{host}:{port}"
+
+
+def port_answers(port: int, timeout: float = 1.5, address: str | None = None) -> bool:
     try:
-        r = httpx.get(f"http://127.0.0.1:{port}/", timeout=timeout, follow_redirects=False)
+        r = httpx.get(f"{local_base(port, address)}/", timeout=timeout, follow_redirects=False)
     except httpx.HTTPError:
         return False
     return r.status_code < 500 or r.status_code in (500, 501, 503)
