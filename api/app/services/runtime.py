@@ -539,10 +539,17 @@ def check_all_runtimes(provider: Provider, secrets: dict[str, str], *, execution
         # which is the thing a person can act on. The check answers the other
         # question - can this way be reached at all.
         result = check_runtime(provider, rt, secrets)
-        outcomes.append((rt, result))
-        updates[rt.id] = rt.health.after_success() if result.ok else rt.health.after_failure(result.detail)
         if is_network(rt):
             reach[rt.id] = rt.reachability.with_result(location, result.ok)
+            other = WORKER if location == API else API
+            if not result.ok and rt.reachability.state(other) == "available":
+                # The other process reaches it. Not seeing it from here says
+                # where it is driven from, not that it is down, so it earns
+                # no rest period and is left for that process to report on.
+                deferred.append(rt)
+                continue
+        outcomes.append((rt, result))
+        updates[rt.id] = rt.health.after_success() if result.ok else rt.health.after_failure(result.detail)
     apply_health(provider, updates)
     apply_reachability(provider, reach)
     return outcomes, deferred

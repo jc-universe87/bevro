@@ -212,6 +212,22 @@ def test_g_a_route_that_comes_back_is_used_again_without_reconnecting():
     assert runtime_service.execution_location(provider, back, worker_available=True) == API
 
 
+def test_g2_a_check_from_the_side_that_cannot_see_it_is_not_an_outage(monkeypatch):
+    """The worker reaches it every day. The API trying and timing out says
+    where it is driven from - not that it is down - so nothing goes into a
+    rest period and the person is not told it can't be reached."""
+    provider = fx.provider_with(fx.network_runtime("openapi", api="unknown", worker="available"))
+    monkeypatch.setattr(runtime_service, "check_runtime", lambda p, rt, s: HealthResult(ok=False, state="unavailable", detail="Couldn't reach it (ConnectTimeout)."))
+
+    outcomes, deferred = runtime_service.check_all_runtimes(provider, {}, execution="inline")
+
+    assert outcomes == [] and [rt.id for rt in deferred] == ["openapi"]
+    after = runtime_service.runtimes_of(provider)[0]
+    assert after.reachability.api == "unavailable" and after.reachability.worker == "available"
+    assert not after.health.in_cooldown(runtime_service._now())
+    assert runtime_service.execution_of(provider, True) == "background"
+
+
 # --------------------------------------------------------------------------- H
 
 def test_h_nobody_can_see_it_and_nobody_pretends_otherwise(seeded):
