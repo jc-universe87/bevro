@@ -20,11 +20,12 @@ import os
 from pathlib import Path
 
 from adapters.localroots import OutsideRoots, find_by_name, resolve_within
-from adapters.runtime import CredentialStrategy, Credentials, RuntimeKind, RuntimeProfile
+from adapters.runtime import ContextInput, CredentialStrategy, Credentials, RuntimeKind, RuntimeProfile
 from app.connect.capabilities import infer_capabilities
 from app.connect.draft import ProviderDraft, not_found
 from app.connect.inspect import Project, humanise, readme_body, readme_excerpt
 from app.connect.probes import SystemdUnit, listening_processes, port_answers, systemd_units
+from app.connect.contexts import WORK_INTERFACES, compose_context, link_contexts, systemd_context
 from app.connect.runtimes import cli_runtime, http_runtime, managed_only_runtime, mcp_runtime, select, unique_id
 from app.connect.strategies.base import DiscoveryContext, DiscoveryFailed
 from app.connect.strategies.docker import inspect_docker
@@ -218,7 +219,7 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
                 )
             )
     for unit in units:
-        runtimes.append(_systemd_runtime(unit, unique_id("systemd", ids), secret_names))
+        runtimes.append(_systemd_runtime(unit, unique_id("systemd", ids), secret_names, project.root))
 
     # 3./4. Declared and inferred entry points: MCP servers and command-line interfaces.
     creds, self_configured, cred_evidence = cli_credentials(project, primary)
@@ -247,6 +248,12 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
                 warnings=[f"It runs as a web service on port {port}. Bevro won't start it: start it as you normally do, then use Test connection so Bevro can read its API."],
             )
         )
+
+    # Contexts a program could be launched inside: one-off containers of the
+    # project's Compose services, then which program each context would carry.
+    interfaces = [rt for rt in runtimes if rt.context is None and rt.kind in WORK_INTERFACES]
+    runtimes += _container_runtimes(docker.containers if docker else [], secret_names, project.root, interfaces, ids)
+    link_contexts(runtimes)
 
     if not runtimes:
         from app.connect.bridge import callable_surface
@@ -316,16 +323,55 @@ def _adopt_service(found: ProviderDraft, rid: str, kind: RuntimeKind, display_na
     return http_runtime(rid, kind=kind, adapter=base.adapter, display_name=display_name, availability="ready" if base.invocable else "not_invocable", confidence=base.confidence, credentials=creds, evidence=evidence, warnings=list(base.warnings), target=base.target, accepts_prompt=base.invocable)
 
 
-def _systemd_runtime(unit: SystemdUnit, rid: str, secret_names: list[str]) -> RuntimeProfile:
-    state = "active" if unit.active else "installed but not running" if unit.installed else "shipped with the project, not installed here"
+def _systemd_runtime(unit: SystemdUnit, rid: str, secret_names: list[str], owner: Path) -> RuntimeProfile:
+    if unit.template:
+        state = "installed, started once per use" if unit.installed else "shipped with the project, not installed here"
+    else:
+        state = "active" if unit.active else "installed but not running" if unit.installed else "shipped with the project, not installed here"
     evidence = [f"systemd unit {unit.name}: {state}"]
     creds = _systemd_credentials(unit, secret_names)
     if creds.supplied:
         evidence.append(_credential_evidence(unit, creds))
-    if unit.unit_type == "oneshot" or not unit.active:
+    context = systemd_context(unit, owner, creds)
+    if context.input == ContextInput.STDIN:
+        evidence.append(f"{unit.socket.name if unit.socket else unit.name} starts it for each connection and hands it the request")
+        note = "It takes requests on a socket, which Bevro doesn't hand work to yet."
+    elif unit.unit_type == "oneshot" or not unit.active:
         note = "It's managed by systemd as a scheduled or one-off job, which Bevro can't hand tasks to." if unit.unit_type == "oneshot" else "Its systemd unit isn't running, so there is nothing to reach."
-        return managed_only_runtime(rid, kind=RuntimeKind.SYSTEMD, display_name="Runs as a local service (systemd)", evidence=evidence, note=note, credentials=creds, target=unit.name)
-    return managed_only_runtime(rid, kind=RuntimeKind.SYSTEMD, display_name="Runs as a local service (systemd)", evidence=evidence, note="Its systemd service is running but doesn't expose a way to hand it tasks.", credentials=creds, target=unit.name)
+    else:
+        note = "Its systemd service is running but doesn't expose a way to hand it tasks."
+    return managed_only_runtime(rid, kind=RuntimeKind.SYSTEMD, display_name="Runs as a local service (systemd)", evidence=evidence, note=note, credentials=creds, target=unit.name, context=context)
+
+
+def _container_runtimes(containers: list[dict], secret_names: list[str], owner: Path, interfaces: list[RuntimeProfile], ids: set[str]) -> list[RuntimeProfile]:
+    """Compose services a one-off container of which could run the project's program.
+
+    Only worth recording beside a program Bevro would run: a context is
+    somewhere *that* program could be launched with more than the shell
+    gives it. A service that publishes a port and runs something else is
+    reached as a service, and already is.
+    """
+    if not interfaces:
+        return []
+    out: list[RuntimeProfile] = []
+    for container in containers:
+        creds = _compose_credentials(container.get("svc") or {}, secret_names)
+        context = compose_context(container, owner, creds)
+        runtime = managed_only_runtime(
+            "compose-run",
+            kind=RuntimeKind.DOCKER_COMPOSE,
+            display_name="Runs in a container (Compose)",
+            evidence=[f"{container['file']}: service '{container['service']}' can be run as a one-off container"],
+            note="Bevro doesn't run work in its containers yet.",
+            credentials=creds,
+            context=context,
+        )
+        link_contexts([runtime, *interfaces])
+        if container.get("ports") and runtime.context.matches is None:
+            continue
+        runtime.id = unique_id("compose-run", ids)
+        out.append(runtime)
+    return out[:3]
 
 
 def _systemd_credentials(unit: SystemdUnit, secret_names: list[str]) -> Credentials:

@@ -43,6 +43,9 @@ class Finding:
     env: dict[str, str] = field(default_factory=dict)
     # The project loads its own .env (python-dotenv, dotenv): it can carry its own credentials.
     loads_dotenv: bool = False
+    # Compose services a one-off container could be run from, whatever they
+    # publish: {"file", "service", "entrypoint", "built_here", "ports", "svc"}.
+    containers: list[dict[str, Any]] = field(default_factory=list)
 
 
 CONF_ORDER = {"high": 0, "medium": 1, "low": 2}

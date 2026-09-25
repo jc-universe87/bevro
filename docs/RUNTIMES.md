@@ -122,6 +122,52 @@ adapter: a value Bevro holds (an explicit override) → the worker's
 environment → the project's own `.env` → *Credential required*. Bevro never
 reads a secret value to learn how a runtime works.
 
+### Execution contexts
+
+The same command line can have a key or not depending on what starts it. Run
+from a shell it has nothing; started by the project's installed service it
+is handed an environment the shell never sees. That difference belongs to
+the *launch*, so it is recorded as an `ExecutionContext` on the runtime whose
+program it launches (`RuntimeProfile.context`, `adapters/runtime.py`):
+
+| Field | Meaning |
+|---|---|
+| `kind` | `systemd_service`, `systemd_socket` (started per connection), `compose_run` (a one-off container) |
+| `source_ref` | the unit, or `<compose file>:<service>` — server-side |
+| `owner` | the project folder it belongs to — server-side |
+| `program` | the fixed command it runs — server-side |
+| `input` | how a request could reach it: `none`, `instance_name`, `stdin`, `argument_data` |
+| `supplies` | credential **names** it hands its program |
+| `privilege` | `same_user`, `needs_admin`, `unknown` — asked of PolicyKit (`pkcheck`, no prompting), of a socket's permissions, of the Docker socket's permissions; never by trying |
+| `matches` | the way in whose program it runs, if any |
+| `problems` | why it could not carry Bevro's work; none means *compatible in principle* |
+
+**The context owns the program; Bevro supplies data only.** A context is
+compatible only when it belongs to the project, runs the program discovery
+found (on this machine: the very same interpreter), that program is fixed —
+not a shell, not an interpreter that would evaluate its arguments — a
+request can reach it as data (stdin, or values after the fixed program), and
+this user may use it without administrator permission. Anything else would
+let Bevro choose what runs inside an environment full of secrets, which is
+the same as reading them.
+
+Contexts are **found and described, never used** (`LAUNCHABLE_CONTEXTS` is
+empty). A runtime with a context that cannot be launched is not invocable:
+it is never selected, and its credentials never count as supplying anybody
+else's. When a launcher exists, ranking already knows where it goes —
+native credentials, then a provider-owned context (`context_standing`), then
+Bevro-managed, then nothing — and use will need a `context` trust grant for
+exactly that context, which is void once its project's folder grant is gone
+(`trust.allows_context`). No such grant is ever asked for today.
+
+Discovery never runs `docker`, `sudo`, `systemd-run` or `systemctl start`,
+never reads `/proc/*/environ`, and never opens an `EnvironmentFile`. For an
+installed unit, the installed fragment's `ExecStart`/`Type` win over what the
+project ships; template units (`name@.service`) are found through
+`list-unit-files` and `systemctl cat`. Advanced details lists each context:
+what it provides, whether it can take ad-hoc work, whether it needs an
+administrator, whether it is authorised, and why not.
+
 ### Input and output normalisation
 
 | Input | Meaning |

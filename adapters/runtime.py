@@ -326,6 +326,116 @@ class Reachability(BaseModel):
         return self.ruled_out(API) and not self.ruled_out(WORKER)
 
 
+class ContextKind(StrEnum):
+    """Something that launches a program and hands it an environment of its own."""
+
+    SYSTEMD_SERVICE = "systemd_service"  # a unit systemd starts for itself
+    SYSTEMD_SOCKET = "systemd_socket"    # a unit systemd starts per connection to a socket
+    COMPOSE_RUN = "compose_run"          # a one-off container of a Compose service
+
+
+class ContextInput(StrEnum):
+    """How a request could reach the program a context runs."""
+
+    NONE = "none"                    # a fixed job: nothing can be handed to it
+    INSTANCE_NAME = "instance_name"  # a template unit's short name, which is not a request
+    STDIN = "stdin"                  # a connection's data, on the program's standard input
+    ARGUMENT_DATA = "argument_data"  # values appended to a fixed program
+
+
+# The ways a request can reach a program without being able to change which
+# program it is.
+BOUNDED_INPUTS = frozenset({ContextInput.STDIN, ContextInput.ARGUMENT_DATA})
+
+# Contexts Bevro can actually launch work through. None yet: they are found
+# and described, and nothing runs through them. While this is empty a way in
+# that needs a context can never be chosen, and never counts as supplying a
+# credential, however promising it looks.
+LAUNCHABLE_CONTEXTS: frozenset[ContextKind] = frozenset()
+
+# Why a context could not carry Bevro's work, in a sentence each.
+CONTEXT_PROBLEMS = {
+    "not_installed": "It isn't installed on this machine.",
+    "no_request_channel": "It runs a fixed job and has no way to be given a request.",
+    "instance_name_only": "It can only be given a short name, not a request.",
+    "program_not_fixed": "It would run whatever it was given, so Bevro won't hand it anything.",
+    "program_unknown": "Bevro can't see which program it runs.",
+    "no_matching_program": "What it runs isn't a program Bevro found in this project.",
+    "different_owner": "It doesn't belong to this project.",
+    "needs_admin": "Using it needs administrator permission.",
+    "permission_unknown": "Bevro couldn't tell whether it may use it.",
+}
+
+
+class ExecutionContext(BaseModel):
+    """Where a program is launched, and what that launch hands it.
+
+    The same command line can have a key or not depending on who starts it:
+    run from a shell it has nothing, started by its installed service it is
+    handed an environment the shell never sees. That difference is a fact
+    about the *launch*, not the program, and this records it.
+
+    The rule that makes a context safe to use at all: **the context owns the
+    program, and Bevro supplies data only.** A context that would let Bevro
+    choose what runs inside it would let Bevro run `env` and read every
+    secret it holds, so such a context is recorded as a problem, never as a
+    way in.
+
+    Evidence only. Names of credentials, never values; the program and the
+    owning folder stay server-side. Whether Bevro is *allowed* to use one is
+    worked out when it is asked (see app/services/contexts.py), not stored.
+    """
+
+    kind: ContextKind
+    # The unit name, or "<compose file>:<service>". Server-side.
+    source_ref: str
+    # The project folder this belongs to. Server-side.
+    owner: str | None = None
+    # The fixed command the context runs, as far as it could be read. Server-side.
+    program: list[str] = Field(default_factory=list)
+    input: ContextInput = ContextInput.NONE
+    # Credential names the context hands its program. Names only, always.
+    supplies: list[str] = Field(default_factory=list)
+    # same_user: this user may use it as it stands. needs_admin: only with
+    # permission from an administrator. unknown: nobody could tell.
+    privilege: str = "unknown"
+    # Whether it exists on this machine now.
+    available: bool = False
+    # The way in (runtime id) whose program this is, when there is one.
+    matches: str | None = None
+    # Keys of CONTEXT_PROBLEMS. None at all means compatible in principle.
+    problems: list[str] = Field(default_factory=list)
+
+    @property
+    def compatible(self) -> bool:
+        """Could this, in principle, carry arbitrary work for the program it matches?"""
+        return not self.problems and self.matches is not None and self.input in BOUNDED_INPUTS
+
+    @property
+    def launchable(self) -> bool:
+        """Can Bevro actually launch work through it today?"""
+        return self.compatible and self.kind in LAUNCHABLE_CONTEXTS
+
+    @property
+    def key(self) -> str:
+        """What a trust grant for exactly this context names."""
+        return f"{self.kind.value}:{self.source_ref}@{self.owner or ''}"
+
+    def advanced(self) -> dict[str, Any]:
+        """For Advanced details: what it is and why not, never where or what it runs."""
+        return {
+            "kind": self.kind.value,
+            "source_ref": self.source_ref,
+            "input": self.input.value,
+            "supplies": list(self.supplies),
+            "privilege": self.privilege,
+            "available": self.available,
+            "compatible": self.compatible,
+            "launchable": self.launchable,
+            "problems": list(self.problems),
+        }
+
+
 class RuntimeProfile(BaseModel):
     id: str = Field(max_length=40)
     kind: RuntimeKind = RuntimeKind.UNKNOWN
@@ -352,6 +462,9 @@ class RuntimeProfile(BaseModel):
     # Which of Bevro's processes can reach it. Only meaningful for runtimes
     # reached over a network; a command on the host is the worker's by nature.
     reachability: Reachability = Field(default_factory=Reachability)
+    # What launches this way in's program and hands it its environment, when
+    # that is something other than the worker's own shell.
+    context: ExecutionContext | None = None
 
     @property
     def adapter_kind(self) -> str:
@@ -359,6 +472,11 @@ class RuntimeProfile(BaseModel):
 
     @property
     def invocable(self) -> bool:
+        # A way in that has to be launched inside a context is only as usable
+        # as that launch: a context Bevro cannot use yet makes it unusable,
+        # whatever else is true of it.
+        if self.context is not None and not self.context.launchable:
+            return False
         return self.availability != "not_invocable" and bool(self.adapter_kind) and self.abilities.accepts_prompt
 
     def public(self) -> dict[str, Any]:
@@ -405,6 +523,7 @@ class RuntimeProfile(BaseModel):
             "priority": self.priority,
             "health": self.health.state.value,
             "consecutive_failures": self.health.consecutive_failures,
+            "context": self.context.advanced() if self.context is not None else None,
         }
 
 

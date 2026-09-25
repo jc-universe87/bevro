@@ -39,7 +39,9 @@ log = logging.getLogger("bevro.reconcile")
 # Bumped when discovery learns something that changes what it would find for
 # a provider connected before. Providers below this are rediscovered once, by
 # the worker, rather than being left to say what an older Bevro concluded.
-DISCOVERY_VERSION = 2
+#   2  credentials belong to runtimes; systemd environment files
+#   3  execution contexts; installed template units; the installed unit's own ExecStart
+DISCOVERY_VERSION = 3
 
 
 @dataclass

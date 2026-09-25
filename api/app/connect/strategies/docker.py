@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import re
+import shlex
 from typing import Any
 
 import yaml
@@ -15,6 +17,62 @@ INFRA_IMAGES = ("postgres", "mysql", "mariadb", "redis", "rabbitmq", "mongo", "m
 APP_NAMES = ("app", "api", "agent", "server", "web", "backend", "service")
 _EXPOSE = re.compile(r"^\s*EXPOSE\s+(\d{2,5})", re.M)
 _HEALTH_URL = re.compile(r"https?://[^/\s\"']+(/[\w./-]*)")
+_ENTRYPOINT = re.compile(r"^\s*ENTRYPOINT\s+(.+)$", re.M | re.I)
+
+
+def _argv(value: Any) -> list[str] | None:
+    """An entrypoint as Compose writes one: a list, or a string split like a shell would."""
+    if isinstance(value, list):
+        return [str(v) for v in value]
+    if isinstance(value, str) and value.strip():
+        try:
+            return shlex.split(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _dockerfile_entrypoint(project: Project, svc: dict[str, Any]) -> list[str] | None:
+    """The ENTRYPOINT of an image built from this project's own Dockerfile.
+
+    Only the project's top-level Dockerfile, built from the project itself,
+    is read; anything else is somebody else's image. The shell form runs
+    through /bin/sh, and is recorded as exactly that.
+    """
+    build = svc.get("build")
+    context = build if isinstance(build, str) else (build.get("context") if isinstance(build, dict) else None)
+    dockerfile = build.get("dockerfile", "Dockerfile") if isinstance(build, dict) else "Dockerfile"
+    if str(context or "").rstrip("/") not in (".", "") or dockerfile != "Dockerfile":
+        return None
+    match = None
+    for match in _ENTRYPOINT.finditer(project.read_text("Dockerfile", 16_000) or ""):
+        pass  # the last ENTRYPOINT is the one that counts
+    if match is None:
+        return None
+    text = match.group(1).strip()
+    if text.startswith("["):
+        try:
+            value = json.loads(text)
+        except ValueError:
+            return None
+        return [str(v) for v in value] if isinstance(value, list) else None
+    return ["/bin/sh", "-c", text]
+
+
+def _containers(project: Project, compose_name: str, services: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every service built or run as an application, as a one-off could run it."""
+    out: list[dict[str, Any]] = []
+    for name, svc in services.items():
+        if not isinstance(svc, dict):
+            continue
+        image = str(svc.get("image") or "")
+        if any(image.startswith(i) or f"/{i}" in image for i in INFRA_IMAGES) and not svc.get("build"):
+            continue
+        entrypoint = _argv(svc.get("entrypoint"))
+        if entrypoint is None and svc.get("build"):
+            entrypoint = _dockerfile_entrypoint(project, svc)
+        out.append({"file": compose_name, "service": str(name), "entrypoint": entrypoint, "built_here": bool(svc.get("build")), "ports": bool(svc.get("ports")), "svc": svc})
+    return out[:6]
 
 
 def _host_port(entry: Any) -> int | None:
@@ -87,6 +145,7 @@ def inspect_docker(project: Project) -> Finding | None:
             service["depends_on"] = list(deps.keys()) if isinstance(deps, dict) else [str(d) for d in deps]
         finding.services.append(service)
         finding.evidence.append(service["source"])
+    finding.containers = _containers(project, compose_name, services)
     if services and not candidates:
         finding.evidence.append(f"{compose_name} defines {len(services)} service(s), none publishing a port")
     return finding

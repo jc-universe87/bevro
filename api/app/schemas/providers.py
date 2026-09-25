@@ -75,6 +75,10 @@ class ProviderDetails(BaseModel):
     runs_at: str | None = None
     # {"api": "unavailable", "worker": "available", ...} - who has reached it.
     reachability: dict[str, Any] | None = None
+    # Things that launch the project's program with an environment of their
+    # own - an installed service, a Compose service - and whether any of them
+    # could carry Bevro's work. Wording and credential names only.
+    contexts: list[dict[str, Any]] = Field(default_factory=list)
     # local_machine | private_network | vpn_overlay | public_network | unknown.
     # Worked out, shown here only, and never acted on.
     location_class: str | None = None

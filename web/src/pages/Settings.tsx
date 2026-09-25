@@ -114,9 +114,9 @@ export default function Settings() {
               <li key={g.id} className="flex flex-wrap items-baseline justify-between gap-2 py-2.5">
                 <div className="min-w-0">
                   <div className="text-sm font-medium">{g.label}</div>
-                  <div className="break-all text-xs text-muted">{g.kind === "folder" ? g.target : `Program: ${g.target}`}</div>
+                  <div className="break-all text-xs text-muted">{g.kind === "folder" ? g.target : g.kind === "context" ? `Runs work inside: ${g.target}` : `Program: ${g.target}`}</div>
                   <div className="text-xs text-subtle">
-                    {g.kind === "folder" ? (g.scope === "tree" ? "This folder and everything in it" : "This folder") : "May be run"}
+                    {g.kind === "folder" ? (g.scope === "tree" ? "This folder and everything in it" : "This folder") : g.kind === "context" ? "May be used for this project's work" : "May be run"}
                     {g.granted_at ? ` · allowed ${new Date(g.granted_at).toLocaleDateString()}` : ""}
                     {g.granted_by === "migration" ? " · from before Bevro asked" : ""}
                   </div>

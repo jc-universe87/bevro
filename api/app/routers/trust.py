@@ -21,7 +21,7 @@ router = APIRouter(prefix="/trust", tags=["trust"])
 
 class GrantOut(BaseModel):
     id: str
-    kind: str          # "folder" | "command"
+    kind: str          # "folder" | "command" | "context"
     label: str
     target: str        # a folder's path; a command's program name, never its arguments
     scope: str

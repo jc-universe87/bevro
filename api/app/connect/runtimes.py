@@ -10,13 +10,19 @@ Preference, where sensible:
   3. a declared MCP / CLI interface
   4. an inferred executable entry point
   5. a Bevro-side wrapper, last of all
+
+And by where its credentials come from, among ways in that can take work:
+  1. the program has them itself (its own .env, its service's environment)
+  2. a context the provider owns launches it with them (`context_standing`)
+  3. Bevro has to supply them
+  4. nothing can, or it cannot take work at all
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from adapters.runtime import CredentialStrategy, Credentials, HealthState, InputMode, OutputMode, RuntimeAbilities, RuntimeKind, RuntimeProfile
+from adapters.runtime import CredentialStrategy, Credentials, ExecutionContext, HealthState, InputMode, OutputMode, RuntimeAbilities, RuntimeKind, RuntimeProfile
 
 CONF = {"high": 0, "medium": 1, "low": 2}
 
@@ -60,6 +66,29 @@ HEALTH_SCORE = {
 }
 
 
+# A way in launched inside a context the provider owns - its service's
+# environment, its container's - gets its credentials from somewhere real, but
+# borrowed: below a program that has them itself, above one Bevro must supply.
+# Chosen so that the order is exactly
+#     native (+9)  >  provider's context (+6)  >  Bevro-managed (-11)
+# once the credential adjustments in `score` are added.
+CONTEXT_BORROWED = -3
+
+
+def context_standing(rt: RuntimeProfile) -> int:
+    """Where a context puts a way in, among the ways in that could take work.
+
+    A context Bevro cannot launch through yet counts for nothing - worse,
+    it counts as not usable at all. Something that merely looks promising
+    must never be chosen for work over something that can do it now.
+    """
+    if rt.context is None:
+        return 0
+    if not rt.context.launchable:
+        return -100
+    return CONTEXT_BORROWED
+
+
 def score(rt: RuntimeProfile) -> int:
     value = BASE_SCORE.get(rt.kind, 0)
     # Something that can take a task now beats something that must be started first.
@@ -89,6 +118,7 @@ def score(rt: RuntimeProfile) -> int:
         value += 5
     elif rt.credentials.status == "incomplete":
         value -= 5
+    value += context_standing(rt)
     # A connection Bevro had built for a project that had none is the last
     # resort: anything the project offers itself, of comparable standing, wins.
     if (rt.adapter.get("config") or {}).get("bridge"):
@@ -275,7 +305,7 @@ def cli_runtime(rid: str, *, kind: RuntimeKind, adapter: dict[str, Any], display
     )
 
 
-def managed_only_runtime(rid: str, *, kind: RuntimeKind, display_name: str, evidence: list[str], note: str, credentials: Credentials, target: str | None = None) -> RuntimeProfile:
+def managed_only_runtime(rid: str, *, kind: RuntimeKind, display_name: str, evidence: list[str], note: str, credentials: Credentials, target: str | None = None, context: ExecutionContext | None = None) -> RuntimeProfile:
     """A runtime Bevro can see but cannot hand tasks to (a timer job, a unit
     without an interface). Recorded for the record and for Manage; never active."""
     return RuntimeProfile(
@@ -292,4 +322,5 @@ def managed_only_runtime(rid: str, *, kind: RuntimeKind, display_name: str, evid
         abilities=RuntimeAbilities(accepts_prompt=False, health=False),
         evidence=evidence,
         warnings=[note],
+        context=context,
     )

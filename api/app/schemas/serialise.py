@@ -197,6 +197,7 @@ def _reached_from(rt: Any) -> str | None:
 
 def provider_details(provider: Provider, db: Any = None) -> ProviderDetails:
     from app.connect.openapi import catalogue_from_json
+    from app.services.contexts import describe as describe_context
     from app.services.runtime import active_runtime, runtimes_of
 
     if db is not None:
@@ -219,6 +220,7 @@ def provider_details(provider: Provider, db: Any = None) -> ProviderDetails:
         operation_count=len(operations) or None,
         runs_at="This machine" if rt is not None and rt.reachability.host_only() else ("Bevro itself" if rt is not None else None),
         reachability=rt.reachability.model_dump(mode="json") if rt is not None else None,
+        contexts=[view for view in (describe_context(db, r) for r in runtimes_of(provider)) if view is not None],
     )
 
 

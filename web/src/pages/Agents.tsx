@@ -382,6 +382,27 @@ function ManagePanel({ provider, onChange, onRemoved, focusCredential = false, a
                 </dd>
               </>
             )}
+            {(details.contexts ?? []).length > 0 && (
+              <>
+                <dt className="self-start">Execution context</dt>
+                <dd>
+                  <ul className="space-y-1.5">
+                    {(details.contexts ?? []).map((c) => (
+                      <li key={c.id}>
+                        <div>
+                          {c.title} · {c.name}
+                          {c.available ? "" : " (not installed here)"}
+                        </div>
+                        <div>
+                          Credentials: {c.credentials} · Can take ad-hoc work: {c.takes_work} · Needs administrator permission: {c.needs_admin} · Authorised: {c.authorised}
+                        </div>
+                        {c.why_not.length > 0 && <div>{c.why_not.join(" ")}</div>}
+                      </li>
+                    ))}
+                  </ul>
+                </dd>
+              </>
+            )}
             {details.source_kind && (
               <>
                 <dt>Connected from</dt>

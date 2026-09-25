@@ -69,7 +69,7 @@ export interface TrustAsk {
 
 export interface TrustGrant {
   id: string;
-  kind: "folder" | "command";
+  kind: "folder" | "command" | "context";
   label: string;
   target: string;
   scope: string;
@@ -105,6 +105,23 @@ export interface ProviderDetails {
   runs_at?: string | null;
   reachability?: { api?: string; worker?: string; api_checked_at?: string | null; worker_checked_at?: string | null } | null;
   location_class?: string | null;
+  /** Things that launch the project's program with an environment of their own. */
+  contexts?: ExecutionContextView[];
+}
+
+export interface ExecutionContextView {
+  id: string;
+  /** "Installed system service", "Compose service"... */
+  title: string;
+  /** The unit, or the Compose service and its file. Never a path. */
+  name: string;
+  /** Credential names only: "Provides OPENAI_API_KEY". */
+  credentials: string;
+  takes_work: string;
+  needs_admin: string;
+  authorised: string;
+  available: boolean;
+  why_not: string[];
 }
 
 export type TaskState =

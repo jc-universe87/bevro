@@ -42,6 +42,11 @@ log = logging.getLogger("bevro.trust")
 
 FOLDER = "folder"
 COMMAND = "command"
+# Something that launches a project's program with an environment of its own
+# (see adapters/runtime.py ExecutionContext). Exact, always: the grant names
+# one context of one project, and is worth nothing once that project is not
+# trusted.
+CONTEXT = "context"
 
 # Places nothing should be granted, whoever asks. These are the machine's own
 # workings and the person's keys: a folder inside one of them is not a project
@@ -197,6 +202,17 @@ def grant(db: Session, kind: str, target: str, *, scope: str = "exact", label: s
         if not target:
             raise TrustError("There is no command there.")
         label = label or Path(target).name
+    elif kind == CONTEXT:
+        target = str(target).strip()
+        owner = context_owner(target)
+        if owner is None:
+            raise TrustError("That isn't something Bevro can be allowed to use.")
+        if not allows_folder(db, owner):
+            # A context belongs to a project. Allowing the one without the
+            # other would be allowing something nobody looked at.
+            raise TrustError("Bevro hasn't been allowed to look at the project this belongs to.")
+        scope = "exact"
+        label = label or context_ref(target)
     else:
         raise TrustError(f"Bevro has nothing to grant for {kind!r}.")
 
@@ -258,6 +274,38 @@ def allows_folder(db: Session, raw: str) -> bool:
     return any(path == root or root in path.parents for root in folder_roots(db))
 
 
+def context_owner(key: str) -> str | None:
+    """The project folder a context key names, or None if it is not one.
+
+    A key is "<kind>:<unit or compose service>@<project folder>", exactly as
+    ExecutionContext.key writes it.
+    """
+    from adapters.runtime import ContextKind
+
+    kind, sep, rest = key.partition(":")
+    ref, at, owner = rest.rpartition("@")
+    if not sep or not at or not ref or kind not in {k.value for k in ContextKind} or not owner.startswith("/"):
+        return None
+    return owner
+
+
+def context_ref(key: str) -> str:
+    """What a context is called, without the folder it belongs to."""
+    return key.partition(":")[2].rpartition("@")[0] or key
+
+
+def allows_context(db: Session, key: str) -> bool:
+    """Has the person allowed exactly this context - and still its project?
+
+    Checked at use, like everything else here: revoking either the context
+    or the project's folder stops it being used from the next run on.
+    """
+    owner = context_owner(key)
+    if owner is None or not allows_folder(db, owner):
+        return False
+    return any(row.target == key for row in active_grants(db, CONTEXT))
+
+
 def allows_command(db: Session, argv: list[str] | tuple[str, ...]) -> bool:
     """Is this program one the person agreed Bevro could run?
 
@@ -300,7 +348,7 @@ def public(row: TrustGrant) -> dict[str, Any]:
         "id": str(row.id),
         "kind": row.kind,
         "label": row.label or Path(row.target).name,
-        "target": row.target if row.kind == FOLDER else Path(row.target).name,
+        "target": row.target if row.kind == FOLDER else context_ref(row.target) if row.kind == CONTEXT else Path(row.target).name,
         "scope": row.scope,
         "granted_at": row.granted_at.isoformat() if isinstance(row.granted_at, datetime) else None,
         "granted_by": row.granted_by,
