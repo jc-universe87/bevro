@@ -165,6 +165,10 @@ class Worker:
             # ...and anything found by an older Bevro is looked at again, once,
             # rather than being left saying what that older Bevro concluded.
             self.catch_up(db)
+            # What the person has allowed, before the first report: checking a
+            # program in an allowed folder without it says "outside the
+            # allowed folders" about something that isn't.
+            self.roots = trust_service.apply_to_process(db)
         last_reap = 0.0
         last_report = -AVAILABILITY_EVERY_SECONDS
         while not self.stop.is_set():

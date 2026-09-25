@@ -6,14 +6,12 @@ from app.services import providers as provider_service
 
 
 def test_a_normal_workspace_starts_with_no_demo_agents(db):
-    """A real installation's agents are the ones its owner connected or created.
-
-    Only the optional integrations are registered, so that work can be routed
-    to them the moment their runtime is actually there.
-    """
-    assert provider_service.seed_examples(db, demo=False) == 1
-    slugs = {p.slug for p in provider_service.list_providers(db, enabled_only=False)}
-    assert slugs == {"claude-code"}
+    """A real installation's apps and agents are the ones its owner connected,
+    created or chose to add. Nothing is registered on its own - not even what
+    Bevro knows how to use; that is offered instead."""
+    assert provider_service.seed_examples(db, demo=False) == 0
+    assert provider_service.list_providers(db, enabled_only=False) == []
+    assert [m["slug"] for m in provider_service.offered_integrations(db)] == ["claude-code"]
     assert provider_service.seed_examples(db, demo=False) == 0  # and again changes nothing
 
 

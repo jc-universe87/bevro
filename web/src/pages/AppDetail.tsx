@@ -651,34 +651,35 @@ export default function AppDetail() {
           <AdvancedDetails provider={p} details={details} />
         </details>
 
-        {p.origin !== "example" && (
-          <div className="mt-8">
-            {confirmRemove ? (
-              <div role="group" aria-labelledby="remove-heading" className="bv-panel">
-                <p id="remove-heading" className="font-medium">
-                  Remove {p.name} from Bevro?
-                </p>
-                <ul className="mt-1 space-y-0.5 text-sm text-muted">
-                  {removalConsequences(p, plan).map((line) => (
-                    <li key={line}>{line}</li>
-                  ))}
-                </ul>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button type="button" className="bv-btn-danger" onClick={remove} disabled={busy || (plan?.in_flight ?? 0) > 0}>
-                    Yes, remove
-                  </button>
-                  <button type="button" className="bv-btn-quiet" onClick={() => { setConfirmRemove(false); setPlan(null); }}>
-                    Keep
-                  </button>
-                </div>
+        <div className="mt-10 border-t bv-sep pt-5">
+          {confirmRemove ? (
+            <div role="group" aria-labelledby="remove-heading" className="bv-panel">
+              <p id="remove-heading" className="font-medium">
+                Remove {p.name} from Bevro?
+              </p>
+              <p className="mt-1 text-sm">
+                This removes {p.name} from your Apps & agents list and removes Bevro's current setup for it. Your previous task history will remain.
+              </p>
+              <ul className="mt-2 space-y-0.5 text-sm text-muted">
+                {removalConsequences(p, plan).map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button type="button" className="bv-btn-quiet" onClick={() => { setConfirmRemove(false); setPlan(null); }}>
+                  Cancel
+                </button>
+                <button type="button" className="bv-btn-danger" onClick={remove} disabled={busy || (plan?.in_flight ?? 0) > 0}>
+                  Remove from Bevro
+                </button>
               </div>
-            ) : (
-              <button type="button" className="bv-btn-danger -ml-3" onClick={() => void askToRemove()} disabled={busy}>
-                Remove from Bevro
-              </button>
-            )}
-          </div>
-        )}
+            </div>
+          ) : (
+            <button type="button" className="bv-btn-danger -ml-3" onClick={() => void askToRemove()} disabled={busy}>
+              Remove from Bevro
+            </button>
+          )}
+        </div>
       </section>
     </Page>
   );

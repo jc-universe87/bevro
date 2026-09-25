@@ -157,8 +157,8 @@ test("an empty hub says what will be here and the two ways to fill it", async ()
   renderAt("/apps");
   const empty = await screen.findByRole("region", { name: "Your apps and agents will appear here." });
   expect(within(empty).getByText("Connect something you already use, or create something new.")).toBeInTheDocument();
-  expect(within(empty).getByRole("link", { name: "Connect" })).toHaveAttribute("href", "/connect");
-  expect(within(empty).getByRole("link", { name: "Create" })).toHaveAttribute("href", "/create");
+  expect(within(empty).getByRole("link", { name: "Connect something" })).toHaveAttribute("href", "/connect");
+  expect(within(empty).getByRole("link", { name: "Create something new" })).toHaveAttribute("href", "/create");
   expect(document.body.textContent).not.toMatch(/No providers/i);
 });
 
@@ -229,9 +229,11 @@ test("something Bevro drives: Test, pause, and remove are there, below the usefu
 
   await user.click(within(care).getByRole("button", { name: "Remove from Bevro" }));
   const question = within(care).getByRole("group", { name: "Remove Ledger from Bevro?" });
+  expect(question).toHaveTextContent("This removes Ledger from your Apps & agents list and removes Bevro's current setup for it. Your previous task history will remain.");
+  expect(within(question).getAllByRole("button").map((b) => b.textContent)).toEqual(["Cancel", "Remove from Bevro"]);
   expect(question).toHaveTextContent("Nothing outside Bevro is touched: Ledger itself stays exactly as it is.");
   expect(question).toHaveTextContent("2 tasks stay in Recent");
-  await user.click(within(question).getByRole("button", { name: "Yes, remove" }));
+  await user.click(within(question).getByRole("button", { name: "Remove from Bevro" }));
   expect(calls.some((c) => c.method === "DELETE" && c.url === "/api/providers/p1")).toBe(true);
   expect(await screen.findByRole("heading", { level: 1, name: "Apps & agents" })).toBeInTheDocument();
 });

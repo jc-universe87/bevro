@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.db import get_sessionmaker
-from app.routers import artifacts, automations, connect, create, notifications, providers, tasks, trust, workspaces
+from app.routers import artifacts, automations, connect, create, integrations, notifications, providers, tasks, trust, workspaces
 from app.routing.router import routing_status
 from app.services.providers import seed_examples, settle_descriptions
 from app.services.runtime import ensure_runtimes
@@ -66,6 +66,7 @@ def create_app() -> FastAPI:
     api.include_router(tasks.router)
     api.include_router(artifacts.router)
     api.include_router(providers.router)
+    api.include_router(integrations.router)
     api.include_router(automations.router)
     api.include_router(notifications.router)
     api.include_router(connect.router)

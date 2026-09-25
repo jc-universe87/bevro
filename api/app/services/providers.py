@@ -194,24 +194,27 @@ def retire_demo_providers(db: Session) -> int:
 
 
 def seed_examples(db: Session, *, demo: bool | None = None) -> int:
-    """Register the providers Bevro ships, and refresh the ones already here.
+    """Refresh the shipped providers someone already has, and - in demo mode
+    only - register the examples.
 
-    A normal workspace gets the optional integrations only: the agents in it
-    should be the ones its owner connected or created. The demo providers are
-    for tests, screenshots and `BEVRO_DEMO_MODE=true`.
+    A normal workspace gets nothing it did not ask for: Apps & agents is the
+    person's own list. Something Bevro knows how to use, such as a coding
+    tool, is offered and added only when they choose it (`add_integration`);
+    once removed, it stays removed. The demo providers are for tests,
+    screenshots and `BEVRO_DEMO_MODE=true`.
 
-    Manifests are the source of truth for shipped providers; `enabled` is the
-    user's and is left alone. Returns how many were inserted.
+    Manifests are the source of truth for shipped providers already added;
+    `enabled` is the user's and is left alone. Returns how many were inserted.
     """
     if demo is None:
         demo = get_settings().demo_mode
-    wanted = load_manifests() if demo else load_manifests(seed=INTEGRATION)
     added = 0
-    for manifest in wanted:
+    for manifest in load_manifests() if demo else load_manifests(seed=INTEGRATION):
         existing = get_by_slug(db, manifest["slug"])
         if existing is None:
-            register_provider(db, {k: v for k, v in manifest.items() if k != "seed"})
-            added += 1
+            if demo:
+                register_provider(db, {k: v for k, v in manifest.items() if k != "seed"})
+                added += 1
         elif existing.origin == "example":
             for field in _MANIFEST_FIELDS:
                 value = manifest.get(field) if field != "description" else (manifest.get("description") or "")
@@ -226,6 +229,24 @@ def seed_examples(db: Session, *, demo: bool | None = None) -> int:
 
     ensure_runtimes(db)
     return max(added, 0)
+
+
+def offered_integrations(db: Session) -> list[dict[str, Any]]:
+    """What Bevro knows how to use and the person hasn't added: offered, never inserted."""
+    return [m for m in load_manifests(seed=INTEGRATION) if get_by_slug(db, m["slug"]) is None]
+
+
+def add_integration(db: Session, slug: str) -> Provider | None:
+    """Add one offered integration because the person chose it. Caller commits."""
+    manifest = next((m for m in offered_integrations(db) if m["slug"] == slug), None)
+    if manifest is None:
+        return None
+    provider = register_provider(db, {k: v for k, v in manifest.items() if k != "seed"})
+    from app.services.runtime import ensure_runtimes
+
+    db.flush()
+    ensure_runtimes(db)
+    return provider
 
 
 def to_spec(provider: Provider) -> ProviderSpec:

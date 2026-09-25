@@ -13,10 +13,11 @@ from typing import Any
 MANIFEST_DIR = Path(__file__).parent / "manifests"
 
 
-# Why a manifest ships, which decides whether a real workspace gets it:
+# Why a manifest ships. Neither kind appears in someone's Apps & agents on
+# its own: that list is theirs (docs/HUB.md).
 #   "demo"        an example, for tests, screenshots and BEVRO_DEMO_MODE only
-#   "integration" a real optional provider, always registered so that work can
-#                 be routed to it the moment its runtime is actually there
+#   "integration" something Bevro knows how to use, offered to the person, and
+#                 added only when they choose it (POST /api/integrations/{slug})
 DEMO = "demo"
 INTEGRATION = "integration"
 

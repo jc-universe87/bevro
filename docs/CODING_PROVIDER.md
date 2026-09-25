@@ -214,9 +214,10 @@ question flow, permissions display and the UI need no change.
 
 ## Enabling Claude Code on your machine
 
-Claude Code is optional. A fresh Bevro installation lists it under Agents as
-"Not available on this installation" and declines coding requests with a
-plain sentence. To enable it:
+Claude Code is optional. A fresh Bevro installation doesn't list it: Apps &
+agents holds only what you connected, created or chose to add. Bevro offers
+it on Connect (and on Create when nothing can build) as **Add Claude Code**;
+until then coding requests are declined with a plain sentence. To enable it:
 
 1. **Install and sign in to Claude Code** on the machine that will run the
    worker (see Anthropic's Claude Code documentation). Check with
@@ -235,8 +236,9 @@ plain sentence. To enable it:
    ```
 
    The script finds the project root itself and reads `.env` if present.
-   Within a minute Claude Code shows "Ask" under Agents. Stop the worker and
-   it returns to "Not available".
+   Add it under Connect if you haven't. Within a minute it shows **Use in
+   Bevro** under Apps & agents. Stop the worker and it says it's waiting for
+   this computer.
 
 The worker reports one of four states, shown as a short note: *available*,
 *not installed* (no `claude` on the worker's PATH), *not signed in* (no

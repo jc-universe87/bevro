@@ -24,11 +24,10 @@ from app.services import tasks as task_service
 def test_a_fresh_installation_has_no_agents_of_its_own(client, db):
     """What someone sees on the first day: nothing pretending to be theirs."""
     provider_service.seed_examples(db, demo=False)
-    listed = client.get("/api/providers").json()
-    assert [p["slug"] for p in listed] == ["claude-code"]
-    # ...and the one shipped provider is not offered as though it were set up.
-    assert listed[0]["actions"] == []
-    assert listed[0]["availability"]["state"] == "unavailable"
+    # Nothing: Apps & agents is what the person connected or created.
+    assert client.get("/api/providers").json() == []
+    # What Bevro could add is offered, not added.
+    assert [o["slug"] for o in client.get("/api/integrations").json()] == ["claude-code"]
 
     assert client.get("/api/tasks").json() == []
     assert client.get("/api/automations").json() == []
@@ -469,6 +468,7 @@ def test_the_removal_question_is_asked_with_the_facts(client, seeded, research):
     finished_task(seeded, research, "One")
     finished_task(seeded, research, "Two")
     plan = client.get(f"/api/providers/{research.id}/removal").json()
-    assert plan == {"removable": False, "history": 2, "in_flight": 0, "credentials": 0, "built_project": False, "built_connection": False}
-    # A shipped example says so rather than pretending it can go.
-    assert client.delete(f"/api/providers/{research.id}").status_code == 409
+    assert plan == {"removable": True, "history": 2, "in_flight": 0, "credentials": 0, "built_project": False, "built_connection": False}
+    # Shipped or not, it is the person's to remove; its two tasks stay.
+    assert client.delete(f"/api/providers/{research.id}").status_code == 204
+    assert len(client.get("/api/tasks").json()) == 2

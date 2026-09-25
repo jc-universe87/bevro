@@ -187,7 +187,7 @@ class CreatePreviewIn(BaseModel):
 class RemovalPlanOut(BaseModel):
     """What removing an agent would take with it, so the question can be honest."""
 
-    # Built-in agents stay; everything else can go.
+    # Everything in Apps & agents is the person's, and can go.
     removable: bool = True
     # How many pieces of work it did. These are kept, and said so.
     history: int = 0

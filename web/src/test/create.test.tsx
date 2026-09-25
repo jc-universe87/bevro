@@ -89,7 +89,7 @@ test("with no coding agent connected, Create says so and offers to connect one",
   await user.type(screen.getByLabelText("What should this agent do?"), "Research competitors");
   await user.click(screen.getByRole("button", { name: "Create" }));
   const section = await screen.findByRole("region", { name: "Preview" });
-  expect(within(section).getByText("Creating agents needs a connected coding agent.")).toBeInTheDocument();
+  expect(within(section).getByText("Creating agents needs a coding agent in your apps and agents.")).toBeInTheDocument();
   expect(within(section).getByRole("link", { name: "Connect coding agent" })).toHaveAttribute("href", "/connect");
   expect(within(section).queryByRole("button", { name: "Create agent" })).not.toBeInTheDocument();
 });

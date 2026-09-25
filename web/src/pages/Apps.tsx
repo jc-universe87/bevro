@@ -11,10 +11,6 @@ import { here, hubView, type HubAction } from "../lib/hub";
  * most worth doing with it now.
  */
 
-// Something Bevro ships that can't be used on this installation isn't one of
-// the person's apps; it is offered where it is needed (Create), not listed.
-export const isUnusableBuiltIn = (p: Provider) => p.origin === "example" && p.availability?.state === "unavailable" && !p.actions.includes("ask");
-
 export function ActionButton({ action, provider, primary, onAsk, onRetry, onResume, onAddCredential, busy }: { action: HubAction; provider: Provider; primary: boolean; onAsk: () => void; onRetry: () => void; onResume?: () => void; onAddCredential?: () => void; busy?: boolean }) {
   const navigate = useNavigate();
   const cls = primary ? "bv-btn-primary" : "bv-btn-quiet";
@@ -133,7 +129,9 @@ export default function Apps() {
   };
   useEffect(load, []);
 
-  const mine = (providers ?? []).filter((p) => !isUnusableBuiltIn(p));
+  // Exactly what the person connected, created or chose to add: nothing
+  // appears here because Bevro has code for it, and nothing is hidden.
+  const mine = providers ?? [];
   const replace = (updated: Provider) => setProviders((list) => (list ?? []).map((x) => (x.id === updated.id ? updated : x)));
 
   return (
@@ -182,10 +180,10 @@ export default function Apps() {
           <p className="bv-lead mt-2">Connect something you already use, or create something new.</p>
           <div className="mt-5 flex flex-wrap gap-2">
             <Link to="/connect" className="bv-btn-primary">
-              Connect
+              Connect something
             </Link>
             <Link to="/create" className="bv-btn">
-              Create
+              Create something new
             </Link>
           </div>
         </section>

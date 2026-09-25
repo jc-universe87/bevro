@@ -1,6 +1,6 @@
 """a name, without the part that describes its own plumbing
 
-"Career Agent control API" is Career Agent. "Inventory REST API" is
+"Ledger control API" is Ledger. "Inventory REST API" is
 Inventory. The suffix tells Bevro how to talk to the thing and tells the
 person nothing, so it is trimmed for display and the exact name it gave is
 kept beside it.

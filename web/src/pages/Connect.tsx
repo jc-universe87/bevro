@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Help from "../components/Help";
 import { OpenLink } from "../components/Hub";
+import Offered from "../components/Offered";
 import Icon from "../components/Icon";
 import PageHeader, { Page } from "../components/PageHeader";
 import TestResults from "../components/TestResults";
@@ -519,6 +520,7 @@ export default function Connect() {
       )}
 
       {connected && <Added {...connected} />}
+      {!draft && !connected && <Offered lead="Bevro also works with these on this computer. Add one if you use it." />}
     </Page>
   );
 }

@@ -31,14 +31,15 @@ ports or set your own key.
 
 **Claude Code is optional.** It needs the `claude` CLI installed and signed in
 on your machine, a list of project directories it may work in, and a small
-worker process running next to the Docker stack. Until then it shows in
-Agents as "Not available on this installation" and coding requests are
-declined with a plain message. Enabling it is described in
+worker process running next to the Docker stack. It is not in Apps & agents
+until you add it: Connect and Create offer **Add Claude Code**, and removing
+it takes it out again for good. Coding requests without it are declined with
+a plain message. Enabling it is described in
 [CODING_PROVIDER.md](CODING_PROVIDER.md#enabling-claude-code-on-your-machine).
 
-- The API runs `alembic upgrade head` on start and seeds the two example
-  providers if they are missing: the optional integrations always, and the
-  examples only when `BEVRO_DEMO_MODE=true`.
+- The API runs `alembic upgrade head` on start. It adds nothing to Apps &
+  agents on its own: the example providers only when `BEVRO_DEMO_MODE=true`,
+  and optional integrations (Claude Code) only when you choose to add them.
 - `api/`, `adapters/` and `providers/` are bind-mounted; the API reloads on save.
 - `web/` is bind-mounted; Vite hot-reloads. `node_modules` lives in a named
   volume, so after changing `web/package.json` rebuild: `docker compose up -d --build web`.

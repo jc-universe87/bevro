@@ -248,7 +248,7 @@ def removal_plan(provider_id: uuid.UUID, db: Session = Depends(get_db)) -> Remov
         raise HTTPException(404, "Agent not found.")
     plan = provider_service.removal_plan(db, provider)
     return RemovalPlanOut(
-        removable=provider.origin != "example",
+        removable=True,
         history=plan["history"],
         in_flight=plan["in_flight"],
         credentials=plan["credentials"],
@@ -263,8 +263,6 @@ def remove_provider(provider_id: uuid.UUID, db: Session = Depends(get_db)) -> No
     provider = provider_service.get_provider(db, provider_id)
     if provider is None:
         raise HTTPException(404, "Agent not found.")
-    if provider.origin == "example":
-        raise HTTPException(409, "Built-in agents cannot be removed.")
     try:
         provider_service.remove_provider(db, provider)
     except provider_service.ProviderInUse as exc:

@@ -4,7 +4,6 @@ import { OpenLink } from "../components/Hub";
 import Icon from "../components/Icon";
 import { api, ApiError, type Notification, type Provider, type ScheduleIntent } from "../lib/api";
 import { here, hubView } from "../lib/hub";
-import { isUnusableBuiltIn } from "./Apps";
 
 const TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 const SHOWN_ON_HOME = 6;
@@ -35,7 +34,7 @@ export default function Home() {
       .catch(() => setWaiting([]));
     api
       .listProviders()
-      .then((list) => setMine(list.filter((p) => !isUnusableBuiltIn(p) && (p.origin !== "example" || p.actions.includes("ask")))))
+      .then(setMine)
       .catch(() => setMine(null));
   }, []);
 

@@ -106,7 +106,7 @@ BEVRO_KEEPS_CREDENTIAL = "Bevro holds the credential it needs, stored encrypted.
 
 
 # A name that ends by saying what kind of interface it is is telling Bevro
-# something, not the person. "Career Agent control API" is Career Agent; so
+# something, not the person. "Ledger control API" is Ledger; so
 # is "Inventory REST API" Inventory. "Acme Search Service" keeps its Service,
 # because that is a word about the thing rather than about its wiring.
 _INTERFACE_SUFFIX = re.compile(

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Icon from "../components/Icon";
+import Offered from "../components/Offered";
 import PageHeader, { Page } from "../components/PageHeader";
 import { api, ApiError, type CreatePreview, type CreateStatus } from "../lib/api";
 
@@ -169,7 +170,7 @@ export default function Create() {
               </button>
             ) : (
               <>
-                <p className="text-sm basis-full">Creating agents needs a connected coding agent.</p>
+                <p className="text-sm basis-full">Creating agents needs a coding agent in your apps and agents.</p>
                 <Link to="/connect" className="bv-btn-primary">
                   Connect coding agent
                 </Link>
@@ -179,6 +180,7 @@ export default function Create() {
               </>
             )}
           </div>
+          {!preview.can_build && <Offered need={["agent_building", "coding"]} lead="Or add one Bevro already knows how to use:" />}
         </section>
       )}
 

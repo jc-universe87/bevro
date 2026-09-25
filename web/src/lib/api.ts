@@ -556,6 +556,9 @@ export const api = {
   dismissNotification: (id: string) => request<void>(`/notifications/${id}`, { method: "DELETE" }),
   listProviders: () => request<Provider[]>("/providers"),
   getProvider: (id: string) => request<Provider>(`/providers/${id}`),
+  /** What Bevro knows how to use and the person hasn't added. Offered, never added on its own. */
+  offeredIntegrations: () => request<{ slug: string; name: string; description: string; capabilities: string[] }[]>("/integrations"),
+  addIntegration: (slug: string) => request<Provider>(`/integrations/${slug}`, { method: "POST" }),
   /** Advanced setup: the technical escape hatch. Normal Connect goes through connectDiscover. */
   connectProvider: (body: {
     name: string;

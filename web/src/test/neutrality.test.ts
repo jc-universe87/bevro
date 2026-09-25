@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 
 // The real projects Connect was accepted against. Their shapes live in test
 // fixtures; their names belong nowhere in what ships.
-const ACCEPTANCE_PROJECTS = /\b(zekor|archivist|moimio)\b/i;
+const ACCEPTANCE_PROJECTS = /\b(zekor|archivist|moimio|career[ _-]?agent)\b/i;
 
 const shipped = import.meta.glob<string>(["../**/*.{ts,tsx}", "!../test/**"], { query: "?raw", import: "default", eager: true });
 

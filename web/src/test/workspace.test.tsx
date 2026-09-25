@@ -45,8 +45,9 @@ function renderAt(path: string) {
 }
 
 test("a fresh workspace says it has no apps or agents and offers the two ways to get one", async () => {
+  // Nothing is in anyone's list on the first day - not even what Bevro can use.
   mockApi({
-    "GET /api/providers": [notSetUp],
+    "GET /api/providers": [],
     "GET /api/tasks": [],
     "GET /api/notifications*": { unread: 0, items: [] },
   });
@@ -54,19 +55,19 @@ test("a fresh workspace says it has no apps or agents and offers the two ways to
 
   const empty = await screen.findByRole("region", { name: "Your apps and agents will appear here." });
   expect(within(empty).getByText("Connect something you already use, or create something new.")).toBeInTheDocument();
-  expect(within(empty).getByRole("link", { name: "Connect" })).toHaveAttribute("href", "/connect");
-  expect(within(empty).getByRole("link", { name: "Create" })).toHaveAttribute("href", "/create");
-
-  // An agent Bevro ships that cannot be used here is not listed at all: it is
-  // offered where it is needed, not kept on a shelf in Apps & agents.
+  expect(within(empty).getByRole("link", { name: "Connect something" })).toHaveAttribute("href", "/connect");
+  expect(within(empty).getByRole("link", { name: "Create something new" })).toHaveAttribute("href", "/create");
   expect(screen.queryByText("Claude Code")).not.toBeInTheDocument();
   expect(screen.queryByText("Optional · needs the host worker")).not.toBeInTheDocument();
 });
 
 
-test("a coding agent is offered where it is actually needed", async () => {
-  mockApi({
-    "GET /api/providers": [notSetUp],
+test("a coding agent is offered where it is actually needed, and added only when chosen", async () => {
+  const calls = mockApi({
+    "GET /api/providers": [],
+    "GET /api/integrations": [{ slug: "claude-code", name: "Claude Code", description: "Build, fix and change software", capabilities: ["coding", "agent_building"] }],
+    "POST /api/integrations/claude-code": { ...notSetUp, id: "cc1" },
+    "GET /api/providers/cc1": { ...notSetUp, id: "cc1" },
     "POST /api/create/preview": { name: "Price Watch", description: "Watch pricing", can: ["Monitor"], needs: ["Web access"], produces: "a summary", can_build: false, spec: {} },
     "GET /api/tasks": [],
     "GET /api/notifications*": { unread: 0, items: [] },
@@ -77,8 +78,12 @@ test("a coding agent is offered where it is actually needed", async () => {
   await user.type(await screen.findByRole("textbox"), "Watch competitor pricing pages");
   await user.click(screen.getByRole("button", { name: "Create" }));
 
-  expect(await screen.findByText("Creating agents needs a connected coding agent.")).toBeInTheDocument();
+  expect(await screen.findByText("Creating agents needs a coding agent in your apps and agents.")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Connect coding agent" })).toHaveAttribute("href", "/connect");
+  expect(calls.some((c) => c.method === "POST" && c.url.startsWith("/api/integrations"))).toBe(false);
+  await user.click(await screen.findByRole("button", { name: "Add Claude Code" }));
+  expect(calls.filter((c) => c.method === "POST").map((c) => c.url)).toContain("/api/integrations/claude-code");
+  expect(await screen.findByRole("heading", { level: 1, name: "Claude Code" })).toBeInTheDocument();
 });
 
 test("once a coding agent is usable it is simply one of your agents", async () => {
@@ -97,7 +102,7 @@ test("once a coding agent is usable it is simply one of your agents", async () =
 
 test("home says what to do when nothing is connected, and suggests nothing it cannot do", async () => {
   mockApi({
-    "GET /api/providers": [notSetUp],
+    "GET /api/providers": [],
     "GET /api/tasks": [],
     "GET /api/notifications*": { unread: 0, items: [] },
   });
@@ -238,7 +243,7 @@ test("removing an agent says what goes and what stays before asking", async () =
   expect(within(question).getByText(/4 tasks stay in Recent, still showing Support Desk/)).toBeInTheDocument();
   expect(within(question).getByText("Nothing outside Bevro is touched: Support Desk itself stays exactly as it is.")).toBeInTheDocument();
 
-  await user.click(screen.getByRole("button", { name: "Yes, remove" }));
+  await user.click(screen.getByRole("button", { name: "Remove from Bevro" }));
   expect(calls.some((c) => c.method === "DELETE" && c.url === "/api/providers/p1")).toBe(true);
 });
 
@@ -258,7 +263,7 @@ test("an agent busy with something cannot be removed, and says why", async () =>
 
   const question = await screen.findByRole("group", { name: "Remove Support Desk from Bevro?" });
   expect(within(question).getByText(/working on something right now/)).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Yes, remove" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Remove from Bevro" })).toBeDisabled();
 });
 
 test("work done by an agent that has since gone is still readable, and labelled", async () => {

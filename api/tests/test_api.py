@@ -121,10 +121,16 @@ def test_create_activate_still_records_a_described_agent(client, seeded):
     assert created["actions"] == []
 
 
-def test_built_in_providers_cannot_be_deleted(client, seeded):
+def test_shipped_providers_can_be_removed_like_anything_else(client, seeded):
+    """Everything in Apps & agents is the person's. Something Bevro ships is
+    no exception, and starting up again does not bring it back."""
+    from app.services import providers as provider_service
+
     providers = client.get("/api/providers").json()
-    research = next(p for p in providers if p["slug"] == "research")
-    assert client.delete(f"/api/providers/{research['id']}").status_code == 409
+    coding = next(p for p in providers if p["slug"] == "claude-code")
+    assert client.delete(f"/api/providers/{coding['id']}").status_code == 204
+    provider_service.seed_examples(seeded, demo=False)
+    assert "claude-code" not in {p["slug"] for p in client.get("/api/providers").json()}
 
 
 def test_known_types_cover_the_brief():
