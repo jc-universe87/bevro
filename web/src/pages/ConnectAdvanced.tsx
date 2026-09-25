@@ -115,7 +115,7 @@ export default function ConnectAdvanced() {
               Working directory <span className="font-normal text-muted">(optional)</span>
             </label>
             <input id="a-cwd" value={workingDirectory} onChange={(e) => setWorkingDirectory(e.target.value)} placeholder="~/agents/my-agent" className="bv-input font-mono text-sm" />
-            <p className="bv-hint mt-1">A folder on the machine that runs the worker, inside the approved local folders.</p>
+            <p className="bv-hint mt-1">A folder on the machine that runs the worker. Bevro asks before it looks inside.</p>
           </div>
         )}
 

@@ -351,7 +351,7 @@ def spec_for(db: Session, provider: Provider, draft: ProviderDraft) -> tuple[Bri
     try:
         path = resolve_within(target, local_roots())
     except OutsideRoots as exc:
-        raise BridgeError(f"That project is not inside the approved local folders: {exc}") from None
+        raise BridgeError(f"Bevro hasn't been allowed to work in that folder: {exc}") from None
     project = Project(path)
     findings = [f for f in (inspect_python(project), inspect_node(project), inspect_docker(project), inspect_scripts(project)) if f is not None]
     _title, prose = readme_excerpt(project)

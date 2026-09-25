@@ -92,7 +92,7 @@ test("a run that needed a second connection says so quietly, with no mechanism",
   expect(document.body.textContent).not.toMatch(/HTTP|CLI|runtime|fallback|attempt/i);
 });
 
-test("Manage shows a preferred connection and its alternatives in plain words", async () => {
+test("Manage says which way in is used, and leaves the fallbacks to Advanced", async () => {
   mockApi({
     "GET /api/providers": [{ ...provider, credentials: [], runtime: { display_name: "Already running on this machine", availability: "ready", credentials_label: "Managed by provider", runtimes_found: 2, alternatives: 1, health: "available", built: false, review: null, abilities: {} } }],
     "POST /api/providers/p9/check": { ok: true, detail: "Already running on this machine. All 2 ways work." },
@@ -100,9 +100,10 @@ test("Manage shows a preferred connection and its alternatives in plain words", 
   const user = userEvent.setup();
   renderAt("/agents?manage=p9");
   const panel = await screen.findByLabelText("Manage Market Research");
-  expect(within(panel).getByText("Preferred")).toBeInTheDocument();
+  expect(within(panel).getByText("Runs via")).toBeInTheDocument();
   expect(within(panel).getByText("Already running on this machine")).toBeInTheDocument();
-  expect(within(panel).getByText(/1 available/)).toBeInTheDocument();
+  // Fallback machinery is not what someone came to this page for.
+  expect(panel.textContent).not.toMatch(/Preferred|Alternatives|1 available/);
   await user.click(within(panel).getByRole("button", { name: "Test all connections" }));
   expect(await within(panel).findByText(/All 2 ways work/)).toBeInTheDocument();
   expect(panel.textContent).not.toMatch(/http|stdio|argv|adapter/i);

@@ -255,12 +255,22 @@ AVAILABILITY_NOTES = {
 }
 
 
-def availability_of(provider: Provider) -> dict[str, Any]:
+def availability_of(provider: Provider, db: Session | None = None) -> dict[str, Any]:
     """{"state": ..., "note": ...} as the interface should show it.
 
-    Providers the API runs itself are available when enabled. Providers a
-    worker runs are only available if a worker recently said so.
+    With a session, this is derived by `reconcile.state_of` - the one place
+    that decides what a provider currently is. Without one (older callers,
+    and the worker's own bookkeeping) the older reasoning still applies:
+    providers the API runs itself are available when enabled, and providers a
+    worker runs are available only if a worker recently said so.
     """
+    if db is not None:
+        # Worked out from the evidence, in one place, so that nothing can say
+        # "waiting for the worker" and "reached from this machine" at once.
+        from app.services.reconcile import CONNECTION_WORDS, state_of
+
+        state = state_of(db, provider)
+        return {"state": "available" if state.available else "unavailable", "note": None if state.available else CONNECTION_WORDS.get(state.connection)}
     if not provider.enabled:
         return {"state": "unavailable", "note": "Paused"}
     from app.services.runtime import active_runtime, execution_of
@@ -480,6 +490,17 @@ CREDENTIAL_SOURCE_WORDS = {
 }
 
 
+def report_is_fresh(report: dict[str, Any] | None) -> bool:
+    """Did a worker say this recently enough to still mean anything?"""
+    checked_at = (report or {}).get("checked_at")
+    if not isinstance(checked_at, str):
+        return False
+    try:
+        return (utcnow() - datetime.fromisoformat(checked_at)).total_seconds() < AVAILABILITY_TTL_SECONDS
+    except ValueError:
+        return False
+
+
 def credential_status(provider: Provider, stored: list[str]) -> dict[str, str]:
     """name -> "bevro" | "host" | "project" | "missing".
 
@@ -499,7 +520,7 @@ def credential_status(provider: Provider, stored: list[str]) -> dict[str, str]:
     # it. Which ways in can and cannot is a fact about each of them, kept on
     # each of them, and shown under Advanced details - but nobody is asked
     # for a credential this machine already holds.
-    by_a_runtime = {name for profile in runtimes_of(provider) for name in profile.credentials.supplied}
+    by_a_runtime = {name for profile in runtimes_of(provider) if profile.invocable for name in profile.credentials.supplied}
     out: dict[str, str] = {}
     for name in required_secrets(provider):
         if name in stored:
@@ -514,9 +535,28 @@ def credential_status(provider: Provider, stored: list[str]) -> dict[str, str]:
 
 
 def credentials_of(provider: Provider, stored: list[str]) -> list[dict[str, Any]]:
-    """[{name, label, present, source, status}] for the interface: what it needs and where it comes from."""
+    """[{name, label, present, source, status, note}] - what it needs, where
+    it comes from, and, when the answer is "nowhere", what Bevro did find.
+
+    A project whose installed service holds the key is not the same as one
+    where nothing has it, and saying only "Missing" would throw away the
+    difference.
+    """
+    from app.services.runtime import active_runtime
+
+    rt = active_runtime(provider)
+    # Only when there is something to add. "Missing" already says missing;
+    # the note is for when Bevro found the credential somewhere it cannot use.
+    explanation = rt.credentials.note if rt is not None and rt.credentials.supplied_elsewhere else None
     return [
-        {"name": n, "label": secret_label(n), "present": source != "missing", "source": source, "status": CREDENTIAL_SOURCE_WORDS[source]}
+        {
+            "name": n,
+            "label": secret_label(n),
+            "present": source != "missing",
+            "source": source,
+            "status": CREDENTIAL_SOURCE_WORDS[source],
+            "note": explanation if source == "missing" else None,
+        }
         for n, source in credential_status(provider, stored).items()
     ]
 

@@ -71,6 +71,7 @@ function CredentialRow({ provider, credential, onChange, autoFocus }: { provider
           </button>
         )}
       </div>
+      {!editing && credential.note && <p className="bv-hint mt-0.5">{credential.note}</p>}
       {editing && (
         <form onSubmit={save} className="mt-2 flex flex-col sm:flex-row gap-2">
           <label htmlFor={inputId} className="sr-only">
@@ -220,19 +221,10 @@ function ManagePanel({ provider, onChange, onRemoved, focusCredential = false, a
         <dd>{provider.enabled ? (provider.availability?.note ?? (missing.length ? `Needs ${missing.map((c) => c.label.toLowerCase()).join(", ")}` : "Available")) : "Paused"}</dd>
         {provider.runtime && (
           <>
-            <dt className="text-muted">{(provider.runtime.alternatives ?? 0) > 0 ? "Preferred" : "Runs"}</dt>
+            <dt className="text-muted">Runs via</dt>
             <dd>
               {provider.runtime.display_name}
               {provider.runtime.runs_at && <span className="text-subtle"> · {provider.runtime.runs_at}</span>}
-            </dd>
-          </>
-        )}
-        {(provider.runtime?.alternatives ?? 0) > 0 && (
-          <>
-            <dt className="text-muted">Alternatives</dt>
-            <dd>
-              {provider.runtime!.alternatives} available
-              <span className="text-subtle"> · used only if this one can't be reached</span>
             </dd>
           </>
         )}
@@ -347,14 +339,49 @@ function ManagePanel({ provider, onChange, onRemoved, focusCredential = false, a
           <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs text-muted">
             <dt>Connection type</dt>
             <dd>{CONNECTION_WORDS[provider.connection ?? ""] ?? provider.connection ?? "—"}</dd>
-            {details.runtimes.map((r) => (
-              <Fragment key={r.id}>
-                <dt>{r.active ? "Runtime (active)" : "Runtime"}</dt>
+            {details.runtimes
+              .filter((r) => r.active)
+              .map((r) => (
+                <Fragment key={r.id}>
+                  <dt>Selected</dt>
+                  <dd>
+                    {r.display_name} · {r.kind} via {r.adapter || "—"}
+                  </dd>
+                  <dt>Credential source</dt>
+                  <dd>{r.credential_summary ?? r.credential_strategy.replaceAll("_", " ")}</dd>
+                  {r.reachable_from && (
+                    <>
+                      <dt>Reachable from</dt>
+                      <dd>{r.reachable_from}</dd>
+                    </>
+                  )}
+                </Fragment>
+              ))}
+            {details.runtimes.some((r) => !r.active) && (
+              <>
+                <dt className="self-start">Other ways Bevro found</dt>
                 <dd>
-                  {r.display_name} · {r.kind} via {r.adapter || "—"} · credentials: {r.credential_strategy.replaceAll("_", " ")}
+                  <ul className="space-y-0.5">
+                    {Object.entries(
+                      details.runtimes
+                        .filter((r) => !r.active)
+                        .reduce<Record<string, number>>((seen, r) => {
+                          // Four entry points into one project are four ways
+                          // in, and four identical lines say nothing.
+                          const line = `${r.display_name} · ${r.kind}${r.credential_summary ? ` — ${r.credential_summary}` : ""}${r.usable === false ? " — can't take work" : ""}`;
+                          seen[line] = (seen[line] ?? 0) + 1;
+                          return seen;
+                        }, {}),
+                    ).map(([line, count]) => (
+                      <li key={line}>
+                        {line}
+                        {count > 1 ? ` (${count})` : ""}
+                      </li>
+                    ))}
+                  </ul>
                 </dd>
-              </Fragment>
-            ))}
+              </>
+            )}
             {details.source_kind && (
               <>
                 <dt>Connected from</dt>

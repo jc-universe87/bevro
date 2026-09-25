@@ -49,3 +49,7 @@ def listing(db: Session = Depends(get_db)) -> AccessOut:
 def revoke(grant_id: uuid.UUID, db: Session = Depends(get_db)) -> None:
     if trust_service.revoke(db, grant_id) is None:
         raise HTTPException(404, "That permission wasn't found.")
+    # What a provider can do may have changed with it.
+    from app.services.reconcile import reconcile_all
+
+    reconcile_all(db)

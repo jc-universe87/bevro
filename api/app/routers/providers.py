@@ -249,7 +249,7 @@ def get_details(provider_id: uuid.UUID, db: Session = Depends(get_db)) -> Provid
     provider = provider_service.get_provider(db, provider_id)
     if provider is None:
         raise HTTPException(404, "Agent not found.")
-    return provider_details(provider)
+    return provider_details(provider, db)
 
 
 @router.post("/{provider_id}/reconnect", response_model=ProviderOut)

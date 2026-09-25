@@ -39,11 +39,16 @@ def connection_label(provider: Provider) -> str | None:
     return str(kind) if kind else None
 
 
-def runtime_summary(provider: Provider, stored: list[str]) -> dict[str, Any] | None:
+def runtime_summary(provider: Provider, stored: list[str], db: Any = None) -> dict[str, Any] | None:
     from adapters.runtime import credentials_label
     from app.services.runtime import active_runtime, runtimes_of
 
-    rt = active_runtime(provider)
+    if db is not None:
+        from app.services.reconcile import state_of
+
+        rt = state_of(db, provider).selected
+    else:
+        rt = active_runtime(provider)
     if rt is None:
         return None
     statuses = credential_status(provider, stored)
@@ -148,17 +153,64 @@ def _connected_from(provider: Provider) -> str | None:
     return {"http": "url", "openapi": "url"}.get(kind, kind) or None
 
 
-def provider_details(provider: Provider) -> ProviderDetails:
+def _runtime_row(rt: Any, *, selected: bool) -> dict[str, Any]:
+    """One way in, as Advanced details lists it.
+
+    The credential line says what is actually true of *this* way in - what it
+    needs, and who has it - rather than the strategy it was built with. A
+    command line marked "managed by Bevro" that Bevro is not managing
+    anything for is the sort of thing that makes a page contradict itself.
+    """
+    creds = rt.credentials
+    return {
+        **rt.advanced(),
+        "display_name": rt.display_name,
+        "availability": rt.availability,
+        "active": selected,
+        "credential_summary": _credential_line(creds),
+        "reachable_from": _reached_from(rt),
+        "usable": rt.invocable,
+        "why_not": (rt.warnings[0] if rt.warnings else None) if not rt.invocable else None,
+    }
+
+
+def _credential_line(creds: Any) -> str:
+    if not creds.names:
+        return "None needed"
+    if creds.status == "configured":
+        return f"{', '.join(creds.names)} · provided by this way in"
+    if creds.owner == "other_runtime":
+        return f"{', '.join(creds.missing)} · another way in has it, this one doesn't"
+    if creds.owner == "bevro":
+        return f"{', '.join(creds.missing)} · Bevro would have to supply it"
+    return f"{', '.join(creds.missing)} · nothing here has it"
+
+
+def _reached_from(rt: Any) -> str | None:
+    from app.services.runtime import is_network
+
+    if not is_network(rt):
+        return None
+    reach = rt.reachability
+    return f"Bevro itself: {reach.api} · this machine: {reach.worker}"
+
+
+def provider_details(provider: Provider, db: Any = None) -> ProviderDetails:
     from app.connect.openapi import catalogue_from_json
     from app.services.runtime import active_runtime, runtimes_of
 
-    rt = active_runtime(provider)
+    if db is not None:
+        from app.services.reconcile import state_of
+
+        rt = state_of(db, provider).selected
+    else:
+        rt = active_runtime(provider)
     config = provider.adapter.get("config") or {}
     operations = catalogue_from_json(config.get("operations")) if config.get("operations") else []
     return ProviderDetails(
         id=provider.id,
         active_runtime=rt.advanced() if rt else None,
-        runtimes=[{**r.advanced(), "display_name": r.display_name, "availability": r.availability, "active": rt is not None and r.id == rt.id} for r in runtimes_of(provider)],
+        runtimes=[_runtime_row(r, selected=rt is not None and r.id == rt.id) for r in runtimes_of(provider)],
         source_kind=_connected_from(provider),
         source_name=provider.source_name if provider.source_name and provider.source_name != provider.name else None,
         location_class=_location_class(provider),
@@ -190,10 +242,10 @@ def provider_out(provider: Provider, secret_names: list[str] | None = None, db: 
         origin=provider.origin,
         actions=provider_actions(provider),
         connection=connection_label(provider),
-        availability=availability_of(provider),
+        availability=availability_of(provider, db),
         secret_names=stored,
         credentials=credentials_of(provider, stored),
-        runtime=runtime_summary(provider, stored),
+        runtime=runtime_summary(provider, stored, db),
         build=build,
         created_at=provider.created_at,
         updated_at=provider.updated_at,

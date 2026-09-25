@@ -69,13 +69,23 @@ DISPLAY_NAMES = {
 # --------------------------------------------------------------------------- profiles on a provider
 
 def runtimes_of(provider: Provider) -> list[RuntimeProfile]:
+    """Every way into this provider, with the cross-runtime picture applied.
+
+    What each way in needs is evidence and is stored. Whether anyone has to
+    be *asked* for it depends on all of them together, so that conclusion is
+    worked out here, on the way out, rather than written down at discovery
+    and left to go stale. It costs nothing - no files, no network - and it
+    means improving the wording improves what is already connected.
+    """
+    from app.connect.runtimes import settle_credentials
+
     out: list[RuntimeProfile] = []
     for raw in provider.runtimes or []:
         try:
             out.append(RuntimeProfile.model_validate(raw))
         except Exception:  # noqa: BLE001 - one bad row must not hide the others
             log.warning("provider %s has an unreadable runtime profile", provider.slug)
-    return out
+    return settle_credentials(out)
 
 
 def active_runtime(provider: Provider) -> RuntimeProfile | None:
@@ -273,7 +283,7 @@ def credentials_satisfied(runtime: RuntimeProfile, secrets: dict[str, str]) -> b
     return all(name in secrets for name in runtime.credentials.names)
 
 
-def eligible_runtimes(provider: Provider, secrets: dict[str, str] | None = None, *, now: datetime | None = None, execution: str | None = None) -> tuple[list[RuntimeProfile], list[tuple[RuntimeProfile, str]]]:
+def eligible_runtimes(provider: Provider, secrets: dict[str, str] | None = None, *, now: datetime | None = None, execution: str | None = None, explain: bool = True) -> tuple[list[RuntimeProfile], list[tuple[RuntimeProfile, str]]]:
     """(usable runtimes, best first), (skipped runtime, why).
 
     Ranking is the same logic discovery uses, so nothing needs to agree twice;
@@ -305,11 +315,15 @@ def eligible_runtimes(provider: Provider, secrets: dict[str, str] | None = None,
             skipped.append((rt, "cooling down after a failure"))
             continue
         usable.append(rt)
-    if not usable:
+    if not usable and explain:
         # Nothing is usable as it stands. Rather than refuse the work with a
         # vague sentence, put forward the best runtime there is: a rest period
         # is only a preference, and a runtime that cannot take a task explains
         # itself far better than a general "not available" ever could.
+        #
+        # This is for producing a good failure, not for deciding what a
+        # provider *is*: `explain=False` asks the plain question, and is what
+        # reconciliation uses.
         for reason in ("cooling down after a failure", "cannot take a task", "no adapter for this mechanism"):
             candidate = next((rt for rt, why in skipped if why == reason), None)
             if candidate is not None:

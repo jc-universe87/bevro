@@ -8,7 +8,7 @@ with different capability declarations and a different adapter reference.
 import uuid
 from typing import Any
 
-from sqlalchemy import Boolean, ForeignKey, LargeBinary, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -49,6 +49,10 @@ class Provider(UUIDPrimaryKey, Timestamped, Base):
     app_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     # e.g. {"kind": "letter", "text": "M"} - metadata only, never raw image bytes.
     icon: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    # Which version of discovery gathered this provider's evidence. Below the
+    # current one, the worker looks again - once - rather than leaving the
+    # provider saying what an older Bevro concluded.
+    discovery_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Where the record came from: "example", "created", "connected".
     origin: Mapped[str] = mapped_column(String(40), nullable=False, default="connected")
     # Last health report, written by the process that can reach the provider

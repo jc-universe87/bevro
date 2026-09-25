@@ -132,13 +132,20 @@ class ProviderDraft(BaseModel):
     def with_runtimes(self, runtimes: list[RuntimeProfile], active_id: str | None = None, choice_needed: bool = False) -> "ProviderDraft":
         """Attach profiles and derive the draft's adapter, availability, wording and
         credential question from the active one. The single source of those fields."""
-        from app.connect.runtimes import rank, settle_credentials
+        from app.connect.runtimes import rank, select, settle_credentials
 
         # Whether anyone has to be asked for a credential is a question about
         # the project, not about one way into it, so it is settled here -
         # where every way in is known - and not by whichever found it first.
         self.runtimes = rank(settle_credentials(runtimes))
-        self.active_runtime = active_id or (self.runtimes[0].id if self.runtimes else None)
+        # ...and then the choice is made *again*, because settling it may have
+        # changed the answer: a way in that turned out to have what it needs
+        # is a better one than the ranking knew about a moment ago. A caller's
+        # `active_id` is a deliberate choice and is kept where it still can be
+        # used; otherwise the ranking decides, in one place, once.
+        chosen, _choice = select(self.runtimes)
+        wanted = next((rt for rt in self.runtimes if rt.id == active_id and rt.invocable), None)
+        self.active_runtime = wanted.id if wanted is not None else (chosen or (self.runtimes[0].id if self.runtimes else None))
         self.choice_needed = choice_needed
         rt = self.runtime
         if rt is None:

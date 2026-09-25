@@ -45,7 +45,7 @@ export interface Provider {
   availability: { state: string; note: string | null };
   secret_names: string[];
   /** What the connection needs and whether it has it. Values are never sent. */
-  credentials: { name: string; label: string; present: boolean; source?: "bevro" | "host" | "project" | "missing" | string; status?: string }[];
+  credentials: { note?: string | null; name: string; label: string; present: boolean; source?: "bevro" | "host" | "project" | "missing" | string; status?: string }[];
   /** How this installation runs, in words. Mechanism stays on the server. */
   runtime: { display_name: string; runs_at?: string | null; availability: string; credentials_label: string; runtimes_found: number; alternatives: number; health: string; built?: boolean; review?: string | null; abilities: Record<string, boolean> } | null;
   /** For agents Bevro created: what it is for and which version is in use. */
@@ -80,7 +80,20 @@ export interface TrustGrant {
 export interface ProviderDetails {
   id: string;
   active_runtime: Record<string, unknown> | null;
-  runtimes: { id: string; kind: string; adapter: string; display_name: string; availability: string; active: boolean; credential_strategy: string }[];
+  runtimes: {
+    id: string;
+    kind: string;
+    adapter: string;
+    display_name: string;
+    availability: string;
+    active: boolean;
+    credential_strategy: string;
+    /** What this way in needs and who has it, said plainly. */
+    credential_summary?: string;
+    reachable_from?: string | null;
+    usable?: boolean;
+    why_not?: string | null;
+  }[];
   source_kind: string | null;
   /** The exact name the service gave, when Bevro shows a shorter one. */
   source_name?: string | null;

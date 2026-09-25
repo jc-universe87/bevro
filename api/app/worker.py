@@ -38,6 +38,7 @@ from app.services import bridges as bridge_service
 from app.services import connect as connect_service
 from app.services import runtime as runtime_service
 from app.services import tasks as task_service
+from app.services import reconcile as reconcile_service
 from app.services import trust as trust_service
 from app.services.providers import list_providers, record_availability, record_heartbeat
 from app.services.secrets import SecretStore
@@ -91,7 +92,8 @@ class Worker:
         self.worker_id = f"{socket.gethostname()}:{os.getpid()}"
         self.stop = threading.Event()
         self.kinds = background_kinds()
-        # Folders this worker may inspect and run things in (BEVRO_LOCAL_ROOTS).
+        # Folders this worker may inspect and run things in, from the trust
+        # grants; re-read before each piece of work.
         # A starting point only: the real answer is read from the trust
         # grants before each piece of work.
         self.roots = configured_roots()
@@ -117,7 +119,40 @@ class Worker:
             except Exception as exc:  # noqa: BLE001
                 result = HealthResult(ok=False, state="unavailable", detail=str(exc)[:200])
             record_availability(db, provider, result)
+            # What was just learned may change which way in is used.
+            reconcile_service.reconcile(db, provider, commit=False)
             log.info("%s: %s%s", provider.slug, result.state or ("ok" if result.ok else "not ok"), f" ({result.detail})" if result.detail else "")
+        db.commit()
+
+    def catch_up(self, db) -> int:
+        """Look again at providers found before discovery knew what it knows.
+
+        Once per provider per version of discovery, on the machine that can
+        see them - not on every page load, and never as something the person
+        has to think about. A provider that cannot be looked at again, or
+        whose folder is no longer allowed, is left exactly as it is.
+        """
+        from app.services import connect as connect_service
+        from app.services.providers import list_providers
+
+        done = 0
+        for provider in list_providers(db, enabled_only=False):
+            if not reconcile_service.needs_rediscovery(provider):
+                reconcile_service.reconcile(db, provider, commit=False)
+                continue
+            try:
+                trust_service.apply_to_process(db)
+                connect_service.rediscover(db, provider)
+                done += 1
+            except Exception as exc:  # noqa: BLE001 - one provider must not stop the rest
+                log.info("%s: couldn't look again (%s: %s)", provider.slug, type(exc).__name__, str(exc)[:120])
+            # Whether or not it could be looked at again, what is written down
+            # is brought back in line with whatever evidence there is.
+            reconcile_service.reconcile(db, provider, commit=False)
+        db.commit()
+        if done:
+            log.info("looked again at %s provider(s) found by an older version", done)
+        return done
 
     def run_forever(self) -> None:
         log.info("worker %s handling adapter kinds %s; local roots %s", self.worker_id, self.kinds, [str(r) for r in self.roots] or "none")
@@ -127,6 +162,9 @@ class Worker:
             # Anything already connected keeps working, and becomes something
             # the person can see and take back.
             trust_service.adopt_existing(db)
+            # ...and anything found by an older Bevro is looked at again, once,
+            # rather than being left saying what that older Bevro concluded.
+            self.catch_up(db)
         last_reap = 0.0
         last_report = -AVAILABILITY_EVERY_SECONDS
         while not self.stop.is_set():

@@ -8,7 +8,8 @@
     confirm_draft()     turn a draft into a Provider (+ encrypted secrets)
 
 Local paths and commands are only ever resolved on the machine that holds
-them, inside BEVRO_LOCAL_ROOTS. The API in Docker never sees them.
+them, and only where the person has allowed it. The API in Docker never
+sees them.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from app.connect.targets import ConnectTarget, TargetError, classify_target
 from app.models import ConnectDraft, Provider
 from app.models._common import utcnow
 from app.services import providers as provider_service
+from app.services import reconcile as reconcile_service
 from app.services import trust as trust_service
 from app.services.secrets import SecretStore
 
@@ -42,8 +44,8 @@ log = logging.getLogger("bevro.connect")
 
 PENDING_TIMEOUT_SECONDS = 90
 WORKER_NEEDED_MESSAGE = (
-    "Connecting a local project or command needs the Bevro worker running on this machine "
-    "(./scripts/worker.sh), with BEVRO_LOCAL_ROOTS set to the folder that holds your agents."
+    "Connecting something on this machine needs the Bevro worker running here "
+    "(./scripts/worker.sh). Nothing else has to be set up."
 )
 UNREACHABLE_HERE_MESSAGE = (
     "Bevro can't reach that address from inside its container, and the worker isn't running on this "
@@ -452,7 +454,9 @@ def confirm_draft(db: Session, row: ConnectDraft, *, name: str | None, descripti
             store.put(db, provider.id, secret_name[:80], value)
     row.state = "connected"
     row.provider_id = provider.id
+    provider.discovery_version = reconcile_service.DISCOVERY_VERSION
     db.commit()
+    reconcile_service.reconcile(db, provider)
     db.refresh(provider)
     return provider
 
@@ -485,6 +489,16 @@ def reconnect_provider(db: Session, provider: Provider) -> Provider:
         return _reconnect_through_worker(db, provider, str(exc))
 
 
+def rediscover(db: Session, provider: Provider) -> Provider:
+    """Look at a provider again where it lives, and reconcile what is found.
+
+    The same work Reconnect does, called by the worker when a provider's
+    evidence predates what discovery now knows. Nothing the person set - its
+    name, its credentials, its history - is touched.
+    """
+    return _reconnect_here(db, provider, location=WORKER)
+
+
 def _reconnect_here(db: Session, provider: Provider, *, location: str = API, ruled_out: str | None = None) -> Provider:
     """The work itself, in whichever process can reach the target."""
     from app.services.runtime import set_runtimes
@@ -498,7 +512,10 @@ def _reconnect_here(db: Session, provider: Provider, *, location: str = API, rul
     except TargetError as exc:
         raise DraftError(str(exc)) from exc
     try:
-        draft = get_discovery_service().discover(target, DiscoveryContext(roots=local_roots()))
+        # What the person has allowed, not what an environment variable says:
+        # looking at a project again is looking at it, and the same permission
+        # applies.
+        draft = get_discovery_service().discover(target, DiscoveryContext(roots=trust_service.apply_to_process(db)))
     except NotReachable:
         raise
     except (DiscoveryFailed, TargetError) as exc:
@@ -531,9 +548,13 @@ def _reconnect_here(db: Session, provider: Provider, *, location: str = API, rul
     # operations, renamed ones. The name stays as the person left it.
     if draft.capabilities:
         provider.capabilities = [c.model_dump() for c in draft.capabilities]
-    provider.availability = None  # the worker reports afresh
+    provider.availability = None  # whoever can reach it reports afresh
+    provider.discovery_version = reconcile_service.DISCOVERY_VERSION
     provider.source = {k: v for k, v in (provider.source or {}).items() if not k.startswith("reconnect_")}
     db.commit()
+    # Nothing from the previous configuration survives a reconnect: which way
+    # in is used is decided again, from what was just found.
+    reconcile_service.reconcile(db, provider)
     db.refresh(provider)
     return provider
 

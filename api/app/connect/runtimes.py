@@ -80,13 +80,15 @@ def score(rt: RuntimeProfile) -> int:
         value += 4
     elif strategy == CredentialStrategy.UNKNOWN:
         value -= 4
-    # What actually decides it: whether this way in has what it needs. A
-    # command line that cannot reach the key is a worse way in than the
-    # service that is handed it, whatever else they have in common.
+    # Whether this way in has what it needs. Decisive between two that are
+    # otherwise alike - a command line that cannot reach the key is a worse
+    # way in than the service that is handed it - and deliberately smaller
+    # than the penalties for not being usable at all, because a service with
+    # its credentials that is not running is still not running.
     if rt.credentials.status == "configured":
-        value += 8
+        value += 5
     elif rt.credentials.status == "incomplete":
-        value -= 8
+        value -= 5
     # A connection Bevro had built for a project that had none is the last
     # resort: anything the project offers itself, of comparable standing, wins.
     if (rt.adapter.get("config") or {}).get("bridge"):
@@ -115,8 +117,16 @@ def settle_credentials(runtimes: list[RuntimeProfile]) -> list[RuntimeProfile]:
     cannot, and Advanced details still says so - but nobody is asked for
     something this machine already has.
     """
-    supplied: set[str] = {name for rt in runtimes for name in rt.credentials.supplied}
+    # Only a way in that can actually take work. An installed service that
+    # runs on a timer has its credentials and cannot be handed anything, so
+    # its having them is no help to a person asking Bevro to do something -
+    # and saying "it already has what it needs" would be a promise Bevro
+    # cannot keep.
+    supplied: set[str] = {name for rt in runtimes if rt.invocable for name in rt.credentials.supplied}
     if not supplied:
+        # Nothing usable supplies anything - but something unusable might,
+        # and that is worth saying rather than swallowing.
+        _explain_the_near_miss(runtimes)
         return runtimes
     for rt in runtimes:
         creds = rt.credentials
@@ -128,10 +138,50 @@ def settle_credentials(runtimes: list[RuntimeProfile]) -> list[RuntimeProfile]:
         # credentials provided by the installed system service" - because
         # that is the useful half. Where it leaves this one is a technical
         # fact, and lives under Advanced details with everything else.
-        holder = next((other for other in runtimes if set(creds.missing) <= set(other.credentials.supplied)), None)
+        holder = next((other for other in runtimes if other.invocable and set(creds.missing) <= set(other.credentials.supplied)), None)
         note = (holder.credentials.note if holder is not None else None) or "Another way into this project already has what it needs."
         rt.credentials = creds.model_copy(update={"required_from_user": False, "supplied_elsewhere": True, "note": note})
+    _explain_the_near_miss(runtimes)
     return runtimes
+
+
+# What holds the credential, in a few words that fit inside a sentence.
+WHAT_HOLDS_IT = {
+    RuntimeKind.SYSTEMD: "installed system service",
+    RuntimeKind.DOCKER_COMPOSE: "container service",
+    RuntimeKind.PROCESS: "running service",
+}
+
+
+def _explain_the_near_miss(runtimes: list[RuntimeProfile]) -> None:
+    """Say when the credential is here but out of Bevro's reach.
+
+    A project whose installed service is a scheduled job has its credentials
+    and cannot be handed anything. "Needs a credential" on its own would look
+    like Bevro had not noticed; saying what was noticed, and why it does not
+    help, is the difference between a wrong answer and a complete one.
+    """
+    out_of_reach: set[str] = {name for rt in runtimes if not rt.invocable for name in rt.credentials.supplied}
+    if not out_of_reach:
+        return
+    for rt in runtimes:
+        creds = rt.credentials
+        if not creds.required_from_user or not set(creds.missing) & out_of_reach:
+            continue
+        holder = next((other for other in runtimes if not other.invocable and set(creds.missing) <= set(other.credentials.supplied)), None)
+        where = WHAT_HOLDS_IT.get(holder.kind, "another part of it") if holder is not None else "another part of it"
+        rt.credentials = creds.model_copy(
+            update={
+                # Somewhere in this project has it - just not anywhere Bevro
+                # can use. Marked, so that the interface knows there is
+                # something worth saying beyond "missing".
+                "supplied_elsewhere": True,
+                "note": (
+                    f"Its {where} has its own, but Bevro can't hand work to that. "
+                    f"To run this directly, Bevro needs its own {', '.join(creds.missing)}."
+                ),
+            }
+        )
 
 
 def rank(runtimes: list[RuntimeProfile]) -> list[RuntimeProfile]:

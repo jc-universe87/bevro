@@ -34,11 +34,13 @@ from app.connect.strategies.python import inspect_python
 from app.connect.strategies.scripts import inspect_scripts
 from app.connect.targets import ConnectTarget, classify_target
 
-NO_ROOTS_MESSAGE = (
-    "No local folders are approved for Connect yet. Set BEVRO_LOCAL_ROOTS in .env "
-    "(for example the folder that holds your agents) and restart the worker."
-)
-OUTSIDE_MESSAGE = "That folder is outside the approved local folders (BEVRO_LOCAL_ROOTS)."
+# Bevro asks for permission when it needs it, so neither of these should
+# reach anybody in the ordinary course of things. They are what is said if
+# something is looked at without having been allowed - which would be a bug,
+# and is worth saying in words a person can act on rather than in the name of
+# a variable they have never heard of.
+NO_ROOTS_MESSAGE = "Bevro hasn't been allowed to look at anything on this machine yet."
+OUTSIDE_MESSAGE = "Bevro hasn't been allowed to look in that folder."
 WEB_FRAMEWORKS = ("fastapi", "flask", "starlette", "django", "express", "fastify", "koa", "hono", "@nestjs/core", "next", "nuxt")
 MAX_ENTRYPOINT_RUNTIMES = 4
 
@@ -50,7 +52,7 @@ def resolve_target(target: ConnectTarget, roots: list[Path]) -> Path:
     if "bare" in target.hints:
         found = find_by_name(value, roots)
         if found is None:
-            raise DiscoveryFailed(f"No folder called '{value}' was found under the approved local folders.")
+            raise DiscoveryFailed(f"Bevro couldn't find a folder called '{value}'. Give the full path to it.")
         return found
     if "relative" in target.hints:
         for root in roots:
@@ -60,7 +62,7 @@ def resolve_target(target: ConnectTarget, roots: list[Path]) -> Path:
                     return resolve_within(str(candidate), roots)
                 except OutsideRoots:
                     continue
-        raise DiscoveryFailed(f"No folder called '{value}' was found under the approved local folders.")
+        raise DiscoveryFailed(f"Bevro couldn't find a folder called '{value}'. Give the full path to it.")
     try:
         path = resolve_within(value, roots)
     except OutsideRoots as exc:
@@ -134,7 +136,9 @@ def _compose_credentials(service: dict, names: list[str]) -> Credentials:
     elif isinstance(env, list):
         env_keys |= {str(e).split("=", 1)[0] for e in env}
     if service.get("env_file") or any(n in env_keys for n in names):
-        return Credentials(strategy=CredentialStrategy.DOCKER_ENVIRONMENT, names=names, note="Its Compose service carries its own credentials.")
+        # Its compose file says where they come from, so the service has them
+        # whether or not Bevro could name which.
+        return Credentials(strategy=CredentialStrategy.DOCKER_ENVIRONMENT, names=names, supplied=list(names), note="Uses credentials provided by its Compose service.")
     return Credentials(strategy=CredentialStrategy.RUNTIME_MANAGED, names=names)
 
 
@@ -184,7 +188,7 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
                 probed_ports.add(port)
                 found = _discover_port(port, context)
                 if found is not None:
-                    rt = _adopt_service(found, unique_id("running", ids), RuntimeKind.PROCESS, "Already running on this machine", evidence=[f"A process from this project ({proc.program}) is listening on port {port}", *found.evidence], credentials=Credentials(strategy=CredentialStrategy.RUNTIME_MANAGED, names=secret_names, note="Already running with its own environment."))
+                    rt = _adopt_service(found, unique_id("running", ids), RuntimeKind.PROCESS, "Already running on this machine", evidence=[f"A process from this project ({proc.program}) is listening on port {port}", *found.evidence], credentials=Credentials(strategy=CredentialStrategy.RUNTIME_MANAGED, names=secret_names, supplied=list(secret_names), note="Already running with its own environment."))
                     runtimes.append(rt)
                     capabilities = capabilities or found.capabilities
                     description = description or found.description
@@ -256,9 +260,12 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
         draft.assist_evidence = {"readme_excerpt": readme_prose or "", "dependencies": (primary.dependencies if primary else [])[:30]}
         return draft
 
-    active_id, choice = select(runtimes)
+    # Which way in is used is decided by `with_runtimes`, after credentials
+    # have been settled across all of them. Only "is this close enough to ask
+    # about" is decided here.
+    _first, choice = select(runtimes)
     draft = ProviderDraft(name=name, description=description, capabilities=capabilities, mechanism="local", evidence=evidence, warnings=warnings, confidence="medium")
-    draft.with_runtimes(runtimes, active_id, choice)
+    draft.with_runtimes(runtimes, None, choice)
     rt = draft.runtime
     if rt is not None:
         uses = next((e for e in rt.evidence if e.startswith("Bevro will use: ")), None)

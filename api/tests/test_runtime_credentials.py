@@ -207,33 +207,52 @@ def roots(tmp_path, monkeypatch):
     get_settings.cache_clear()
 
 
-def test_a_project_whose_service_has_the_key_asks_nobody_for_it(roots, monkeypatch):
-    """The shape from the brief, end to end: a command line with nothing, and
-    an installed unit that is handed its credentials by the system."""
+def test_a_scheduled_service_s_credential_is_recognised_and_still_out_of_reach(roots, monkeypatch):
+    """The shape from the real case: a command line with nothing, and an
+    installed unit handed its credentials by the system.
+
+    Bevro recognises the unit's credential source exactly. What it must not
+    do is conclude that *it* can therefore run the project: the unit is a
+    scheduled job, nothing can be handed to it, and a key it holds is a key
+    Bevro cannot use. So the question stands - and the answer explains what
+    was found rather than pretending nothing was.
+    """
     project = make_serviced_project(roots)
     draft = discover(project, roots, monkeypatch)
 
     service = next(rt for rt in draft.runtimes if rt.kind == "systemd")
     assert service.credentials.strategy == "systemd_environment_file"
     assert service.credentials.status == "configured" and service.credentials.owner == "runtime"
-    assert service.credentials.note == "Uses credentials provided by the installed system service."
+    assert service.invocable is False  # a timer job cannot be given work
 
     cli = next(rt for rt in draft.runtimes if rt.kind in ("cli", "python_entrypoint"))
-    assert cli.credentials.status == "incomplete"      # this way in still cannot
-    assert cli.credentials.owner == "other_runtime"    # and says why
-
-    # And nobody is asked for a key this machine already has.
-    assert draft.auth.required is False
+    assert cli.credentials.status == "incomplete"
+    assert draft.auth.required is True
+    assert "installed system service has its own" in (cli.credentials.note or "")
+    assert "Bevro needs its own OPENAI_API_KEY" in (cli.credentials.note or "")
     assert "fixture-secret-never-read" not in str(draft.model_dump())
 
 
-def test_a_unit_setting_the_variable_itself_counts_the_same_way(roots, monkeypatch):
+def test_a_service_that_can_take_work_settles_the_question_for_everyone(roots, monkeypatch):
+    """The other half of the same rule. A Compose service holds its own
+    credentials *and* can be handed work, so nobody is asked for anything."""
+    from tests.connect_fixtures import make_managed_project
+
+    project = make_managed_project(roots, port=59999, name="fixture-composed", with_cli=True)
+    draft = discover(project, roots, monkeypatch)
+    supplier = next((rt for rt in draft.runtimes if rt.credentials.status == "configured" and rt.invocable), None)
+    assert supplier is not None, [(rt.kind, rt.credentials.status, rt.invocable) for rt in draft.runtimes]
+    assert draft.auth.required is False
+
+
+def test_a_unit_setting_the_variable_itself_is_read_the_same_way(roots, monkeypatch):
+    """Environment= rather than EnvironmentFile=, recognised as precisely -
+    and, being the same kind of scheduled job, just as out of reach."""
     project = make_serviced_project(roots, name="fixture-inline", credentials_file=False, inline_environment=True)
     draft = discover(project, roots, monkeypatch)
     service = next(rt for rt in draft.runtimes if rt.kind == "systemd")
     assert service.credentials.strategy == "systemd_environment"
     assert service.credentials.status == "configured"
-    assert draft.auth.required is False
     assert "fixture-secret-never-read" not in str(draft.model_dump())
 
 
