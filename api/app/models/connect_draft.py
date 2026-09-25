@@ -18,10 +18,12 @@ from app.models._common import Timestamped, UUIDPrimaryKey
 class ConnectDraft(UUIDPrimaryKey, Timestamped, Base):
     __tablename__ = "connect_drafts"
 
-    # "url" | "mcp" | "local" | "command"
+    # "url" | "mcp" | "local" | "command" | "name" (until the worker says
+    # which folder the name means; then "local")
     target_kind: Mapped[str] = mapped_column(String(20), nullable=False)
     # What was typed. May be a path on the worker's machine: never serialised.
     target: Mapped[str] = mapped_column(Text, nullable=False)
+    # "choice_required" (a name that fits more than one folder) |
     # "pending" (waiting for the worker) | "trust_required" (waiting for the
     # person) | "found" | "failed" | "testing" | "connected"
     state: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
@@ -34,6 +36,12 @@ class ConnectDraft(UUIDPrimaryKey, Timestamped, Base):
     # What Bevro needs permission for before it looks: the resolved path or
     # the program, and what it would be allowed to do. Cleared once granted.
     trust: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    # The name the person typed, when Bevro found the thing by what it is
+    # called rather than by where it is.
+    named: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # When a name fits more than one folder: [{"path", "label", "where"}].
+    # The paths stay here; the person picks one by its position.
+    candidates: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
     # Last "Test connection" outcome: {"ok": bool, "detail": str | None}
     test: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
     provider_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)

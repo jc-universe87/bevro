@@ -396,12 +396,16 @@ export interface DraftView {
 
 export interface ConnectDraft {
   id: string;
-  state: "looking" | "trust_required" | "found" | "failed" | "testing" | "connected";
+  state: "looking" | "choice_required" | "trust_required" | "found" | "failed" | "testing" | "connected";
   target_kind: string;
   target_label: string;
   draft: DraftView | null;
   /** When Bevro needs permission before it looks at something on this machine. */
   trust?: TrustAsk | null;
+  /** When a name fits more than one folder on this machine: which did you mean? */
+  choices?: { label: string; where: string }[] | null;
+  /** Found by what it is called, on this machine. */
+  found_by_name?: boolean;
   error: string | null;
   test: { ok: boolean; detail: string | null } | null;
   provider_id: string | null;
@@ -511,6 +515,8 @@ export const api = {
     request<Provider>(`/providers/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   checkProvider: (id: string) => request<HealthOut>(`/providers/${id}/check`, { method: "POST" }),
   providerDetails: (id: string) => request<ProviderDetails>(`/providers/${id}/details`),
+  connectChoose: (id: string, choice: number) =>
+    request<ConnectDraft>(`/connect/drafts/${id}/choose`, { method: "POST", body: JSON.stringify({ choice }) }),
   connectAllow: (id: string, scope: "exact" | "parent") =>
     request<ConnectDraft>(`/connect/drafts/${id}/trust`, { method: "POST", body: JSON.stringify({ scope }) }),
   access: () => request<{ grants: TrustGrant[]; ceiling: string[] }>("/trust"),

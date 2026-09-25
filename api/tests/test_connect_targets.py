@@ -15,7 +15,13 @@ from app.connect.targets import TargetError, classify_target, split_command
         ("~/agents/market-research", "local"),
         ("/srv/agents/thing", "local"),
         ("./relative/project", "local"),
-        ("market-research", "local"),
+        # What something is called: the worker turns it into a folder.
+        ("market-research", "name"),
+        ("Market Research", "name"),
+        ("market_research agent", "name"),
+        # Options, a launcher, or a sentence's punctuation make it a command.
+        ("market-research --verbose", "command"),
+        ("python3 market_research", "command"),
         ("agents/market-research", "local"),
         ("python -m market_research.agent", "command"),
         ("npx my-agent --verbose", "command"),

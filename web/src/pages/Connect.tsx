@@ -121,6 +121,18 @@ export default function Connect() {
     }
   };
 
+  const choose = async (choice: number) => {
+    if (!draft) return;
+    setBusy(true);
+    setError(null);
+    try {
+      adopt(await api.connectChoose(draft.id, choice));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Bevro couldn't reach the server.");
+      setBusy(false);
+    }
+  };
+
   const allow = async (scope: "exact" | "parent") => {
     if (!draft) return;
     setBusy(true);
@@ -184,7 +196,7 @@ export default function Connect() {
           autoFocus
           value={target}
           onChange={(e) => setTarget(e.target.value)}
-          placeholder="URL, local project, MCP server or command"
+          placeholder="Paste an address, folder, command, or name"
           className="bv-input py-3"
           autoComplete="off"
           spellCheck={false}
@@ -211,6 +223,29 @@ export default function Connect() {
           <span className="bv-pulse inline-block h-2 w-2 rounded-full bg-accent" aria-hidden="true" />
           Looking at {draft.target_label}…
         </p>
+      )}
+
+      {draft?.state === "choice_required" && draft.choices && (
+        <section aria-label="Which one" className="mt-6 border-t border-line pt-5">
+          <h2 className="font-medium">Found a few matches on this machine.</h2>
+          <p className="mt-1 text-sm text-muted">Which one did you mean?</p>
+          <ul className="mt-3 divide-y divide-line border-t border-b border-line">
+            {draft.choices.map((c, i) => (
+              <li key={c.where} className="flex flex-wrap items-baseline justify-between gap-2 py-2.5">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">{c.label}</div>
+                  <div className="break-all font-mono text-xs text-muted">{c.where}</div>
+                </div>
+                <button type="button" className="bv-btn" onClick={() => choose(i)} disabled={busy}>
+                  Choose
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button type="button" className="bv-btn-quiet mt-3" onClick={() => { stopPolling(); setDraft(null); setTarget(""); }} disabled={busy}>
+            Cancel
+          </button>
+        </section>
       )}
 
       {draft?.state === "trust_required" && draft.trust && (
@@ -258,7 +293,7 @@ export default function Connect() {
 
       {found && (
         <section aria-label="Found" className="mt-8 border-t border-line pt-6">
-          <p className="text-xs uppercase tracking-wide text-subtle mb-2">Found</p>
+          <p className="text-xs uppercase tracking-wide text-subtle mb-2">{draft?.found_by_name ? "Found on this machine" : "Found"}</p>
           {unsure ? (
             <div className="mb-2">
               <label htmlFor="connect-name" className="sr-only">

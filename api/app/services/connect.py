@@ -32,7 +32,7 @@ from app.connect.draft import ProviderDraft
 from app.connect.service import get_discovery_service
 from app.connect.strategies.base import DiscoveryContext, DiscoveryFailed, NotReachable
 from app.connect.strategies.mcp import refine_stdio
-from app.connect.targets import ConnectTarget, TargetError, classify_target
+from app.connect.targets import ConnectTarget, TargetError, classify_target, stored_target
 from app.models import ConnectDraft, Provider
 from app.models._common import utcnow
 from app.services import providers as provider_service
@@ -51,7 +51,8 @@ UNREACHABLE_HERE_MESSAGE = (
     "Bevro can't reach that address from inside its container, and the worker isn't running on this "
     "machine to try from here (./scripts/worker.sh)."
 )
-LOCAL_KINDS = ("local", "command")
+LOCAL_KINDS = ("local", "command", "name")
+NOT_FOUND_BY_NAME = "Bevro couldn't find anything called “{name}” on this machine. If you know where it is, paste the folder's full path instead."
 
 
 class DraftError(Exception):
@@ -128,10 +129,17 @@ def _discover_into(row: ConnectDraft, roots: list[Path], secrets: dict[str, str]
     # The API has already tried, and failed, if this draft was handed on.
     ruled_out = API if row.unreachable and location != API else None
     try:
-        target = classify_target(row.target)
+        target = target_of(row)
         # Something on this machine is not looked at until the person has said
         # it may be. The question is asked once, about that one thing.
         if db is not None and target.kind in LOCAL_KINDS:
+            # A name is first turned into the folder it names - or into a
+            # question, when it could mean more than one. Only then is there a
+            # "that one thing" to ask about.
+            if target.kind == "name":
+                if _resolve_name(db, row, target):
+                    return
+                target = target_of(row)
             if _ask_first(db, row, target):
                 return
             roots = trust_service.apply_to_process(db)
@@ -206,6 +214,99 @@ def _where(db: Session, target: ConnectTarget) -> str:
         return target.value
     found = find_by_name(target.value, trust_service.folder_roots(db))
     return str(found) if found else target.value
+
+
+def target_of(row: ConnectDraft) -> ConnectTarget:
+    """The draft's target as it now stands: what was typed, or - once the
+    worker has said - what a name turned out to be."""
+    return stored_target(row.target_kind, row.target)
+
+
+def _resolve_name(db: Session, row: ConnectDraft, target: ConnectTarget) -> bool:
+    """Turn what something is called into where it is. On the worker only.
+
+    True when the draft now holds a question or a failure rather than a
+    folder. Nothing is granted and nothing inside any folder is read: the
+    folder found goes on to the same permission question a typed path would.
+    """
+    from app.connect import names
+
+    if "maybe_command" in target.hints and trust_service.look_at_command(target.argv).get("exists"):
+        # A program on this machine's PATH, followed by its arguments: what
+        # it always was.
+        row.target_kind = "command"
+        return False
+    paths = names.find_named(target.value, search_areas(db), refuse=trust_service.refuse_reason)
+    row.named = target.value[:200]
+    row.draft = None
+    if not paths:
+        row.state = "failed"
+        row.error = NOT_FOUND_BY_NAME.format(name=target.value)
+        return True
+    if len(paths) > 1:
+        # Guessing between two folders is guessing which project the person
+        # meant. They are asked; nothing is looked at until they say.
+        row.state = "choice_required"
+        row.error = None
+        row.candidates = [{"path": str(p), "label": p.name, "where": names.shown(p)} for p in paths]
+        log.info("a name fits %d folders; asking which", len(paths))
+        return True
+    row.target_kind = "local"
+    row.target = str(paths[0])
+    return False
+
+
+def search_areas(db: Session) -> list:
+    """Where a name is looked for, most likely first.
+
+        folders the person already allowed       and what is just below them
+        folders their connected projects sit in  a project's neighbours
+        the administrator's roots, if any        which are also the boundary
+        this user's own home                     only where there is no boundary
+
+    Each to a fixed depth. Nothing outside these is looked at, and nothing
+    in them that could never be allowed is entered.
+    """
+    import os
+
+    from app.connect.names import SearchArea
+
+    areas: list[SearchArea] = [SearchArea(Path(row.target), 2) for row in trust_service.active_grants(db, trust_service.FOLDER)]
+    for provider in db.scalars(select(Provider).where(Provider.origin == "connected")):
+        source = provider.source or {}
+        where = str(source.get("target") or "")
+        if str(source.get("target_kind") or source.get("kind") or "") == "local" and where.startswith(("/", "~")):
+            areas.append(SearchArea(Path(os.path.expanduser(where)).parent, 2))
+    ceiling = trust_service.admin_ceiling()
+    areas += [SearchArea(root, 3) for root in ceiling]
+    if not ceiling:
+        areas.append(SearchArea(Path.home(), 4))
+    seen: set[Path] = set()
+    return [a for a in areas if not (a.path in seen or seen.add(a.path))]
+
+
+def choose_candidate(db: Session, row: ConnectDraft, choice: int) -> ConnectDraft:
+    """The person said which of the folders they meant. Carry on with that one."""
+    candidates = row.candidates or []
+    if row.state != "choice_required" or not candidates:
+        raise DraftError("There is nothing to choose here.", 409)
+    if not 0 <= choice < len(candidates):
+        raise DraftError("That isn't one of the folders Bevro found.", 422)
+    row.target_kind = "local"
+    row.target = str(candidates[choice]["path"])
+    row.candidates = None
+    row.state = "pending"  # the worker asks permission for it, or looks
+    row.error = None
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def choices_public(row: ConnectDraft) -> list[dict[str, str]] | None:
+    """What the person chooses between: a name and where it is, nothing else."""
+    if row.state != "choice_required" or not row.candidates:
+        return None
+    return [{"label": str(c.get("label") or ""), "where": str(c.get("where") or "")} for c in row.candidates]
 
 
 def grant_for_draft(db: Session, row: ConnectDraft, *, scope: str = "exact") -> ConnectDraft:
@@ -508,7 +609,7 @@ def _reconnect_here(db: Session, provider: Provider, *, location: str = API, rul
     if not target_text:
         raise DraftError("Bevro doesn't know where this was connected from. Connect it again instead.", 409)
     try:
-        target = classify_target(target_text)
+        target = stored_target(str(source.get("target_kind") or source.get("kind") or ""), target_text)
     except TargetError as exc:
         raise DraftError(str(exc)) from exc
     try:

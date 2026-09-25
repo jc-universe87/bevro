@@ -58,7 +58,7 @@ test("connect shows one field and no technical form", () => {
   mockApi({ "GET /api/providers": [] });
   renderAt("/connect");
   expect(screen.getByText("Connect an agent, app or service to Bevro.")).toBeInTheDocument();
-  const input = screen.getByPlaceholderText("URL, local project, MCP server or command");
+  const input = screen.getByPlaceholderText("Paste an address, folder, command, or name");
   expect(input).toHaveFocus();
   expect(screen.getAllByRole("textbox")).toHaveLength(1);
   expect(screen.queryByText(/capabilit/i)).not.toBeInTheDocument();
@@ -75,7 +75,7 @@ test("typing a folder finds the agent, confirms it, and says it is under Agents"
   });
   const user = userEvent.setup();
   renderAt("/connect");
-  await user.type(screen.getByPlaceholderText("URL, local project, MCP server or command"), "~/agents/market-research{Enter}");
+  await user.type(screen.getByPlaceholderText("Paste an address, folder, command, or name"), "~/agents/market-research{Enter}");
   expect(calls.find((c) => c.method === "POST")?.body).toEqual({ target: "~/agents/market-research", secrets: {} });
   expect(await screen.findByText("Looking at market-research…")).toBeInTheDocument();
 
@@ -103,7 +103,7 @@ test("authentication is asked for only when needed and sent on confirm", async (
   });
   const user = userEvent.setup();
   renderAt("/connect");
-  await user.type(screen.getByPlaceholderText("URL, local project, MCP server or command"), "https://sales.example{Enter}");
+  await user.type(screen.getByPlaceholderText("Paste an address, folder, command, or name"), "https://sales.example{Enter}");
   expect(await screen.findByText("Authentication required")).toBeInTheDocument();
   await user.type(screen.getByLabelText("API token"), "tok-123");
   await user.click(within(screen.getByRole("region", { name: "Found" })).getByRole("button", { name: "Connect" }));
@@ -118,7 +118,7 @@ test("when unsure, the person edits a plain capability summary before connecting
   });
   const user = userEvent.setup();
   renderAt("/connect");
-  await user.type(screen.getByPlaceholderText("URL, local project, MCP server or command"), "http://bare.local{Enter}");
+  await user.type(screen.getByPlaceholderText("Paste an address, folder, command, or name"), "http://bare.local{Enter}");
   expect(await screen.findByText("I found this provider but I'm not fully sure what it can do.")).toBeInTheDocument();
   await user.type(screen.getByLabelText("What can it do?"), "Quotes, Bookings");
   await user.click(within(screen.getByRole("region", { name: "Found" })).getByRole("button", { name: "Connect" }));
@@ -130,7 +130,7 @@ test("a failed discovery says why and offers Advanced setup", async () => {
   mockApi({ "POST /api/connect/discover": draft({ state: "failed", draft: null, error: "Nothing answered at that address. Check that it is running and reachable from this machine." }) });
   const user = userEvent.setup();
   renderAt("/connect");
-  await user.type(screen.getByPlaceholderText("URL, local project, MCP server or command"), "http://down.local{Enter}");
+  await user.type(screen.getByPlaceholderText("Paste an address, folder, command, or name"), "http://down.local{Enter}");
   expect(await screen.findByRole("alert")).toHaveTextContent("Nothing answered at that address.");
   expect(screen.getAllByRole("link", { name: "Advanced setup" }).length).toBeGreaterThan(0);
 });
@@ -181,7 +181,7 @@ test("when two ways are close, the person picks one and the choice is sent", asy
   });
   const user = userEvent.setup();
   renderAt("/connect");
-  await user.type(screen.getByPlaceholderText("URL, local project, MCP server or command"), "~/agents/notes{Enter}");
+  await user.type(screen.getByPlaceholderText("Paste an address, folder, command, or name"), "~/agents/notes{Enter}");
   const found = await screen.findByRole("region", { name: "Found" });
   expect(within(found).getByText("I found two ways to connect this. Which should Bevro use?")).toBeInTheDocument();
   const connect = within(found).getByRole("button", { name: "Connect" });
@@ -211,7 +211,7 @@ test("a project with no way in offers to have a connection built, and follows it
   });
   const user = userEvent.setup();
   renderAt("/connect");
-  await user.type(screen.getByPlaceholderText("URL, local project, MCP server or command"), "~/agents/widget-brain{Enter}");
+  await user.type(screen.getByPlaceholderText("Paste an address, folder, command, or name"), "~/agents/widget-brain{Enter}");
   const found = await screen.findByRole("region", { name: "Found" });
   expect(within(found).getByText("This project doesn't expose a connection Bevro can use yet.")).toBeInTheDocument();
   expect(within(found).queryByRole("button", { name: "Connect" })).not.toBeInTheDocument();
@@ -232,8 +232,49 @@ test("with no agent able to build one, Bevro says what is needed instead of fail
   });
   const user = userEvent.setup();
   renderAt("/connect");
-  await user.type(screen.getByPlaceholderText("URL, local project, MCP server or command"), "~/agents/widget-brain{Enter}");
+  await user.type(screen.getByPlaceholderText("Paste an address, folder, command, or name"), "~/agents/widget-brain{Enter}");
   const found = await screen.findByRole("region", { name: "Found" });
   expect(within(found).getByRole("link", { name: "Connect a coding agent" })).toHaveAttribute("href", "/agents");
   expect(within(found).getAllByRole("link", { name: "Advanced setup" }).length).toBeGreaterThan(0);
+});
+
+test("a name that fits two folders asks which one, and sends only the choice", async () => {
+  const calls = mockApi({
+    "POST /api/connect/discover": draft({
+      state: "choice_required",
+      target_kind: "name",
+      target_label: "Market Research",
+      draft: null,
+      choices: [
+        { label: "market-research", where: "~/agents/market-research" },
+        { label: "market_research", where: "~/archive/market_research" },
+      ],
+    }),
+    "POST /api/connect/drafts/d1/choose": draft({
+      state: "trust_required",
+      draft: null,
+      trust: { kind: "folder", label: "market_research", path: "/home/someone/archive/market_research", exists: true },
+    }),
+  });
+  const user = userEvent.setup();
+  renderAt("/connect");
+  await user.type(screen.getByPlaceholderText("Paste an address, folder, command, or name"), "Market Research{Enter}");
+
+  const which = await screen.findByRole("region", { name: "Which one" });
+  expect(within(which).getByText("Found a few matches on this machine.")).toBeInTheDocument();
+  expect(within(which).getByText("~/archive/market_research")).toBeInTheDocument();
+  await user.click(within(which).getAllByRole("button", { name: "Choose" })[1]);
+
+  expect(calls.find((c) => c.url === "/api/connect/drafts/d1/choose")?.body).toEqual({ choice: 1 });
+  expect(await screen.findByRole("region", { name: "Permission needed" })).toBeInTheDocument();
+});
+
+test("something found by its name says it was found on this machine", async () => {
+  mockApi({ "POST /api/connect/discover": draft({ found_by_name: true, target_label: "market-research" }) });
+  const user = userEvent.setup();
+  renderAt("/connect");
+  await user.type(screen.getByPlaceholderText("Paste an address, folder, command, or name"), "market-research{Enter}");
+  const found = await screen.findByRole("region", { name: "Found" });
+  expect(within(found).getByText("Found on this machine")).toBeInTheDocument();
+  expect(within(found).getByRole("heading", { name: "Market Research" })).toBeInTheDocument();
 });

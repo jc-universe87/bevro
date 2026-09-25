@@ -1,4 +1,8 @@
-"""What did the person type? A URL, a folder, an MCP server or a command.
+"""What did the person type? A URL, a folder, an MCP server, a command - or a name.
+
+A name ("inventory-agent", "Research Agent") is what something on this
+machine is called. It is recognised only when nothing more explicit fits,
+and is turned into a folder by the worker (app/connect/names.py), never here.
 
 Classification is pure text handling: nothing is fetched, opened or run.
 Commands are split without a shell and refused if they contain anything a
@@ -13,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 from urllib.parse import urlsplit
 
-TargetKind = Literal["url", "mcp", "local", "command"]
+TargetKind = Literal["url", "mcp", "local", "command", "name"]
 
 MAX_TARGET_LENGTH = 2000
 # Anything a shell would treat specially. Quotes are allowed (shlex handles them).
@@ -25,6 +29,20 @@ KNOWN_LAUNCHERS = frozenset(
 _PY_VERSIONED = re.compile(r"^python3\.\d+$")
 _MCP_HINT = re.compile(r"/(mcp|sse)/?$", re.IGNORECASE)
 _PATHLIKE = re.compile(r"^(~|/|\./|\.\./)")
+_NAME_WORD = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,60}$")
+MAX_NAME_WORDS = 6
+
+
+def _could_be_a_name(words: list[str]) -> bool:
+    """Plain words that could be what a folder is called.
+
+    Not a sentence, not a command with options, not a known launcher: a
+    name is a handful of words made of letters, digits, dots, dashes and
+    underscores.
+    """
+    return 1 < len(words) <= MAX_NAME_WORDS and all(_NAME_WORD.match(w) for w in words) and not is_known_launcher(words[0])
+
+
 _BARE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$")
 
 
@@ -50,7 +68,7 @@ class ConnectTarget:
         under Advanced details what kind of address something turned out to
         be.
         """
-        if self.kind in ("local", "command"):
+        if self.kind in ("local", "command", "name"):
             return "local_machine"
         return location_of(self.value)
 
@@ -111,6 +129,21 @@ def is_known_launcher(program: str) -> bool:
     return name in KNOWN_LAUNCHERS or bool(_PY_VERSIONED.match(name))
 
 
+def stored_target(kind: str, text: str) -> ConnectTarget:
+    """A target Bevro wrote down, read back as what it was then.
+
+    What something is - a command, a folder - is settled once, when it is
+    first understood, and kept with it. Reading the text again under rules
+    that have since learned about names must not turn a command somebody
+    connected into a search for a folder.
+    """
+    if kind == "command":
+        return ConnectTarget(kind="command", value=text, argv=tuple(split_command(text)))
+    if kind == "local" and _PATHLIKE.match(text):
+        return ConnectTarget(kind="local", value=text)
+    return classify_target(text)
+
+
 def classify_target(raw: str) -> ConnectTarget:
     text = (raw or "").strip()
     if not text:
@@ -135,15 +168,21 @@ def classify_target(raw: str) -> ConnectTarget:
             if len(words) == 1 and _PATHLIKE.match(words[0]):
                 return ConnectTarget(kind="local", value=words[0])
         words = split_command(text)
+        if _could_be_a_name(words):
+            # "Research Agent": a few plain words, no options, no program
+            # anyone launches agents with. It may be what a folder on this
+            # machine is called - or a program that happens to be on its
+            # PATH. Only the worker can tell, so it keeps both readings.
+            return ConnectTarget(kind="name", value=text, argv=tuple(words), hints=("maybe_command",))
         return ConnectTarget(kind="command", value=text, argv=tuple(words))
 
     if _PATHLIKE.match(text):
         return ConnectTarget(kind="local", value=text)
 
     if _BARE_NAME.match(text):
-        # "my-agent": a folder name under an approved root, or a program.
-        hints = ("bare",)
-        return ConnectTarget(kind="local", value=text, hints=hints)
+        # "my-agent": what something on this machine is called. The worker
+        # looks for a folder by that name; nothing here knows where.
+        return ConnectTarget(kind="name", value=text, hints=("bare",))
 
     if "/" in text and not text.startswith("-"):
         # "agents/foo" style relative path

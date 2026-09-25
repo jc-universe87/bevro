@@ -234,10 +234,11 @@ def _draft_for_source(provider: Provider) -> ProviderDraft:
     """Look at the project the provider was connected from, as Connect would."""
     from app.connect.service import get_discovery_service
     from app.connect.strategies.base import DiscoveryContext
-    from app.connect.targets import classify_target
+    from app.connect.targets import stored_target
     from app.services.connect import local_roots
 
-    target = classify_target(str((provider.source or {}).get("target") or ""))
+    source = provider.source or {}
+    target = stored_target(str(source.get("target_kind") or source.get("kind") or ""), str(source.get("target") or ""))
     return get_discovery_service().discover(target, DiscoveryContext(roots=local_roots()))
 
 

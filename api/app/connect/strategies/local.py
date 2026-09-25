@@ -50,7 +50,7 @@ def resolve_target(target: ConnectTarget, roots: list[Path]) -> Path:
     if not roots:
         raise DiscoveryFailed(NO_ROOTS_MESSAGE)
     value = target.value
-    if "bare" in target.hints:
+    if target.kind == "name" or "bare" in target.hints:
         found = find_by_name(value, roots)
         if found is None:
             raise DiscoveryFailed(f"Bevro couldn't find a folder called '{value}'. Give the full path to it.")
@@ -84,7 +84,10 @@ class LocalProjectStrategy:
         self.probe_host = probe_host
 
     def supports(self, target: ConnectTarget) -> bool:
-        return target.kind == "local"
+        # A name reaches here only from a provider connected by one before
+        # Bevro learned to search for names: it is looked for, as it was
+        # then, directly under the folders the person allowed.
+        return target.kind in ("local", "name")
 
     def discover(self, target: ConnectTarget, context: DiscoveryContext) -> ProviderDraft:
         root = resolve_target(target, context.roots)

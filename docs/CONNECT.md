@@ -109,7 +109,7 @@ a kind of target is one class and one line in `ConnectionDiscoveryService`.
 |---|---|---|---|
 | `http(s)://…` | `HttpDiscoveryStrategy` | `/.well-known/bevro.json` (optional), `/openapi.json`, `/api/openapi.json`, `/health` & friends, `/` | name, description, the operation that takes a plain request (`POST /ask {"query": …}` and the like), the field that holds the answer, bearer / header-key authentication, capabilities from tags or operations |
 | `…/mcp`, `…/sse`, or any address that answers `initialize` | `McpDiscoveryStrategy` | `initialize`, `tools/list` | server identity, one capability per tool, the tool that takes one plain string (and which argument) |
-| a folder (`~/agents/x`, `/srv/x`, or a bare name under an approved root) | `LocalProjectStrategy` → Python, Node, Docker and executable-script inspectors, plus host probes | see below | name, description, entry point, how the request goes in, which key it needs, capabilities from name/description/README |
+| a folder (`~/agents/x`, `/srv/x`), or what one is called (`x`, `Market Research`) | `LocalProjectStrategy` → Python, Node, Docker and executable-script inspectors, plus host probes | see below | name, description, entry point, how the request goes in, which key it needs, capabilities from name/description/README |
 | a command (`python -m my_agent`, `npx my-agent`) | `CommandStrategy` | the text | a name, a request option already present (`--topic`), warnings for unknown programs |
 
 **Python** (static, no import): `[project]` name/description/scripts (also
@@ -497,14 +497,48 @@ in advance.
 
 Paths are resolved with symlinks followed *before* the check, so a link out
 of an allowed folder is refused; `..` is refused; relative paths are refused;
-a bare name (`market-research`) is looked up directly under each allowed
-folder. The same rule is applied again at run time by the `command` and `mcp`
+a name (`market-research`) is first turned into a folder (see *Connecting
+by name*) and then goes through exactly this. The same rule is applied again at run time by the `command` and `mcp`
 adapters, so a stored working directory that is no longer allowed never runs.
 An API started on the host, where it can see the filesystem, does this step
 itself and needs no worker.
 
 If no worker has reported recently, Connect says so at once instead of
 waiting.
+
+## Connecting by name
+
+"If it is on this machine, tell Bevro what it is called." `market-research`,
+`Market Research` and `market_research` all mean the folder called any of
+those. A name is recognised only when nothing more explicit fits: an
+address, a path (`/`, `~/`, `./`, `../`), a command with options or a known
+launcher always wins. A few plain words whose first word is a program on
+the worker's PATH are still a command, exactly as before.
+
+The worker (`app/connect/names.py`) searches **directory names only** - no
+file in any folder is opened - in this order, each to a fixed depth:
+
+| Where | Depth |
+|---|---|
+| folders the person already allowed | 2 |
+| folders their connected local projects sit in | 2 |
+| the administrator's `BEVRO_LOCAL_ROOTS`, when set (and then nothing else) | 3 |
+| this user's home, when there is no administrator boundary | 4 |
+
+Hidden folders, dependency and cache trees (`node_modules`, `venv`,
+`site-packages`, `__pycache__`...), anything trust would refuse (the
+operating system's folders, credential folders, outside the boundary) and
+network mounts are never entered. Links are never followed down; a link
+whose name matches is resolved and kept only if it stays inside a search
+area. A match inside another match (a project's own package) is the same
+project. The search stops after 25,000 entries or 8 seconds - warm, it takes
+a tenth of a second - and returns at most five folders.
+
+One folder: the draft's target becomes that canonical path and the ordinary
+permission question follows; finding a folder grants nothing. Several:
+Connect shows them (name and `~/...` location) and the person picks one by
+position - the paths never leave the server. None: *Bevro couldn't find
+anything called "x" on this machine*, and a path still works.
 
 ## Optional model assistance
 

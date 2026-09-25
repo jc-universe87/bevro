@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import ConnectDraft
-from app.schemas.connect import BridgeStatusOut, ConfirmIn, DiscoverIn, DraftOut, TestIn, TrustIn
+from app.schemas.connect import BridgeStatusOut, ChooseIn, ConfirmIn, DiscoverIn, DraftOut, TestIn, TrustIn
 from app.schemas.providers import ProviderOut
 from app.schemas.serialise import provider_out
 from app.services import connect as connect_service
@@ -32,6 +32,8 @@ def _out(row: ConnectDraft, db: Session | None = None) -> DraftOut:
         target_label=connect_service.target_label(row),
         draft=connect_service.draft_public(row, db),
         trust=row.trust,
+        choices=connect_service.choices_public(row),
+        found_by_name=bool(row.named) and row.target_kind == "local",
         error=row.error,
         test=row.test,
         provider_id=row.provider_id,
@@ -65,6 +67,16 @@ def allow(draft_id: uuid.UUID, body: TrustIn, db: Session = Depends(get_db)) -> 
     """The person says Bevro may look at this. Discovery carries on by itself."""
     try:
         row = connect_service.grant_for_draft(db, _load(db, draft_id), scope=body.scope)
+    except connect_service.DraftError as exc:
+        raise HTTPException(exc.status, str(exc)) from None
+    return _out(row, db)
+
+
+@router.post("/drafts/{draft_id}/choose", response_model=DraftOut)
+def choose(draft_id: uuid.UUID, body: ChooseIn, db: Session = Depends(get_db)) -> DraftOut:
+    """A name fitted more than one folder; the person says which they meant."""
+    try:
+        row = connect_service.choose_candidate(db, _load(db, draft_id), body.choice)
     except connect_service.DraftError as exc:
         raise HTTPException(exc.status, str(exc)) from None
     return _out(row, db)

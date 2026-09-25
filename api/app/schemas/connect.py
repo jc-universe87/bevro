@@ -26,10 +26,20 @@ class DraftOut(BaseModel):
     # the question needs - including the resolved path, so that what is agreed
     # to is what will be used.
     trust: dict[str, Any] | None = None
+    # When state is "choice_required": the folders a name could mean, as
+    # [{"label": "research-agent", "where": "~/agents/research-agent"}]. The
+    # answer is a position in this list, never a path.
+    choices: list[dict[str, str]] | None = None
+    # True when Bevro found this by what it is called, on this machine.
+    found_by_name: bool = False
     error: str | None = None
     test: dict[str, Any] | None = None
     provider_id: uuid.UUID | None = None
     created_at: datetime
+
+
+class ChooseIn(BaseModel):
+    choice: int = Field(ge=0, le=20)
 
 
 class TrustIn(BaseModel):
