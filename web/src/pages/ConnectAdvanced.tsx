@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import PageHeader, { Page } from "../components/PageHeader";
-import { api, ApiError } from "../lib/api";
+import { api, ApiError, type Provider } from "../lib/api";
 
 type Method = "api" | "mcp" | "command";
 
@@ -11,7 +11,15 @@ const METHODS: { value: Method; label: string }[] = [
   { value: "command", label: "Command" },
 ];
 
-/** The escape hatch: a handful of technical fields for what discovery cannot work out. */
+/**
+ * The escape hatch: a handful of technical fields for what discovery cannot work out.
+ *
+ * Two modes, chosen by what the page is given - never guessed from a name:
+ *   create            (no ?provider=) adds something new to Bevro
+ *   upgrade_existing  (?provider=ID) gives something already in Bevro a way
+ *                     for Bevro to send it work. Same item: its name, what it
+ *                     is for, how it is used and its history all stay.
+ */
 export default function ConnectAdvanced() {
   const [method, setMethod] = useState<Method>("api");
   const [name, setName] = useState("");
@@ -31,6 +39,10 @@ export default function ConnectAdvanced() {
   // person already know about it is filled in, so nothing is typed twice.
   const [params] = useSearchParams();
   const from = params.get("from");
+  const existingId = params.get("provider");
+  const [existing, setExisting] = useState<Provider | null>(null);
+  const [existingMissing, setExistingMissing] = useState(false);
+  const upgrading = existingId !== null;
   const [foundName, setFoundName] = useState<string | null>(null);
   const [websiteOnly, setWebsiteOnly] = useState(false);
   useEffect(() => {
@@ -52,6 +64,18 @@ export default function ConnectAdvanced() {
       live = false;
     };
   }, [from]);
+
+  useEffect(() => {
+    if (!existingId) return;
+    let live = true;
+    api
+      .getProvider(existingId)
+      .then((p) => live && setExisting(p))
+      .catch(() => live && setExistingMissing(true));
+    return () => {
+      live = false;
+    };
+  }, [existingId]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -80,6 +104,11 @@ export default function ConnectAdvanced() {
       }
     }
     try {
+      if (upgrading) {
+        await api.addDirectAccess(existingId!, { method, details, secrets });
+        navigate(`/apps/${existingId}#direct`);
+        return;
+      }
       await api.connectProvider({
         name: name.trim(),
         description: "",
@@ -101,18 +130,29 @@ export default function ConnectAdvanced() {
 
   return (
     <Page narrow>
-      <PageHeader title="Advanced setup">
-        <Link to="/connect" className="bv-link text-sm">
-          Back to Connect
+      <PageHeader title={upgrading ? "Set up direct access" : "Advanced setup"}>
+        <Link to={upgrading ? `/apps/${existingId}` : "/connect"} className="bv-link text-sm">
+          {upgrading ? `Back to ${existing?.name ?? "it"}` : "Back to Connect"}
         </Link>
       </PageHeader>
-      {foundName && (
+      {upgrading && existingMissing && (
+        <p role="alert" className="mb-5">
+          That isn't in Bevro any more, so there is nothing to set up. <Link to="/apps" className="bv-link">Apps & agents</Link>
+        </p>
+      )}
+      {upgrading && existing && (
+        <p className="mb-3">
+          For {existing.name}, which is already in Bevro. Tell Bevro how {existing.name} takes a task: an address it answers requests on, an MCP server, or a command. Everything else about it stays as it is.
+        </p>
+      )}
+      {!upgrading && foundName && (
         <p className="mb-3">
           Setting up {foundName}. {websiteOnly ? "It has its own app, but nothing Bevro can send tasks to yet." : "Bevro found it, but not how to send it a task."} Tell Bevro how it takes one: an address it answers requests on, an MCP server, or a command.
         </p>
       )}
-      <p className="bv-hint mb-5">For things Bevro couldn't work out on its own. The normal way is to type an address or folder under Connect.</p>
-      <form onSubmit={submit} className="space-y-5" aria-label="Advanced setup">
+      {!upgrading && <p className="bv-hint mb-5">For things Bevro couldn't work out on its own. The normal way is to type an address or folder under Connect.</p>}
+      {(!upgrading || existing) && (
+      <form onSubmit={submit} className="space-y-5" aria-label={upgrading ? "Set up direct access" : "Advanced setup"}>
         <fieldset>
           <legend className="bv-label">Connection type</legend>
           <div className="inline-flex rounded-md border bv-sep overflow-hidden" role="radiogroup" aria-label="Connection type">
@@ -125,12 +165,14 @@ export default function ConnectAdvanced() {
           </div>
         </fieldset>
 
-        <div>
-          <label htmlFor="a-name" className="bv-label">
-            Name
-          </label>
-          <input id="a-name" value={name} onChange={(e) => setName(e.target.value)} required maxLength={120} className="bv-input" />
-        </div>
+        {!upgrading && (
+          <div>
+            <label htmlFor="a-name" className="bv-label">
+              Name
+            </label>
+            <input id="a-name" value={name} onChange={(e) => setName(e.target.value)} required maxLength={120} className="bv-input" />
+          </div>
+        )}
 
         <div>
           <label htmlFor="a-address" className="bv-label">
@@ -198,18 +240,25 @@ export default function ConnectAdvanced() {
           <p className="bv-hint mt-1">Stored encrypted on the server. It is never shown again.</p>
         </div>
 
-        <div>
-          <label htmlFor="a-caps" className="bv-label">
-            Capabilities <span className="font-normal text-muted">(optional)</span>
-          </label>
-          <input id="a-caps" value={capabilities} onChange={(e) => setCapabilities(e.target.value)} placeholder="Search documents, create reports" className="bv-input" />
-          <p className="bv-hint mt-1">A few words, separated by commas.</p>
-        </div>
+        {!upgrading && (
+          <div>
+            <label htmlFor="a-caps" className="bv-label">
+              Capabilities <span className="font-normal text-muted">(optional)</span>
+            </label>
+            <input id="a-caps" value={capabilities} onChange={(e) => setCapabilities(e.target.value)} placeholder="Search documents, create reports" className="bv-input" />
+            <p className="bv-hint mt-1">A few words, separated by commas.</p>
+          </div>
+        )}
 
         <div className="flex items-center gap-3 pt-2">
-          <button type="submit" className="bv-btn-primary" disabled={busy || !name.trim() || !address.trim()}>
-            Connect
+          <button type="submit" className="bv-btn-primary" disabled={busy || (!upgrading && !name.trim()) || !address.trim()}>
+            {upgrading ? "Set up direct access" : "Connect"}
           </button>
+          {upgrading && (
+            <Link to={`/apps/${existingId}`} className="bv-btn-quiet">
+              Cancel
+            </Link>
+          )}
           {error && (
             <p role="alert" className="text-sm">
               {error}
@@ -217,6 +266,7 @@ export default function ConnectAdvanced() {
           )}
         </div>
       </form>
+      )}
     </Page>
   );
 }

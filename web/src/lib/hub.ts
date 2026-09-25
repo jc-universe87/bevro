@@ -56,34 +56,67 @@ export function seesTheMachineDirectly(at: Here): boolean {
  * about this: a service on 127.0.0.1 answers the worker and fails on a phone.
  */
 export function browserAddress(surface: Surface | undefined, at: Here): Opening | null {
-  if (!surface?.url) return null;
+  if (!surface) return null;
+  const candidates = surface.candidates?.length ? surface.candidates : surface.url ? [{ url: surface.url, reach: surface.reach ?? "loopback" }, ...(surface.local_url ? [{ url: surface.local_url, reach: "loopback" }] : [])] : [];
+  let best: { href: string; tier: number } | null = null;
+  let elsewhere: Opening | null = null;
+  candidates.forEach((c) => {
+    const judged = judge(c, at);
+    if (judged === null) return;
+    if ("reason" in judged) {
+      elsewhere ??= judged;
+      return;
+    }
+    // Lower tier wins; among equals, the order the server gave (most suitable in general first).
+    if (best === null || judged.tier < best.tier) best = judged;
+  });
+  if (best !== null) return { kind: "link", href: (best as { href: string }).href };
+  return elsewhere;
+}
+
+/**
+ * One candidate address, for this browser: a link and how good a choice it
+ * is (lower is better), where it opens instead, or nothing (not an address).
+ *
+ *   0  an address the person gave Bevro
+ *   1  on the very host this browser used to reach Bevro - which it has
+ *      just shown it can resolve and reach
+ *   2  this machine's own address, for a browser on this machine
+ *   3  a network address of the same sort as the one this browser used
+ *      (an IP address for an IP address, a name for a name)
+ *   4  any other network or shared address
+ *
+ * An address that only answers on the machine it runs on is never offered
+ * to a browser anywhere else.
+ */
+function judge(c: { url: string; reach: string }, at: Here): { href: string; tier: number } | Extract<Opening, { kind: "elsewhere" }> | null {
   let url: URL;
   try {
-    url = new URL(surface.url);
+    url = new URL(c.url);
   } catch {
     return null;
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-  switch (surface.reach) {
-    case "shared":
-      // A browser on this machine goes straight to the app, rather than
-      // relying on it resolving the private network's name for itself.
-      if (isLoopbackHost(at.hostname) && surface.local_url) return { kind: "link", href: new URL(surface.local_url).toString() };
-      return { kind: "link", href: url.toString() };
-    case "explicit":
-    case "network":
-      return { kind: "link", href: url.toString() };
-    case "all_interfaces":
-      // Published on every interface of Bevro's machine: the name this
-      // browser used for that machine reaches it too.
-      if (isLoopbackHost(at.hostname)) return { kind: "link", href: url.toString() };
-      if (!seesTheMachineDirectly(at)) return { kind: "elsewhere", address: url.toString(), reason: "unknown_host" };
-      url.hostname = at.hostname;
-      return { kind: "link", href: url.toString() };
-    default:
-      // This machine only (or not known to be anything more).
-      return isLoopbackHost(at.hostname) ? { kind: "link", href: url.toString() } : { kind: "elsewhere", address: url.toString(), reason: "this_computer" };
+  const here = isLoopbackHost(at.hostname);
+  const local = isLoopbackHost(url.hostname);
+  if (c.reach === "all_interfaces" && local && !here) {
+    // Published on every interface of Bevro's machine: the name this browser
+    // used for that machine reaches it too - when that name is the machine's.
+    if (!seesTheMachineDirectly(at)) return { kind: "elsewhere", address: url.toString(), reason: "unknown_host" };
+    url.hostname = at.hostname;
+  } else if (local && !here) {
+    return { kind: "elsewhere", address: url.toString(), reason: "this_computer" };
   }
+  const href = url.toString();
+  if (c.reach === "explicit") return { href, tier: 0 };
+  if (sameHost(url.hostname, at.hostname)) return { href, tier: 1 };
+  if (here && local) return { href, tier: 2 };
+  if (IP_LITERAL.test(url.hostname) === IP_LITERAL.test(at.hostname)) return { href, tier: 3 };
+  return { href, tier: 4 };
+}
+
+function sameHost(a: string, b: string): boolean {
+  return a.replace(/^\[|\]$/g, "").toLowerCase() === b.replace(/^\[|\]$/g, "").toLowerCase();
 }
 
 export type HubActionId = "use" | "open" | "add_credential" | "retry" | "setup_direct" | "how_to" | "how_to_open" | "resume";

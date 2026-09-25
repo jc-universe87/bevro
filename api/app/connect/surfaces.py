@@ -58,6 +58,11 @@ class Surface(BaseModel):
     reach: Reach | None = None
     title: str | None = None
     local_url: str | None = None
+    # Every address a browser might open it at, each with how it was
+    # published: [{"url", "reach"}], most suitable in general first. Which
+    # one suits a particular browser is the browser's to decide, because only
+    # it knows how it reached Bevro (web/src/lib/hub.ts). `url` is the first.
+    candidates: list[dict[str, str]] = Field(default_factory=list, max_length=12)
     # schedule: when, in words, and whether this machine actually runs it.
     when: str | None = None
     installed: bool | None = None
@@ -99,12 +104,13 @@ def reach_of(url: str, bind: str | None = None) -> Reach:
 FRAMEWORK_TITLES = frozenset({"streamlit", "gradio", "react app", "vite app", "vite + react", "vite + react + ts", "vue app", "svelte app", "next.js", "document", "index", "home"})
 
 
-def web_surface(url: str, *, bind: str | None = None, title: str | None = None, evidence: list[str] | None = None, shares: dict[int, str] | None = None, explicit: bool = False) -> Surface:
-    """A web app found answering at `url`, and the best address for a browser.
+def web_surface(url: str, *, bind: str | None = None, title: str | None = None, evidence: list[str] | None = None, shares: dict[int, list[str]] | None = None, explicit: bool = False) -> Surface:
+    """A web app found answering at `url`, and every address a browser might use.
 
-    A private-network share of the same port on this machine (`shares`,
-    port -> address) is an address made for browsers, so it wins over the
-    machine-local one, which is kept alongside.
+    Private-network shares of the same port on this machine (`shares`, port
+    -> addresses) are addresses made for browsers, so they come first; the
+    machine-local one is kept after them. None is thrown away: a browser on
+    this machine and one on a phone need different ones.
     """
     from urllib.parse import urlsplit
 
@@ -112,20 +118,32 @@ def web_surface(url: str, *, bind: str | None = None, title: str | None = None, 
     if title and title.strip().lower() in FRAMEWORK_TITLES:
         title = None  # the framework's name, not the app's
     if explicit:
-        return Surface(kind="web_app", url=url, reach="explicit", title=title, confidence="high", evidence=lines or ["Its address was given to Bevro"])
+        return Surface(kind="web_app", url=url, reach="explicit", title=title, confidence="high", evidence=lines or ["Its address was given to Bevro"], candidates=[{"url": url, "reach": "explicit"}])
     reach = reach_of(url, bind)
     parts = urlsplit(url)
     port = parts.port or (443 if parts.scheme == "https" else 80)
-    shared = (shares or {}).get(port) if reach in ("loopback", "all_interfaces") else None
+    shared = list((shares or {}).get(port) or []) if reach in ("loopback", "all_interfaces") else []
+    candidates = [*({"url": a, "reach": "shared"} for a in shared), {"url": url, "reach": reach}]
     if shared:
         lines.append("It is shared on your private network from this machine")
-        return Surface(kind="web_app", url=shared, reach="shared", title=title, local_url=url, confidence="high", evidence=lines[:8])
-    return Surface(kind="web_app", url=url, reach=reach, title=title, confidence="high", evidence=lines[:8])
+        return Surface(kind="web_app", url=shared[0], reach="shared", title=title, local_url=url, confidence="high", evidence=lines[:8], candidates=candidates[:12])
+    return Surface(kind="web_app", url=url, reach=reach, title=title, confidence="high", evidence=lines[:8], candidates=candidates)
 
 
 def declared_web_surface(app_url: str) -> Surface:
     """An address the person gave, or the provider declares for itself."""
-    return Surface(kind="web_app", url=app_url, reach="explicit", confidence="high", evidence=["Its address was given to Bevro"])
+    return Surface(kind="web_app", url=app_url, reach="explicit", confidence="high", evidence=["Its address was given to Bevro"], candidates=[{"url": app_url, "reach": "explicit"}])
+
+
+def candidates_of(s: Surface) -> list[dict[str, str]]:
+    """Every browser address of a web surface, including ones stored before
+    surfaces kept a list."""
+    if s.candidates:
+        return list(s.candidates)
+    out = [{"url": s.url, "reach": s.reach or "loopback"}] if s.url else []
+    if s.local_url and s.local_url != s.url:
+        out.append({"url": s.local_url, "reach": "loopback"})
+    return out
 
 
 # --------------------------------------------------------------------------- messaging
@@ -350,17 +368,22 @@ def from_stored(items: list[dict[str, Any]] | None) -> list[Surface]:
 def for_provider(stored: list[dict[str, Any]] | None, app_url: str | None) -> list[Surface]:
     """What a provider's surfaces are now, with one web app at most.
 
-    An address the person gave comes first, then one discovery found, then
-    the provider's own `app_url` (declared, or the address it was connected
-    from), classified like any other address rather than trusted blindly.
+    Its addresses are all of them together: one the person gave first, then
+    those discovery found, then the provider's own `app_url` (declared, or
+    the address it was connected from), classified like any other address
+    rather than trusted blindly.
     """
     found = from_stored(stored)
-    web = [s for s in found if s.kind == "web_app"]
+    web = sorted((s for s in found if s.kind == "web_app"), key=lambda s: 0 if s.reach == "explicit" else 1)
     rest = [s for s in found if s.kind != "web_app"]
-    best = next((s for s in web if s.reach == "explicit"), None) or next(iter(web), None)
-    if best is None and app_url:
-        best = web_surface(app_url, evidence=["Its address is known to Bevro"])
-    return merge([best] if best else [], rest)
+    if app_url:
+        web.append(web_surface(app_url, evidence=["Its address is known to Bevro"]))
+    if not web:
+        return merge([], rest)
+    seen: set[str] = set()
+    candidates = [c for s in web for c in candidates_of(s) if not (c["url"] in seen or seen.add(c["url"]))]
+    best = web[0].model_copy(update={"candidates": candidates[:12]})
+    return merge([best], rest)
 
 
 def has_a_way_to_use(surfaces: list[Surface]) -> bool:
@@ -390,9 +413,7 @@ def public(s: Surface) -> dict[str, Any]:
     if s.kind == "web_app" and s.url:
         out["url"] = s.url
         out["reach"] = s.reach
-        if s.reach == "shared" and s.local_url:
-            # For a browser on this machine itself, which may not resolve the shared name.
-            out["local_url"] = s.local_url
+        out["candidates"] = candidates_of(s)
         if s.title:
             out["title"] = s.title
     if s.kind == "schedule":

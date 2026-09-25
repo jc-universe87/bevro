@@ -139,6 +139,19 @@ class ProviderConnect(BaseModel):
         return value or None
 
 
+class DirectAccessIn(BaseModel):
+    """Advanced setup for something already in Bevro: how Bevro can send it work.
+
+    The same technical fields as ProviderConnect, without what the item
+    already has - its name, what it is for, how it is used. Attached to that
+    item; never a new one.
+    """
+
+    method: ConnectionMethod
+    details: dict[str, Any] = Field(default_factory=dict)
+    secrets: dict[str, str] = Field(default_factory=dict)
+
+
 class ProviderUpdate(BaseModel):
     enabled: bool | None = None
     name: str | None = Field(default=None, min_length=1, max_length=120)

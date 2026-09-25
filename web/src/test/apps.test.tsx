@@ -333,3 +333,49 @@ test("on its page, Add credential appears once and opens the field where direct 
   const direct = screen.getByRole("region", { name: "Direct Bevro access" });
   expect(within(direct).getByLabelText("OpenAI credential")).toHaveFocus();
 });
+
+// --------------------------------------------------------------------------- direct access for something already here
+
+test("Set up direct access is for this same item, and backing out changes nothing", async () => {
+  const calls = mockApi({ "GET /api/providers": [notebook], "GET /api/providers/p2": notebook });
+  const user = userEvent.setup();
+  renderAt("/apps");
+  await user.click(await screen.findByRole("button", { name: "Set up direct access" }));
+  expect(await screen.findByRole("heading", { level: 1, name: "Set up direct access" })).toBeInTheDocument();
+  expect(await screen.findByText(/For Notebook, which is already in Bevro/)).toBeInTheDocument();
+  // Nothing it already has is asked for again.
+  expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText(/Capabilities/)).not.toBeInTheDocument();
+  await user.type(screen.getByLabelText("Address"), "http://notebook.lan:8000");
+  await user.click(screen.getByRole("link", { name: "Cancel" }));
+  expect(await screen.findByRole("heading", { level: 1, name: "Notebook" })).toBeInTheDocument();
+  expect(calls.filter((c) => c.method !== "GET")).toEqual([]);
+});
+
+test("confirming attaches the way in to the same item and never creates another", async () => {
+  const upgraded = { ...notebook, actions: ["ask", "open"], direct: { state: "ready", note: "Bevro can send it work." } };
+  const calls = mockApi({ "GET /api/providers/p2": notebook, "POST /api/providers/p2/direct-access": upgraded });
+  const user = userEvent.setup();
+  renderAt("/connect/advanced?provider=p2");
+  await screen.findByText(/For Notebook, which is already in Bevro/);
+  await user.type(screen.getByLabelText("Address"), "http://notebook.lan:8000");
+  await user.type(screen.getByLabelText(/Request template/), 'POST /ask {{"q": "{{request}"}');
+  await user.click(screen.getByRole("button", { name: "Set up direct access" }));
+  const posts = calls.filter((c) => c.method === "POST");
+  expect(posts.map((c) => c.url)).toEqual(["/api/providers/p2/direct-access"]);
+  expect(posts[0].body).toEqual({ method: "api", details: { base_url: "http://notebook.lan:8000", request_template: 'POST /ask {"q": "{request}"}' }, secrets: {} });
+  expect(await screen.findByRole("heading", { level: 1, name: "Notebook" })).toBeInTheDocument();
+});
+
+test("a failed setup says so and stays on the page, with the item untouched", async () => {
+  const calls = mockApi({ "GET /api/providers/p2": notebook });
+  // No route for the POST: the server refuses (404 here stands in for any refusal).
+  const user = userEvent.setup();
+  renderAt("/connect/advanced?provider=p2");
+  await screen.findByText(/For Notebook, which is already in Bevro/);
+  await user.type(screen.getByLabelText("Address"), "http://notebook.lan:8000");
+  await user.click(screen.getByRole("button", { name: "Set up direct access" }));
+  expect(await screen.findByRole("alert")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "Set up direct access" })).toBeInTheDocument();
+  expect(calls.filter((c) => c.method === "POST").map((c) => c.url)).toEqual(["/api/providers/p2/direct-access"]);
+});

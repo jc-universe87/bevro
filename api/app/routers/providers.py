@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.connect.targets import TargetError, split_command
 from app.db import get_db
 from app.models import Provider, ProviderRun
-from app.schemas.providers import HealthOut, ProviderConnect, ProviderDetails, ProviderOut, ProviderUpdate, RemovalPlanOut, SecretIn
+from app.schemas.providers import DirectAccessIn, HealthOut, ProviderConnect, ProviderDetails, ProviderOut, ProviderUpdate, RemovalPlanOut, SecretIn
 from app.schemas.serialise import provider_details, provider_out
 from app.services import providers as provider_service
 from app.services.secrets import SecretStore
@@ -29,7 +29,7 @@ def _text(details: dict[str, Any], key: str) -> str:
     return str(value).strip() if isinstance(value, (str, int, float)) else ""
 
 
-def _advanced_config(body: ProviderConnect, kind: str) -> dict[str, Any]:
+def _advanced_config(body: ProviderConnect | DirectAccessIn, kind: str) -> dict[str, Any]:
     """Turn the handful of Advanced-setup fields into an adapter config. Secrets never enter it."""
     d = body.details
     config: dict[str, Any] = {}
@@ -162,6 +162,57 @@ def connect_provider(body: ProviderConnect, db: Session = Depends(get_db)) -> Pr
             if value:
                 store.put(db, provider.id, name, value)
     db.commit()
+    db.refresh(provider)
+    return _out(db, provider)
+
+
+@router.post("/{provider_id}/direct-access", response_model=ProviderOut)
+def add_direct_access(provider_id: uuid.UUID, body: DirectAccessIn, db: Session = Depends(get_db)) -> ProviderOut:
+    """Advanced setup for something already in Bevro: the way Bevro can send
+    it work is attached to *this* item.
+
+    Its identity, name, what it is for, how it is used, its credentials and
+    its history all stay as they are; only a way in is added, and it becomes
+    the one used. It is checked before anything is written, wherever this
+    process can check it: a way in that doesn't answer is refused, and the
+    item is left exactly as it was rather than shown as ready.
+    """
+    from app.services import reconcile as reconcile_service
+    from app.services import runtime as runtime_service
+
+    provider = provider_service.get_provider(db, provider_id)
+    if provider is None:
+        raise HTTPException(404, "Agent not found.")
+    kind = _METHOD_TO_ADAPTER[body.method]
+    config = _advanced_config(body, kind)
+    # Marks it as the person's own setup, which looking again keeps.
+    config["by_hand"] = True
+    store = _secret_store_or_none()
+    given = {k: v for k, v in body.secrets.items() if v}
+    if given and store is None:
+        raise HTTPException(503, "Secrets cannot be stored until the server has a secret key.")
+
+    existing = runtime_service.runtimes_of(provider)
+    taken = {rt.id for rt in existing}
+    rid = next(c for c in ("by-hand", *(f"by-hand-{n}" for n in range(2, 50))) if c not in taken)
+    added = runtime_service.runtime_from_adapter({"kind": kind, "method": body.method, "config": config}).model_copy(update={"id": rid, "display_name": "Set up by hand"})
+
+    if runtime_service.is_network(added):
+        secrets = {**(store.resolve(db, provider.id) if store else {}), **given}
+        result = runtime_service.check_runtime(provider, added, secrets)
+        if not result.ok:
+            db.rollback()
+            detail = f" ({result.detail})" if result.detail else ""
+            raise HTTPException(409, f"Bevro couldn't reach {provider.name} that way{detail}. Nothing about {provider.name} was changed.")
+        added = added.model_copy(update={"reachability": added.reachability.with_result(runtime_service.API, True)})
+
+    runtime_service.set_runtimes(provider, [*existing, added], added.id)
+    if store is not None:
+        for name, value in given.items():
+            store.put(db, provider.id, name[:80], value)
+    provider.availability = None  # whoever can reach it reports afresh
+    db.commit()
+    reconcile_service.reconcile(db, provider)
     db.refresh(provider)
     return _out(db, provider)
 
@@ -345,6 +396,13 @@ def _reach(db: Session, provider: Any, secrets: dict[str, str]) -> HealthOut:
     outcomes, deferred = runtime_service.check_all_runtimes(provider, secrets, execution="inline")
     db.commit()
     worker_note = provider_service.availability_of(provider) if deferred else None
+    if worker_note is not None and worker_note["state"] != "available":
+        # Looking again clears the worker's last report. What the one derived
+        # picture says (reconcile.state_of) then answers instead: a worker
+        # that is running and has reached it is not something to wait for.
+        derived = provider_service.availability_of(provider, db)
+        if derived["state"] == "available":
+            worker_note = derived
     worker_ok = bool(worker_note and worker_note["state"] == "available")
 
     if not outcomes and not deferred:

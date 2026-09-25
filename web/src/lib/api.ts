@@ -73,6 +73,8 @@ export interface Surface {
   reach?: "explicit" | "shared" | "network" | "all_interfaces" | "loopback" | string;
   /** For a shared address: the one on this machine behind it. */
   local_url?: string;
+  /** Every address a browser might open it at, most suitable in general first. The browser picks (lib/hub.ts). */
+  candidates?: { url: string; reach: string }[];
   title?: string;
   when?: string | null;
   installed?: boolean | null;
@@ -587,6 +589,9 @@ export const api = {
   access: () => request<{ grants: TrustGrant[]; ceiling: string[] }>("/trust"),
   revokeGrant: (id: string) => request<void>(`/trust/${id}`, { method: "DELETE" }),
   reconnectProvider: (id: string) => request<Provider>(`/providers/${id}/reconnect`, { method: "POST" }),
+  /** Advanced setup for something already in Bevro: attach a way in to that same item. */
+  addDirectAccess: (id: string, body: { method: string; details: Record<string, string>; secrets: Record<string, string> }) =>
+    request<Provider>(`/providers/${id}/direct-access`, { method: "POST", body: JSON.stringify(body) }),
   putSecret: (id: string, name: string, value: string) =>
     request<Provider>(`/providers/${id}/secrets/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ value }) }),
   removalPlan: (id: string) => request<RemovalPlan>(`/providers/${id}/removal`),

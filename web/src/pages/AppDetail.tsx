@@ -305,7 +305,7 @@ export default function AppDetail() {
   // "#direct", "#use": arrive at the part that was asked about.
   useEffect(() => {
     if (!provider || !location.hash) return;
-    document.getElementById(location.hash.slice(1))?.scrollIntoView({ block: "start" });
+    document.getElementById(location.hash.slice(1))?.scrollIntoView?.({ block: "start" });
   }, [provider, location.hash]);
 
   const run = async (fn: () => Promise<void>) => {
@@ -322,7 +322,7 @@ export default function AppDetail() {
   const refresh = async () => setProvider(await api.getProvider(id));
   const addCredential = () => {
     setCredentialOpen(true);
-    document.getElementById("direct")?.scrollIntoView({ block: "start" });
+    document.getElementById("direct")?.scrollIntoView?.({ block: "start" });
   };
   const test = () =>
     run(async () => {
@@ -584,7 +584,7 @@ export default function AppDetail() {
                   {busy ? "Looking…" : "Look again"}
                 </button>
               )}
-              <Link to="/connect/advanced" className="bv-btn-quiet">
+              <Link to={`/connect/advanced?provider=${p.id}`} className="bv-btn-quiet">
                 Set it up by hand
               </Link>
             </div>

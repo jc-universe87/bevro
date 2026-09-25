@@ -369,3 +369,21 @@ def test_the_policy_has_one_home_and_no_second_opinion():
 
     assert urlsafety.ALLOWED_SCHEMES == ("http", "https")
     assert urlsafety.MAX_REDIRECTS == 3
+
+
+def test_g3_test_after_looking_again_does_not_wait_for_a_worker_that_is_running(client, db, monkeypatch):
+    """Looking again clears the worker's last report and leaves the API's view
+    unknown. Test then tries from the API, can't see it, and must not say
+    "waiting for the worker" about a worker that is running and just reached it."""
+    from app.services.providers import record_heartbeat
+
+    provider = provider_service.register_provider(db, {"name": "Remote Jobs", "description": "", "capabilities": [{"id": "jobs", "title": "Jobs"}], "adapter": {"kind": "openapi", "config": fx.as_config(fx.JOBS_API)}, "origin": "connected"})
+    runtime_service.set_runtimes(provider, [fx.network_runtime("openapi", api="unknown", worker="available")], None)
+    provider.availability = None
+    record_heartbeat(db, "host:1", ["openapi"])
+    db.commit()
+    monkeypatch.setattr(runtime_service, "check_runtime", lambda p, rt, s: HealthResult(ok=False, state="unavailable", detail="Couldn't reach it (ConnectTimeout)."))
+
+    result = client.post(f"/api/providers/{provider.id}/check").json()
+    assert result["ok"] is True, result
+    assert "Waiting for the worker" not in (result["detail"] or "")

@@ -183,17 +183,43 @@ def test_6_7_an_address_is_classified_by_how_it_was_published():
     assert surface.declared_web_surface("http://127.0.0.1:1").reach == "explicit"
 
 
-def test_6_a_private_network_share_is_the_address_for_browsers():
+def test_6_a_private_network_share_gives_every_browser_address_and_keeps_the_local_one():
     status = {
-        "TCP": {"8443": {"HTTPS": True}, "7001": {"TCPForward": "127.0.0.1:7000"}},
+        "TCP": {"8443": {"HTTPS": True}, "7001": {"TCPForward": "127.0.0.1:7000"}, "6401": {"TCPForward": "127.0.0.1:6400"}},
         "Web": {"box.example.ts.net:8443": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:6400"}}}, "box.example.ts.net:443": {"Handlers": {"/wiki": {"Proxy": "http://localhost:5000"}}}},
     }
-    shares = shares_from_serve_status(status, lambda: "box.example.ts.net")
-    assert shares == {6400: "https://box.example.ts.net:8443", 5000: "https://box.example.ts.net/wiki", 7000: "http://box.example.ts.net:7001"}
+    shares = shares_from_serve_status(status, lambda: ("box.example.ts.net", ["100.64.0.9"]))
+    assert shares == {
+        6400: ["https://box.example.ts.net:8443", "http://box.example.ts.net:6401", "http://100.64.0.9:6401"],
+        5000: ["https://box.example.ts.net/wiki"],
+        7000: ["http://box.example.ts.net:7001", "http://100.64.0.9:7001"],
+    }
     web = surface.web_surface("http://127.0.0.1:6400", bind="loopback", shares=shares)
     assert (web.url, web.reach, web.local_url) == ("https://box.example.ts.net:8443", "shared", "http://127.0.0.1:6400")
+    # None is thrown away: which one suits a browser is the browser's question.
+    assert web.candidates == [
+        {"url": "https://box.example.ts.net:8443", "reach": "shared"},
+        {"url": "http://box.example.ts.net:6401", "reach": "shared"},
+        {"url": "http://100.64.0.9:6401", "reach": "shared"},
+        {"url": "http://127.0.0.1:6400", "reach": "loopback"},
+    ]
+    assert surface.public(web)["candidates"] == web.candidates
     # Something shared elsewhere is nothing to do with a real network address.
     assert surface.web_surface("http://10.0.0.8:6400", shares=shares).reach == "network"
+
+
+def test_all_addresses_of_one_app_are_offered_together_the_persons_first(client, db):
+    found = surface.web_surface("http://127.0.0.1:6400", bind="all", shares={6400: ["https://box.example.ts.net:8443"]})
+    p = _provider(db, "Notebook", surfaces=[found])
+    r = client.patch(f"/api/providers/{p.id}", json={"web_address": "https://notes.example.org/"})
+    [web] = r.json()["surfaces"]
+    assert [c["url"] for c in web["candidates"]] == ["https://notes.example.org/", "https://box.example.ts.net:8443", "http://127.0.0.1:6400"]
+
+
+def test_an_address_stored_before_there_were_lists_still_has_its_candidates():
+    old = {"kind": "web_app", "role": "use", "url": "https://box.example.ts.net:8443", "reach": "shared", "local_url": "http://127.0.0.1:6400"}
+    [web] = surface.for_provider([old], None)
+    assert surface.public(web)["candidates"] == [{"url": "https://box.example.ts.net:8443", "reach": "shared"}, {"url": "http://127.0.0.1:6400", "reach": "loopback"}]
 
 
 def test_nothing_is_read_from_a_share_pointing_somewhere_else():

@@ -43,7 +43,8 @@ log = logging.getLogger("bevro.reconcile")
 #   3  execution contexts; installed template units; the installed unit's own ExecStart
 #   4  what a credential held elsewhere is for; a program's own self-check option
 #   5  how a person uses it apart from Bevro (surfaces); how a port is published
-DISCOVERY_VERSION = 5
+#   6  every browser address of a web app, not only the first
+DISCOVERY_VERSION = 6
 
 
 @dataclass

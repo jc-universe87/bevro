@@ -761,11 +761,12 @@ def _reconnect_here(db: Session, provider: Provider, *, location: str = API, rul
     active = draft.runtime
     if active is not None and active.credentials.names and all(n in stored for n in active.credentials.names):
         active.credentials = active.credentials.model_copy(update={"strategy": CredentialStrategy.BEVRO_MANAGED, "required_from_user": False})
-    # A connection Bevro built for this project is not something discovery can
-    # find again, so it is kept; ranking decides whether it is still preferred.
+    # A connection Bevro built for this project, or one the person set up by
+    # hand, is not something discovery can find again, so it is kept; ranking
+    # decides whether it is still preferred.
     from app.services.runtime import runtimes_of
 
-    built = [rt for rt in runtimes_of(provider) if (rt.adapter.get("config") or {}).get("bridge")]
+    built = [rt for rt in runtimes_of(provider) if (rt.adapter.get("config") or {}).get("bridge") or (rt.adapter.get("config") or {}).get("by_hand")]
     runtimes = [*draft.runtimes, *(rt for rt in built if all(rt.id != other.id for other in draft.runtimes))]
     active_id = draft.active_runtime
     if len(runtimes) > len(draft.runtimes):

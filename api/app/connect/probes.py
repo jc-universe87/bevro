@@ -268,18 +268,21 @@ def systemd_timers(project: Project, *, ask_systemd: bool = True) -> list[System
     return timers
 
 
-_SHARES_CACHE: tuple[float, dict[int, str]] | None = None
+_SHARES_CACHE: tuple[float, dict[int, list[str]]] | None = None
 SHARES_TTL_SECONDS = 60.0
 
 
-def private_shares() -> dict[int, str]:
+def private_shares() -> dict[int, list[str]]:
     """Ports on this machine that are shared to a private network, for browsers.
 
+    port -> every browser address for it, most suitable for browsers first.
     Read from `tailscale serve status --json`: an HTTPS handler proxying to
     a local port gives that port a browser address on the tailnet, and a
-    plain TCP forward gives it one over http. Read-only, with a short
-    timeout, and nothing at all where tailscale is not installed. Cached
-    for a minute: several projects looked at together ask once.
+    plain TCP forward gives it one over http, by this machine's tailnet name
+    and by its tailnet address. Which of them suits a particular browser is
+    the browser's question (web/src/lib/hub.ts). Read-only, with a short
+    timeout, and nothing at all where tailscale is not installed. Cached for
+    a minute: several projects looked at together ask once.
     """
     import json
     import time
@@ -287,40 +290,49 @@ def private_shares() -> dict[int, str]:
     global _SHARES_CACHE
     now = time.monotonic()
     if _SHARES_CACHE is not None and now - _SHARES_CACHE[0] < SHARES_TTL_SECONDS:
-        return dict(_SHARES_CACHE[1])
-    shares: dict[int, str] = {}
+        return {k: list(v) for k, v in _SHARES_CACHE[1].items()}
+    shares: dict[int, list[str]] = {}
     if shutil.which("tailscale") is not None:
         try:
             out = subprocess.run(["tailscale", "serve", "status", "--json"], capture_output=True, text=True, timeout=3, check=False)
             status = json.loads(out.stdout) if out.returncode == 0 and out.stdout.strip() else {}
         except (OSError, subprocess.TimeoutExpired, ValueError):
             status = {}
-        shares = shares_from_serve_status(status, _tailnet_name)
+        shares = shares_from_serve_status(status, _tailnet_self)
     _SHARES_CACHE = (now, shares)
-    return dict(shares)
+    return {k: list(v) for k, v in shares.items()}
 
 
-def _tailnet_name() -> str | None:
+def _tailnet_self() -> tuple[str | None, list[str]]:
+    """(this machine's tailnet name, its tailnet IPv4 addresses)."""
     import json
 
     try:
         out = subprocess.run(["tailscale", "status", "--self", "--json", "--peers=false"], capture_output=True, text=True, timeout=3, check=False)
-        name = str((json.loads(out.stdout).get("Self") or {}).get("DNSName") or "").rstrip(".")
+        me = json.loads(out.stdout).get("Self") or {}
     except (OSError, subprocess.TimeoutExpired, ValueError, AttributeError):
-        return None
-    return name or None
+        return None, []
+    name = str(me.get("DNSName") or "").rstrip(".") or None
+    ips = [str(ip) for ip in me.get("TailscaleIPs") or [] if ":" not in str(ip)]
+    return name, ips
 
 
-def shares_from_serve_status(status: dict, own_name=lambda: None) -> dict[int, str]:
-    """port on this machine -> browser address, from a serve status document.
+def shares_from_serve_status(status: dict, own=lambda: (None, [])) -> dict[int, list[str]]:
+    """port on this machine -> browser addresses, from a serve status document.
 
     HTTPS handlers first: they are what a browser is meant to use. A handler
-    mounted below "/" keeps its path. A TCP forward is used only for a port
-    no handler covers, and is named by this machine's tailnet name.
+    mounted below "/" keeps its path. A TCP forward adds plain http addresses
+    by this machine's tailnet name and its tailnet addresses, after any
+    handler for the same port.
     """
     from urllib.parse import urlsplit
 
-    shares: dict[int, str] = {}
+    shares: dict[int, list[str]] = {}
+
+    def add(port: int, address: str) -> None:
+        if address not in shares.setdefault(port, []):
+            shares[port].append(address)
+
     web = status.get("Web") if isinstance(status, dict) else None
     for host_port, config in (web or {}).items() if isinstance(web, dict) else []:
         handlers = (config or {}).get("Handlers") if isinstance(config, dict) else None
@@ -331,17 +343,18 @@ def shares_from_serve_status(status: dict, own_name=lambda: None) -> dict[int, s
                 continue
             host, _, port = str(host_port).rpartition(":")
             address = f"https://{host}" if port in ("", "443") else f"https://{host}:{port}"
-            shares.setdefault(target.port, address + ("" if mount == "/" else "/" + str(mount).strip("/")))
+            add(target.port, address + ("" if mount == "/" else "/" + str(mount).strip("/")))
     tcp = status.get("TCP") if isinstance(status, dict) else None
-    name = None
+    me: tuple[str | None, list[str]] | None = None
     for listen, config in (tcp or {}).items() if isinstance(tcp, dict) else []:
         forward = str((config or {}).get("TCPForward") or "") if isinstance(config, dict) else ""
         host, _, port = forward.rpartition(":")
-        if not forward or host not in ("127.0.0.1", "localhost", "[::1]") or not port.isdigit() or int(port) in shares:
+        if not forward or host not in ("127.0.0.1", "localhost", "[::1]") or not port.isdigit():
             continue
-        name = name or own_name()
-        if name:
-            shares[int(port)] = f"http://{name}:{listen}"
+        me = me or own()
+        name, ips = me
+        for where in ([name] if name else []) + list(ips):
+            add(int(port), f"http://{where}:{listen}")
     return shares
 
 

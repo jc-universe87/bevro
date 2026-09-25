@@ -54,8 +54,9 @@ export function ActionButton({ action, provider, primary, onAsk, onRetry, onResu
         </button>
       );
     case "setup_direct":
+      // Always this item: Advanced setup is told which one, and adds a way in to it.
       return (
-        <button type="button" className={cls} onClick={() => navigate(`${detail}#direct`)}>
+        <button type="button" className={cls} onClick={() => navigate(`/connect/advanced?provider=${provider.id}`)}>
           {action.label}
         </button>
       );

@@ -83,6 +83,87 @@ describe("where a browser can open a web app", () => {
   });
 });
 
+describe("choosing among several addresses for the browser in front of it", () => {
+  // Shapes only: a machine at 100.64.0.9 / box.example.ts.net, sharing an app
+  // published on its own port 6400 over HTTPS (8443) and a plain forward (6401).
+  const many = (): Surface => ({
+    kind: "web_app",
+    role: "use",
+    label: "Web app",
+    sentence: "",
+    url: "https://box.example.ts.net:8443",
+    reach: "shared",
+    candidates: [
+      { url: "https://box.example.ts.net:8443", reach: "shared" },
+      { url: "http://box.example.ts.net:6401", reach: "shared" },
+      { url: "http://100.64.0.9:6401", reach: "shared" },
+      { url: "http://127.0.0.1:6400", reach: "loopback" },
+    ],
+  });
+  const SAME_MACHINE_BY_IP: Here = { hostname: "100.64.0.9", port: "6140" };
+  const BY_NAME: Here = { hostname: "box.example.ts.net", port: "6140" };
+  const OTHER_DEVICE: Here = { hostname: "bevro.example.org", port: "" };
+  const href = (s: Surface, at: Here) => {
+    const o = browserAddress(s, at);
+    return o?.kind === "link" ? o.href : o;
+  };
+
+  test("A: Bevro opened at localhost, app on this machine: the local address", () => {
+    expect(href(many(), LAPTOP)).toBe("http://127.0.0.1:6400/");
+    expect(href({ ...web("http://127.0.0.1:6400/", "loopback"), candidates: [{ url: "http://127.0.0.1:6400/", reach: "loopback" }] }, { hostname: "127.0.0.1", port: "6140" })).toBe("http://127.0.0.1:6400/");
+  });
+
+  test("B, G: Bevro opened at this machine's IP address: the app on that same address, not a name it may not resolve", () => {
+    expect(href(many(), SAME_MACHINE_BY_IP)).toBe("http://100.64.0.9:6401/");
+    // Published on every interface: the IP it was opened at, with the app's own port.
+    expect(href({ ...web("http://127.0.0.1:8501", "all_interfaces"), candidates: [{ url: "http://127.0.0.1:8501", reach: "all_interfaces" }] }, SAME_MACHINE_BY_IP)).toBe("http://100.64.0.9:8501/");
+  });
+
+  test("H: Bevro opened by the machine's name: the addresses under that name, HTTPS first", () => {
+    expect(href(many(), BY_NAME)).toBe("https://box.example.ts.net:8443/");
+  });
+
+  test("C: another device, an app only this machine can open: no link, and where it opens instead", () => {
+    const local = { ...web("http://127.0.0.1:6400", "loopback"), candidates: [{ url: "http://127.0.0.1:6400", reach: "loopback" }] };
+    expect(browserAddress(local, OTHER_DEVICE)).toEqual({ kind: "elsewhere", address: "http://127.0.0.1:6400/", reason: "this_computer" });
+    expect(hubView(item({ surfaces: [local] }), OTHER_DEVICE).primary.id).toBe("how_to_open");
+  });
+
+  test("D: another device, an app shared on the private network: the shared address, never 127.0.0.1", () => {
+    expect(href(many(), OTHER_DEVICE)).toBe("https://box.example.ts.net:8443/");
+    expect(href(many(), PHONE_BY_IP)).toBe("http://100.64.0.9:6401/"); // same sort of address as the browser used
+  });
+
+  test("E: an address the person gave is kept - unless this browser can't possibly use it", () => {
+    const given = (url: string): Surface => ({ ...many(), candidates: [{ url, reach: "explicit" }, ...many().candidates!] });
+    expect(href(given("https://notes.example.org/"), SAME_MACHINE_BY_IP)).toBe("https://notes.example.org/");
+    expect(href(given("http://127.0.0.1:9999/"), SAME_MACHINE_BY_IP)).toBe("http://100.64.0.9:6401/");
+    expect(href(given("http://127.0.0.1:9999/"), LAPTOP)).toBe("http://127.0.0.1:9999/");
+  });
+
+  test("F: the same inputs always give the same answer, whatever order equals arrive in", () => {
+    const a = many();
+    const b = { ...a, candidates: [...a.candidates!].reverse() };
+    for (const at of [LAPTOP, SAME_MACHINE_BY_IP, BY_NAME, OTHER_DEVICE]) {
+      expect(href(a, at)).toBe(href(a, at));
+    }
+    // Different tiers do not depend on order; only equals fall back to the server's order.
+    expect(href(b, SAME_MACHINE_BY_IP)).toBe("http://100.64.0.9:6401/");
+    expect(href(b, LAPTOP)).toBe("http://127.0.0.1:6400/");
+  });
+
+  test("I: scheme, port and path survive, including a substituted host", () => {
+    expect(href({ ...web("https://127.0.0.1:8443/app/?x=1", "all_interfaces"), candidates: [{ url: "https://127.0.0.1:8443/app/?x=1", reach: "all_interfaces" }] }, BY_NAME)).toBe("https://box.example.ts.net:8443/app/?x=1");
+    expect(href({ ...web("https://box.example.ts.net/wiki", "shared"), candidates: [{ url: "https://box.example.ts.net/wiki", reach: "shared" }] }, OTHER_DEVICE)).toBe("https://box.example.ts.net/wiki");
+  });
+
+  test("an address stored before there were lists still works", () => {
+    const old: Surface = { ...web("https://box.example.ts.net:8443", "shared"), local_url: "http://127.0.0.1:6400" };
+    expect(href(old, LAPTOP)).toBe("http://127.0.0.1:6400/");
+    expect(href(old, OTHER_DEVICE)).toBe("https://box.example.ts.net:8443/");
+  });
+});
+
 // --------------------------------------------------------------------------- 1-5, 8-11: what it is and what to do
 
 describe("the one thing to do with it", () => {
