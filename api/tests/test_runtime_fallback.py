@@ -171,7 +171,7 @@ def test_unavailable_preferred_runtime_falls_back_and_marks_itself_down(two_runt
     assert [rt.id for rt in usable] == ["cli"] and [(rt.id, why) for rt, why in skipped] == [("running", "cooling down after a failure")]
 
 
-def test_fallback_exhaustion_reports_the_last_real_failure(two_runtime_provider, monkeypatch):
+def test_fallback_exhaustion_reports_what_stopped_the_best_way_in(two_runtime_provider, monkeypatch):
     build, servers = two_runtime_provider
     provider, _ = build(serve=False)
     # The script is there but its folder is not approved, so that way is out too.
@@ -179,7 +179,9 @@ def test_fallback_exhaustion_reports_the_last_real_failure(two_runtime_provider,
     result, artifacts = run_work(provider)
     assert result.state == ResultState.FAILED
     assert [a["runtime_id"] for a in attempts_of(result)] == ["running", "cli"]
-    assert result.failure == FailureKind.CONFIGURATION_PROBLEM and "could not start" in result.error
+    # Both were tried; what the person hears is what stopped the preferred one.
+    assert result.failure == FailureKind.PROVIDER_UNAVAILABLE and result.metadata["runtime"]["id"] == "running"
+    assert [a["runtime_id"] for a in attempts_of(result) if a.get("contributed")] == ["running"]
     assert len(attempts_of(result)) <= runtime_service.MAX_ATTEMPTS
 
 
@@ -214,12 +216,14 @@ def test_cancellation_stops_the_run_and_never_falls_back(two_runtime_provider, m
 
 # ----------------------------------------------------------------------------- C: credential-blocked alternative
 
-def test_credential_blocked_alternative_reports_the_credential_not_a_vague_failure(two_runtime_provider):
+def test_a_way_in_that_cannot_be_reached_is_not_reported_as_a_missing_credential(two_runtime_provider):
     build, servers = two_runtime_provider
     provider, _ = build(serve=False, cli_credentials=Credentials(strategy=CredentialStrategy.BEVRO_MANAGED, names=["FIXTURE_KEY"], required_from_user=True))
     result, artifacts = run_work(provider)
-    assert result.state == ResultState.FAILED and result.failure == FailureKind.CREDENTIAL_REQUIRED
-    assert result.metadata["missing_secrets"] == ["FIXTURE_KEY"]
+    # The way in that needs nothing from the person could not be reached;
+    # another way that would need a key does not change what happened.
+    assert result.state == ResultState.FAILED and result.failure == FailureKind.PROVIDER_UNAVAILABLE
+    assert "missing_secrets" not in result.metadata
     assert artifacts == []
     # With the credential in hand the same provider falls back to the script and works.
     result, _ = run_work(provider, secrets={"FIXTURE_KEY": "value"})

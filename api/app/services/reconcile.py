@@ -131,24 +131,9 @@ def state_of(db, provider: Provider) -> ProviderState:
 
 
 def _nothing_usable_because(skipped: list[tuple[RuntimeProfile, str]]) -> str:
-    """Why no way in can be used, in the order a person would care about.
-
-    A missing credential is the answer only when it is what stands in the
-    way of *every* way in that could take work. A way in that needs nothing
-    from the person but is down right now is the truer answer: getting it
-    back gives Bevro the app without anyone handing over a key.
-    """
-    workable = [(rt, why) for rt, why in skipped if why not in ("cannot take a task", "no adapter for this mechanism")]
-    others = [(rt, why) for rt, why in workable if why != "credential"]
-    if workable and not others:
-        return "needs_credential"
-    reasons = {why for _rt, why in others}
-    if "needs the worker on the host" in reasons:
-        return "waiting_for_worker"
-    if "cooling down after a failure" in reasons:
-        resting = [rt for rt, why in others if why == "cooling down after a failure"]
-        return "needs_start" if all(rt.availability == "needs_start" for rt in resting) else "unreachable"
-    return "nothing_usable"
+    """Why no way in can be used. The runtime layer's rule, so that the
+    status and a run that could not start say the same thing."""
+    return runtime_service.why_none_usable(skipped)
 
 
 def _reachable_now(db, provider: Provider, selected: RuntimeProfile) -> str:

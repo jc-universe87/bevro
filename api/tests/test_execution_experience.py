@@ -374,3 +374,23 @@ def test_S_recent_lists_each_task_in_plain_words(client, seeded, desk, script):
     [row] = client.get("/api/tasks").json()
     assert row["status"]["label"] == "Completed" and row["provider"]["name"] == "Jobs Desk" and row["results"] == 1
     assert not re.search(r"runtime|adapter|provider run|heartbeat|attempt|http|exit code", json.dumps(row["status"]), re.I)
+
+
+def test_G_bevro_failing_after_the_app_answered_is_bevro_s_failure(seeded, desk, script, monkeypatch):
+    task = task_service.submit(seeded, "Review my opportunities", provider=desk)
+    seeded.commit()
+    script.append(ok())
+
+    def handling_breaks(*a, **k):
+        raise RuntimeError("could not file the result")
+
+    monkeypatch.setattr(task_service, "finish_run", handling_breaks)
+    task_service.execute_run_in_background(task.runs[0].id)
+    seeded.expire_all()
+    task = seeded.get(Task, task.id)
+    from app.schemas.serialise import failure_out
+
+    failure = failure_out(task.runs[-1])
+    assert failure.category == "bevro_error" and failure.message == "Bevro hit a problem while handling this."
+    assert failure.may_repeat is True  # the app did the work; doing it again may repeat it
+    assert "credential" not in task_status(task).headline

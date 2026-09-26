@@ -398,3 +398,108 @@ def test_a_running_api_that_is_also_a_page_for_people_is_both(tmp_path, monkeypa
     [web] = [s for s in draft.surfaces if s.kind == "web_app"]
     assert web.role == "use" and web.url.startswith("http://10.9.8.7:6300")
     assert any(rt.kind == RuntimeKind.PROCESS and rt.invocable for rt in draft.runtimes)
+
+
+# --------------------------------------------------------------------------- what a failed run says (execution = status)
+
+def _script(monkeypatch, outcomes: dict):
+    """runtime id -> FailureKind to fail with, or None to succeed. Records what was tried."""
+    from adapters import InvocationResult, ResultState
+
+    tried: list[str] = []
+
+    def invoke_once(provider, runtime, request, context):
+        tried.append(runtime.id)
+        kind = outcomes.get(runtime.id, "unscripted")
+        if kind is None:
+            return InvocationResult(state=ResultState.COMPLETED, summary="done"), []
+        return InvocationResult(state=ResultState.FAILED, error=f"{runtime.id} failed", failure=kind), []
+
+    monkeypatch.setattr(runtime_service, "_invoke_once", invoke_once)
+    return tried
+
+
+def _run(p, secrets=None, context=None):
+    from adapters import InvocationRequest
+
+    result, _ = runtime_service.execute(p, InvocationRequest(task_id="t", run_id="r", request="x", secrets=secrets or {}), context)
+    # What the run learned about each way in is kept, as finish_run does.
+    runtime_service.apply_health(p, dict(result.metadata or {}).get(runtime_service.META_HEALTH, {}))
+    return result
+
+
+def test_exec_A_H_an_unreachable_key_free_way_in_is_the_reason_not_anothers_key(db, monkeypatch):
+    from adapters import FailureKind
+
+    p = _provider(db, "Fixture Desk", [_http(), _cli()])
+    tried = _script(monkeypatch, {"api": FailureKind.PROVIDER_UNAVAILABLE})
+    result = _run(p)
+    assert tried == ["api"]  # the command line was never a way in: no key
+    assert result.failure == FailureKind.PROVIDER_UNAVAILABLE and "missing_secrets" not in result.metadata
+    db.commit()
+    # And the item's status now says the same thing.
+    assert direct_access(db, p)["state"] == "unreachable"
+
+
+def test_exec_B_a_key_free_way_in_that_works_is_used_whatever_another_way_needs(db, monkeypatch):
+    from adapters import ResultState
+
+    p = _provider(db, "Fixture Desk", [_cli(), _http()])
+    tried = _script(monkeypatch, {"api": None})
+    assert _run(p).state == ResultState.COMPLETED and tried == ["api"]
+
+
+def test_exec_C_when_every_way_in_lacks_the_same_key_that_is_the_reason(db, monkeypatch):
+    from adapters import FailureKind
+
+    p = _provider(db, "Fixture Brief", [_cli(), _cli("cli-2")])
+    tried = _script(monkeypatch, {})
+    result = _run(p)
+    assert tried == [] and result.failure == FailureKind.CREDENTIAL_REQUIRED
+    assert result.metadata["missing_secrets"] == ["OPENAI_API_KEY"]
+    assert direct_access(db, p)["state"] == "needs_credential"
+
+
+def test_exec_D_the_preferred_way_in_s_failure_is_told_not_a_later_way_s_key_problem(db, monkeypatch):
+    from adapters import FailureKind
+
+    keyed = _http("keyed").model_copy(update={"credentials": Credentials(strategy=CredentialStrategy.BEVRO_MANAGED, names=["DESK_TOKEN"])})
+    p = _provider(db, "Fixture Desk", [_http(), keyed])
+    tried = _script(monkeypatch, {"api": FailureKind.PROVIDER_UNAVAILABLE, "keyed": FailureKind.CREDENTIAL_REQUIRED})
+    result = _run(p, secrets={"DESK_TOKEN": "rejected"})
+    assert tried == ["api", "keyed"]
+    assert result.failure == FailureKind.PROVIDER_UNAVAILABLE and result.metadata["runtime"]["id"] == "api"
+
+
+def test_exec_E_a_way_in_that_fails_before_another_works_is_no_failure(db, monkeypatch):
+    from adapters import FailureKind, InvocationContext, ResultState
+
+    other = _http("other")
+    p = _provider(db, "Fixture Desk", [_http(), other])
+    tried = _script(monkeypatch, {"api": FailureKind.PROVIDER_UNAVAILABLE, "other": None})
+    fell_back: list[bool] = []
+    result = _run(p, context=InvocationContext(fallback=lambda: fell_back.append(True)))
+    assert result.state == ResultState.COMPLETED and tried == ["api", "other"] and fell_back == [True]
+
+
+def test_exec_F_work_the_app_started_and_could_not_finish_is_its_failure(db, monkeypatch):
+    from adapters import FailureKind
+
+    p = _provider(db, "Fixture Desk", [_http(), _http("other"), _cli()])
+    tried = _script(monkeypatch, {"api": FailureKind.INVOCATION_FAILED})
+    result = _run(p)
+    assert tried == ["api"] and result.failure == FailureKind.INVOCATION_FAILED
+
+
+def test_exec_I_the_test_checks_the_way_in_the_run_uses_and_they_agree(db, monkeypatch):
+    from adapters import FailureKind, HealthResult
+
+    p = _provider(db, "Fixture Desk", [_cli(), _http()])
+    checked: list[str] = []
+    monkeypatch.setattr(runtime_service, "check_runtime", lambda provider, runtime, secrets: checked.append(runtime.id) or HealthResult(ok=False, state="unavailable", detail="refused"))
+    health = runtime_service.health(p, {})
+    tried = _script(monkeypatch, {"api": FailureKind.PROVIDER_UNAVAILABLE})
+    result = _run(p)
+    assert checked == ["api"] and not health.ok
+    assert tried == ["api"] and result.failure == FailureKind.PROVIDER_UNAVAILABLE
+    assert direct_access(db, p)["state"] == "unreachable"

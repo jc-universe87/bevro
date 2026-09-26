@@ -333,11 +333,35 @@ def eligible_runtimes(provider: Provider, secrets: dict[str, str] | None = None,
     return usable, skipped
 
 
+def why_none_usable(skipped: list[tuple[RuntimeProfile, str]]) -> str:
+    """Why no way in can be used, in the order a person would care about.
+
+    The one rule for it: the status an item shows (reconcile.state_of) and a
+    run that could not start both ask here, so they cannot disagree.
+
+    A missing credential is the answer only when it is what stands in the
+    way of *every* way in that could take work. A way in that needs nothing
+    from the person but is down right now is the truer answer: getting it
+    back gives Bevro the app without anyone handing over a key.
+    """
+    workable = [(rt, why) for rt, why in skipped if why not in ("cannot take a task", "no adapter for this mechanism")]
+    others = [(rt, why) for rt, why in workable if why != "credential"]
+    if workable and not others:
+        return "needs_credential"
+    reasons = {why for _rt, why in others}
+    if "needs the worker on the host" in reasons:
+        return "waiting_for_worker"
+    if "cooling down after a failure" in reasons:
+        resting = [rt for rt, why in others if why == "cooling down after a failure"]
+        return "needs_start" if all(rt.availability == "needs_start" for rt in resting) else "unreachable"
+    return "nothing_usable"
+
+
 def _credential_failure(provider: Provider, skipped: list[tuple[RuntimeProfile, str]]) -> InvocationResult | None:
-    """Nothing could run, and at least one way was only missing a credential."""
-    blocked = [rt for rt, why in skipped if why == "credential"]
-    if not blocked:
+    """Nothing could run because every way in lacks a credential (why_none_usable)."""
+    if why_none_usable(skipped) != "needs_credential":
         return None
+    blocked = [rt for rt, why in skipped if why == "credential"]
     return InvocationResult(
         state=ResultState.FAILED,
         error=f"{provider.name} needs a credential before it can run.",
@@ -393,8 +417,9 @@ def execute(provider: Provider, request: InvocationRequest, context: InvocationC
         return _with_meta(InvocationResult(state=ResultState.FAILED, error=f"{provider.name} isn't available right now.", failure=FailureKind.PROVIDER_UNAVAILABLE), None, attempts, health), []
 
     last_result: InvocationResult | None = None
-    last_artifacts: list[ArtifactDraft] = []
     previous: RuntimeProfile | None = None
+    # Ways in that failed for their own reasons, best first.
+    failed: list[tuple[InvocationResult, list[ArtifactDraft], RuntimeProfile, RuntimeAttempt]] = []
     for runtime in usable[:MAX_ATTEMPTS]:
         if previous is not None:
             # Only worth trying if this runtime gets its secrets another way.
@@ -437,19 +462,21 @@ def execute(provider: Provider, request: InvocationRequest, context: InvocationC
 
         attempt.fallback_reason = "runtime unavailable" if runtime_at_fault else "credential"
         attempts.append(attempt)
-        last_result, last_artifacts, previous = result, artifacts, runtime
+        failed.append((result, artifacts, runtime, attempt))
+        last_result, previous = result, runtime
 
-    # Every way in was tried. If another way was held back only for want of a
-    # credential, that is the thing the person can actually do something about.
+    # Every way in that could be tried was tried, and each failed for a
+    # reason of its own rather than the work's. What the person is told is
+    # what stopped the best of them, in rank order - the same order the
+    # status picks from. A credential is that reason only when every way
+    # tried failed for want of one: a way in that needs nothing from the
+    # person, but could not be reached, is never overruled by another way
+    # that would have needed a key (whether tried or held back).
     assert last_result is not None
-    blocked = _credential_failure(provider, skipped)
-    if blocked is not None and last_result.failure != FailureKind.CREDENTIAL_REQUIRED:
-        log.info("run %s: every reachable runtime for %s failed; another needs a credential", request.run_id, provider.slug)
-        return _with_meta(blocked, previous, attempts, health), []
-    if attempts:
-        attempts[-1].contributed = True
-    log.info("run %s: every runtime for %s failed (%s attempts)", request.run_id, provider.slug, len(attempts))
-    return _with_meta(last_result, previous, attempts, health), last_artifacts
+    result, artifacts, runtime, attempt = next((f for f in failed if f[0].failure != FailureKind.CREDENTIAL_REQUIRED), failed[0])
+    attempt.contributed = True
+    log.info("run %s: every runtime for %s failed (%s attempts); telling %s", request.run_id, provider.slug, len(attempts), result.failure)
+    return _with_meta(result, runtime, attempts, health), artifacts
 
 
 def _with_meta(result: InvocationResult, runtime: RuntimeProfile | None, attempts: list[RuntimeAttempt], health: dict[str, RuntimeHealth]) -> InvocationResult:
