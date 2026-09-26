@@ -282,7 +282,8 @@ def test_home_points_at_the_app_for_it_when_bevro_cannot_do_it(client, db):
     assert r.status_code == 503
     detail = r.json()["detail"]
     assert detail["reason"] == "use_elsewhere" and detail["suggestion"]["name"] == "Notebook"
-    assert "open it" in detail["message"]
+    assert detail["message"] == "Notebook is the best place for this."
+    assert detail["answer"]["outcome"] == "handoff" and detail["answer"]["why"] == "Keeps what you have noted and learned."
 
 
 def test_naming_the_app_is_enough(client, db):

@@ -52,7 +52,7 @@ def submit_task(body: TaskSubmit, background: BackgroundTasks, db: Session = Dep
     try:
         task = task_service.submit(db, body.request, provider=provider, input={"workspace_id": body.workspace_id} if body.workspace_id else None)
     except task_service.NoProviderAvailable as exc:
-        raise HTTPException(503, {"message": str(exc), "reason": exc.reason, **({"suggestion": exc.suggestion} if exc.suggestion else {})}) from None
+        raise HTTPException(503, {"message": str(exc), "reason": exc.reason, **({"suggestion": exc.suggestion} if exc.suggestion else {}), **({"answer": exc.answer} if exc.answer else {})}) from None
     except task_service.InvalidInput as exc:
         raise HTTPException(422, str(exc)) from None
     except ValueError as exc:
@@ -110,7 +110,7 @@ def retry_task(task_id: uuid.UUID, background: BackgroundTasks, db: Session = De
     except task_service.InvalidInput as exc:
         raise HTTPException(409, str(exc)) from None
     except task_service.NoProviderAvailable as exc:
-        raise HTTPException(503, {"message": str(exc), "reason": exc.reason, **({"suggestion": exc.suggestion} if exc.suggestion else {})}) from None
+        raise HTTPException(503, {"message": str(exc), "reason": exc.reason, **({"suggestion": exc.suggestion} if exc.suggestion else {}), **({"answer": exc.answer} if exc.answer else {})}) from None
     db.commit()
     task = task_service.get_task(db, task.id)
     assert task is not None

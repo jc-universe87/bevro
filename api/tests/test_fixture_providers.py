@@ -119,8 +119,13 @@ def test_three_runtime_types_connect_route_and_run_the_same_way(client, seeded, 
     assert detail["state"] == "completed" and detail["summary"].startswith("Widget answer for:")
     assert [x["type"] for x in detail["artifacts"]] == ["report", "deep_link"]
 
-    # B: background; without a credential it fails fast with an actionable category, then works once given one.
-    tb = client.post("/api/tasks", json={"request": "Fixture research on competitor moves this month"}).json()
+    # B: background. Asked for by what it does, it is the one - and Bevro says
+    # up front that direct use needs a credential, rather than starting work
+    # that can only fail.
+    answer = client.post("/api/tasks", json={"request": "Fixture research on competitor moves this month"}).json()["detail"]["answer"]
+    assert answer["outcome"] == "blocked" and answer["item"]["id"] == b["id"]
+    # Asked for by name anyway, it fails fast with an actionable category, then works once given one.
+    tb = client.post("/api/tasks", json={"request": "Fixture research on competitor moves this month", "provider_id": b["id"]}).json()
     assert tb["state"] == "queued" and tb["runs"][0]["state"] == "pending"
     outcome = worker_run(seeded, tb["id"])
     assert outcome["state"] == "failed"

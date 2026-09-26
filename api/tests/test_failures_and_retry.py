@@ -41,7 +41,12 @@ def test_missing_credential_is_explained_and_fixed_from_the_browser(client, seed
         # note says what, so the two are never the same answer.
         assert provider["credentials"] == [{"name": "OPENAI_API_KEY", "label": "OpenAI credential", "present": False, "source": "missing", "status": "Missing", "note": None, "why": None}]
 
+        # Routed, the missing credential is said before anything starts.
         r = client.post("/api/tasks", json={"request": "Fixture research: what changed among competitors?"})
+        assert r.status_code == 503 and r.json()["detail"]["answer"]["outcome"] == "blocked"
+        assert r.json()["detail"]["message"] == "Fixture Research Agent can do this, but direct use in Bevro needs a credential."
+        # Asked for by name, the run itself explains what is missing.
+        r = client.post("/api/tasks", json={"request": "Fixture research: what changed among competitors?", "provider_id": provider["id"]})
         assert r.status_code == 201, r.text
         task = task_service.get_task(seeded, uuid.UUID(r.json()["id"]))
         result = run_like_the_worker(seeded, task, {})

@@ -154,7 +154,7 @@ def test_availability_states_and_staleness(seeded):
 
 
 def test_coding_request_without_a_worker_fails_clearly(seeded):
-    with pytest.raises(task_service.NoProviderAvailable, match="Coding help isn't set up on this installation yet."):
+    with pytest.raises(task_service.NoProviderAvailable, match="Claude Code is the right one for this, but it isn't set up on this installation yet."):
         task_service.submit(seeded, "Fix the bug in the login code")
     # non-coding requests are unaffected
     assert task_service.submit(seeded, "Compare two things for me").runs[0].provider.slug == "research"

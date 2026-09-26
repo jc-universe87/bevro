@@ -27,7 +27,10 @@ def test_without_a_worker_claude_is_listed_calmly_and_coding_requests_fail_clear
     assert claude["availability"] == {"state": "unavailable", "note": "Optional \u00b7 needs the host worker", "reason": "optional_worker"}
     r = client.post("/api/tasks", json={"request": "Fix the bug in the login page"})
     assert r.status_code == 503
-    assert r.json()["detail"] == {"message": "Coding help isn't set up on this installation yet.", "reason": "no_provider"}
+    detail = r.json()["detail"]
+    # The right one, not broken: just not set up here. Said, and nothing else is tried instead.
+    assert detail["message"] == "Claude Code is the right one for this, but it isn't set up on this installation yet."
+    assert detail["reason"] == "unavailable" and detail["answer"]["outcome"] == "unavailable" and detail["answer"]["item"]["name"] == "Claude Code"
     r = client.post("/api/tasks", json={"request": "Fix it", "provider_id": claude["id"]})
     assert r.status_code == 503 and "isn't available" in r.json()["detail"]["message"]
     r = client.post("/api/tasks", json={"request": "Allocate participants for the spring conference"})

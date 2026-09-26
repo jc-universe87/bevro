@@ -16,7 +16,7 @@ from app.models import Workspace
 from app.routing import RoutingDecision, RoutingSource, get_router, set_router
 from app.routing.catalogue import CatalogueCapability, CatalogueEntry, build_catalogue, catalogue_json
 from app.routing.decision import InputRequestSpec, PlanStep, response_schema
-from app.routing.deterministic import DeterministicRouter, wanted_capability
+from app.routing.deterministic import DeterministicRouter
 from app.routing.llm import LLMRouter
 from app.routing.models import RoutingModelError, get_routing_model
 from app.routing.models._shared import parse_decision, user_message
@@ -144,20 +144,26 @@ def test_validation_rejects_bad_decisions(seeded, two_workspaces):
 
 # ----------------------------------------------------------------------------- deterministic router
 
+_RESEARCHER = ("research", "Research", [("research", "Research")])
+_CODER = ("coder", "Coder", [("coding", "Write code"), ("debugging", "Fix bugs")])
+_EVENTS = ("events", "Event Desk", [("events.allocate", "Allocate participants")])
+
+
 @pytest.mark.parametrize(
-    ("request_text", "capability"),
+    ("request_text", "expected"),
     [
         ("Research the differences between PostgreSQL and MariaDB for this project.", "research"),
-        ("Fix the spacing on the Recent page and run the frontend tests.", "coding"),
-        ("Allocate the participants for the retreat.", "events.allocate"),
-        ("Compare approaches for implementing MCP support.", "research"),  # a leading research verb wins over 'implementing'
-        ("Look into the login problem.", "research"),  # ambiguous: the rules cannot reason, so they read it as research
-        ("Implement the login fix and compare it with the old one.", "coding"),
+        ("Fix the spacing on the Recent page and run the frontend tests.", "coder"),
+        ("Allocate the participants for the retreat.", "events"),
+        ("Fix the failing test in the login code.", "coder"),
+        # Nothing here is about any of them: no guess.
+        ("Look into the login problem.", None),
         ("Write a poem about autumn.", None),
     ],
 )
-def test_deterministic_rules_map_to_capabilities(request_text, capability):
-    assert wanted_capability(request_text) == capability
+def test_deterministic_router_chooses_by_what_each_one_is_for(request_text, expected):
+    entries = [_entry(*spec) for spec in (_RESEARCHER, _CODER, _EVENTS)]
+    assert DeterministicRouter().decide(request_text, entries).provider_id == expected
 
 
 def test_deterministic_router_never_routes_everything_to_research(seeded, two_workspaces):
@@ -168,7 +174,7 @@ def test_deterministic_router_never_routes_everything_to_research(seeded, two_wo
     assert coding.provider_id == "claude-code" and coding.needs_input and coding.input_request.kind == "workspace"
     with pytest.raises(task_service.NoProviderAvailable) as exc:
         task_service.submit(seeded, "Write a poem about autumn.")
-    assert str(exc.value) == "Bevro doesn't have anything connected that can do this yet." and exc.value.reason == "no_provider"
+    assert str(exc.value) == "I don't have an app or agent that looks suited to this yet." and exc.value.reason == "no_provider"
 
 
 def _entry(id: str, name: str, caps: list[tuple[str, str]]) -> CatalogueEntry:
@@ -211,19 +217,31 @@ def test_an_ordinary_word_in_a_capability_title_is_not_a_match():
 def test_llm_router_selects_a_valid_provider_and_records_metadata(seeded, two_workspaces):
     router, model = llm(RoutingDecision(selected_provider_ids=["research"], rationale="capabilities fit", plan=[PlanStep(goal="Compare")], confidence=0.9))
     set_router(router)
-    task = task_service.submit(seeded, "Compare approaches for implementing MCP support.")
+    # Nothing in what the agents say about themselves settles this one: the model is asked.
+    task = task_service.submit(seeded, "Help me decide between the two options we discussed.")
     assert task.runs[0].provider.slug == "research"
     assert task.routing["source"] == "llm" and task.routing["backend"] == "fake"
     assert task.routing["selected_provider_ids"] == ["research"] and task.routing["confidence"] == 0.9
     assert task.routing["plan"] == [{"goal": "Compare", "provider_id": None}] and task.routing["fallback_reason"] is None
-    assert model.calls[0]["request"].startswith("Compare approaches")
+    assert model.calls[0]["request"].startswith("Help me decide")
+
+
+def test_an_obvious_request_never_calls_the_model(seeded, two_workspaces):
+    router, model = llm(RoutingDecision(selected_provider_ids=["research"]))
+    set_router(router)
+    task = task_service.submit(seeded, "Allocate the participants for the spring conference")
+    assert task.runs[0].provider.slug == "event-demo" and task.routing["source"] == "deterministic"
+    assert model.calls == []
 
 
 def test_llm_router_needs_input_for_workspace(seeded, two_workspaces):
-    set_router(llm(RoutingDecision(selected_provider_ids=["claude-code"], needs_input=True, input_request=InputRequestSpec(kind="workspace", prompt="Which project should I work on?")))[0])
+    router, model = llm(RoutingDecision(selected_provider_ids=["claude-code"], needs_input=True, input_request=InputRequestSpec(kind="workspace", prompt="Which project should I work on?")))
+    set_router(router)
     task = task_service.submit(seeded, "Fix the bug.")
     assert task.state == "needs_input"
     assert [o["label"] for o in task.runs[0].input_request["options"]] == ["Alpha", "Beta"]
+    # Which project to work in is Bevro's question, and a coding request is obvious: no model call.
+    assert model.calls == []
 
 
 def test_llm_router_can_ask_one_question(seeded, two_workspaces):
@@ -258,25 +276,29 @@ def test_llm_router_no_provider_decision(seeded, two_workspaces):
 def test_llm_failures_fall_back_to_deterministic(seeded, two_workspaces, bad, reason_fragment):
     router, _ = llm(bad)
     set_router(router)
-    task = task_service.submit(seeded, "Refactor the migration module.")
+    # Thin evidence for the research agent, so the model is asked - and fails.
+    task = task_service.submit(seeded, "Compare them.")
     assert task.routing["source"] == "fallback"
     assert reason_fragment in task.routing["fallback_reason"]
-    assert task.runs[0].provider.slug == "claude-code"  # the rule for 'refactor' wins in the fallback
+    assert task.runs[0].provider.slug == "research"  # what the words found stands
 
 
 def test_llm_rejects_disabled_and_unavailable_providers(seeded, two_workspaces):
     provider_service.record_availability(seeded, provider_service.get_by_slug(seeded, "claude-code"), HealthResult(ok=False, state="not_installed"))
     router, model = llm(RoutingDecision(selected_provider_ids=["claude-code"]))
     set_router(router)
-    with pytest.raises(task_service.NoProviderAvailable, match="Coding help isn't set up"):
+    with pytest.raises(task_service.NoProviderAvailable, match="^Claude Code is the right one for this, but"):
         task_service.submit(seeded, "Fix the login bug.")
-    assert all(e["id"] != "claude-code" for e in model.calls[0]["catalogue"])  # unavailable providers are not even offered
+    # The right one, unavailable, is said as such: nothing else is tried in its place.
+    assert model.calls == []
     event_demo = provider_service.get_by_slug(seeded, "event-demo")
     event_demo.enabled = False
     router, model = llm(RoutingDecision(selected_provider_ids=["event-demo"]))
     set_router(router)
     task = task_service.submit(seeded, "Compare the venues.")
-    assert task.routing["source"] == "fallback" and "disabled" in task.routing["fallback_reason"] or "unknown" in task.routing["fallback_reason"]
+    assert task.routing["source"] == "fallback"
+    assert "disabled" in task.routing["fallback_reason"] or "unknown" in task.routing["fallback_reason"]
+    assert all(e["id"] != "event-demo" for e in model.calls[0]["catalogue"])  # a paused one is not even offered
     assert task.runs[0].provider.slug == "research"
 
 

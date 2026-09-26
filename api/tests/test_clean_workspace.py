@@ -40,7 +40,7 @@ def test_asking_for_work_with_nothing_connected_says_so_plainly(client, db):
     assert response.status_code == 503
     detail = response.json()["detail"]
     assert detail["reason"] == "no_provider"
-    assert detail["message"] == "Bevro doesn't have anything connected that can do this yet."
+    assert detail["message"] == "I don't have an app or agent that looks suited to this yet."
     assert client.get("/api/tasks").json() == []  # nothing half-made was left behind
 
 

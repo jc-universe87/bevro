@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.db import get_sessionmaker
-from app.routers import artifacts, automations, connect, create, integrations, notifications, providers, tasks, trust, workspaces
+from app.routers import artifacts, automations, connect, create, integrations, notifications, providers, route, tasks, trust, workspaces
 from app.routing.router import routing_status
 from app.services.providers import seed_examples, settle_descriptions
 from app.services.runtime import ensure_runtimes
@@ -64,6 +64,7 @@ def create_app() -> FastAPI:
         return {"name": "Bevro", "version": settings.app_version, "tagline": "All your agents and apps in one place.", "routing": routing_status()}
 
     api.include_router(tasks.router)
+    api.include_router(route.router)
     api.include_router(artifacts.router)
     api.include_router(providers.router)
     api.include_router(integrations.router)
