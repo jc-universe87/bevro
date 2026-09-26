@@ -198,3 +198,19 @@ test("from Home, a direct request says Starting… until its task is there", asy
   release(task({ id: "t1", provider: desk }));
   expect(await screen.findByRole("region", { name: "Status" })).toHaveTextContent("Starting…");
 });
+
+test("a wide table result scrolls within its own box, not over the page", async () => {
+  const columns = ["run id", "advert", "decision", "location", "salary", "closing date"];
+  mockApi({
+    "GET /api/tasks/t1": task({
+      id: "t1", state: "completed", provider: desk, status: status("completed", "Jobs Desk finished this."), runs: [run({ state: "completed" })],
+      artifacts: [artifact("a1", "Shortlist", { type: "structured", primary: true, payload: { columns, rows: [columns.map((c) => `${c} value that is long`)] } })],
+    }),
+  });
+  renderAt("/tasks/t1");
+  const table = await screen.findByRole("table");
+  const box = table.parentElement!;
+  expect(box).toHaveAttribute("role", "region");
+  expect(box.className).toMatch(/overflow-x-auto/);
+  expect(box).toHaveAttribute("tabindex", "0");
+});

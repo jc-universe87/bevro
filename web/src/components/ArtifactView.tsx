@@ -65,6 +65,9 @@ function StructuredTable({ columns, rows }: { columns: string[]; rows: unknown[]
   const shown = full || !long ? rows : rows.slice(0, ROW_LIMIT);
   return (
     <>
+    {/* Wider than a phone, a table scrolls within its own box instead of
+        spilling over the page; focusable, so the keyboard can scroll it too. */}
+    <div className="max-w-full overflow-x-auto" tabIndex={0} role="region" aria-label="Table">
     <table className="text-sm min-w-[18rem]">
       <thead>
         <tr className="text-left text-muted">
@@ -87,6 +90,7 @@ function StructuredTable({ columns, rows }: { columns: string[]; rows: unknown[]
         ))}
       </tbody>
     </table>
+    </div>
     {long && (
       <button type="button" className="bv-link mt-2 text-sm" onClick={() => setFull((v) => !v)}>
         {full ? "Show fewer" : `Show all ${rows.length.toLocaleString()} rows`}
