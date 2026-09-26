@@ -109,7 +109,7 @@ All API settings are environment variables prefixed `BEVRO_` (see
 | `BEVRO_CORS_ORIGINS` | `http://localhost:6140,...` | browser origins allowed |
 | `BEVRO_WORKSPACES_FILE` | `/srv/config/workspaces.json` | approved workspaces for coding providers |
 | `BEVRO_LOG_DIR` | `/data/logs` | raw run logs (server-side only) |
-| `BEVRO_WORKER_STALE_SECONDS` | `90` | when a silent worker's run is presumed dead |
+| `BEVRO_WORKER_STALE_SECONDS` | `90` | when work nobody has heard from (API, scheduler or worker) is presumed lost, and work never started is given up ([TASKS.md](TASKS.md)) |
 | `BEVRO_ROUTER_MODE` | `deterministic` | `deterministic` (local rules) or `llm` (routing model) — see [ROUTING.md](ROUTING.md) |
 | `BEVRO_ROUTER_BACKEND` | `openai` | `openai` (any OpenAI-compatible server) or `anthropic` |
 | `BEVRO_ROUTER_MODEL` / `_API_KEY` / `_BASE_URL` | *(empty)* | model, key and endpoint for `llm` mode |
