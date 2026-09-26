@@ -218,6 +218,9 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
                     rt = _adopt_service(found, unique_id("running", ids), RuntimeKind.PROCESS, "Already running on this machine", evidence=[f"A process from this project ({proc.program}) is listening on port {port}", *found.evidence], credentials=Credentials(strategy=CredentialStrategy.RUNTIME_MANAGED, names=secret_names, supplied=list(secret_names), note="Already running with its own environment."))
                     runtimes.append(rt)
                     scope_choices = scope_choices or list(found.scope_choices)
+                    if website is None and any(s.kind == "web_app" for s in found.surfaces):
+                        # The same address is also a page for people: one service, both ways.
+                        website = {"url": base, "title": (found.web_ui or {}).get("title") if found.web_ui else None, "routes": [], "bind": None, "evidence": [f"A process from this project ({proc.program}) serves a website on port {port}"]}
                     # What the running service itself declares it can do is
                     # stronger evidence than words picked out of its README.
                     capabilities = found.capabilities or capabilities

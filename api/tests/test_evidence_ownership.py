@@ -386,3 +386,15 @@ def test_looking_again_applies_the_answer_already_given(seeded):
     assert direct_access(seeded, provider)["state"] == "ready"
     assert state_of(seeded, provider).selected.adapter["config"]["context"] == {"profile_id": "sam"}
     assert "scope_choices" not in (provider.source or {})
+
+
+def test_a_running_api_that_is_also_a_page_for_people_is_both(tmp_path, monkeypatch):
+    project_dir = _web_project(tmp_path, "fixture-desk", "# Fixture Desk\n\nAnswers questions.\n")
+    monkeypatch.setattr(local, "listening_processes", lambda root: [probes.RunningProcess(pid=1, program="python", ports=[6300], addresses={6300: "10.9.8.7"})])
+    inner, _ = fx.service(descriptor=fx.JOBS_API, spa=True)
+    transport = httpx.MockTransport(lambda r: inner.handle_request(r) if r.url.host == "10.9.8.7" else (_ for _ in ()).throw(httpx.ConnectError("refused", request=r)))
+    project = Project(project_dir)
+    draft = local.compose_draft(project, [inspect_python(project)], [], DiscoveryContext(roots=[tmp_path], transport=transport, timeout=3.0), probe_host=True)
+    [web] = [s for s in draft.surfaces if s.kind == "web_app"]
+    assert web.role == "use" and web.url.startswith("http://10.9.8.7:6300")
+    assert any(rt.kind == RuntimeKind.PROCESS and rt.invocable for rt in draft.runtimes)
