@@ -98,8 +98,9 @@ the person uses.
   item's page, and the item is gone at once; its task history stays.
 - Warning styling is kept for real problems: a way in that stopped answering,
   a credential that is needed, the worker away.
-- Home asks "What do you want to get done?". When no agent Bevro can drive
-  fits, but an app you have does, Bevro says so and offers to open it.
+- Home asks "What do you want to get done?" and answers with the app or
+  agent for it, why, and the one thing to do next - starting work only when
+  Bevro is sure and can do it itself (docs/ROUTING.md).
 
 ## Not done here
 

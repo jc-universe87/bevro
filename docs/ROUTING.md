@@ -1,45 +1,120 @@
 # Routing
 
-Routing answers one question: *which provider should take this request?*
-It is deliberately separate from execution. A router returns a
-`RoutingDecision`; Bevro validates it against the provider registry and only
-then creates the Task and ProviderRun that the existing services run. The
-router never executes anything, never sees a filesystem path or a secret,
-and cannot change task state.
+Routing answers two questions, in this order:
+
+1. **Which of the person's apps and agents is for this?** Chosen on what
+   each one is for, over everything in Apps & agents - including apps Bevro
+   cannot send work to.
+2. **How can it be used right now?** Bevro sends it the work; or the person
+   opens its own app; or it needs a credential first; or it can't be reached
+   right now; or here is how it's used; or it needs setting up.
+
+Asking them in that order is the point: an app that fits but can't be
+driven is still the answer, and is never swapped for a worse one that
+happens to be reachable. Routing never runs anything, never sees a
+filesystem path, a secret or any item's own data (notes, documents,
+reports), and cannot change task state. It reads only what Bevro already
+holds about each item.
 
 ```
 User request
    ↓
-Router  ──  DeterministicRouter (rules; default; offline; the fallback)
-        └─  LLMRouter (a routing model behind the RoutingModel interface)
+fit       app/routing/fit.py       which item fits, and how surely
    ↓
-RoutingDecision  →  validate against the registry
+resolve   app/routing/resolve.py   how it can be used now -> an Answer
    ↓
-Task → ProviderRun → Adapter → Provider → Artifact      (unchanged)
+"direct"  →  Task → ProviderRun → Adapter → Provider → Artifact   (unchanged)
+otherwise →  said on Home: open it, add a credential, try again, choose, ...
 ```
 
-## Two routers
+`POST /api/route` returns the Answer and creates nothing. Home asks it
+first and starts work by itself only for a sure "direct" answer.
+`POST /api/tasks` without a provider routes the same way, creates a task
+only for "direct", and otherwise returns the same Answer (HTTP 503, under
+`detail.answer`).
 
-**DeterministicRouter** (`api/app/routing/deterministic.py`) maps keyword
-families to *capabilities* (`coding`, `events.allocate`, `research`), then
-picks an available provider that declares the capability — when several do,
-the one the request actually names (by its name or a capability title, e.g.
-"Ask Market Research about competitor changes") wins; otherwise catalogue
-order. If no family matches, a provider the request clearly names (two or
-more distinct words from its name and capability titles) is still chosen
-with low confidence, which is how a newly connected agent becomes reachable
-offline without a rule being written for it. It has no provider names in its
-code. A request that matches nothing gets no provider — Bevro does not route
-everything to Research. It is the default, needs nothing, calls nothing, and
-doubles as the fallback and the test implementation.
+## Which one fits
+
+`app/routing/fit.py`. Each word of the request is looked for in what Bevro
+knows about each item, and counts for the best place it was found:
+
+| Where | Weight |
+|---|---|
+| its name | 3.0 |
+| what the person said it is for ("What should Bevro use it for?") | 3.0 |
+| its capability names and the service's own terms for them | 2.5 |
+| capability titles | 2.0 |
+| its description | 1.5 |
+| capability descriptions, and what discovery read (README and the like) | 1.0 |
+
+Then:
+
+- **Broad words count for less** (×0.4): "find", "review", "research",
+  "report", "help", sizes and counts... They say something about almost
+  any work. The verb a request *opens* with counts more (×0.7), but only
+  where an item says in a sentence what it is for: "Compare these" is what
+  a general research agent does; "Write a poem" is not what "Write code"
+  is about.
+- **Shared words count for less** when ranking: a word several items use
+  tells them apart from nothing (divided by the square root of how many
+  use it). It is still evidence that *something* fits.
+- **How a thing is built is ignored** in README-type text: Docker,
+  FastAPI, Postgres, API, endpoint...
+- **A few intent concepts** add what a request means without saying it.
+  They are kinds of work, never particular apps: personal knowledge
+  ("where did I write about...", "what did I conclude..."), filing ("where
+  is my passport scan", "filed"), career (jobs, vacancies, applications),
+  market (trends, competitors), coding, scheduling, email, events. Words a
+  concept adds count ×0.6 of words the person used.
+- **Naming an item** settles it, unless another is named too.
+- What the person typed about an item is marked as theirs (`"by":
+  "person"`) and survives looking again at the service.
+
+How sure:
+
+| | |
+|---|---|
+| nothing reaches 1.0 | **none**: "I don't have an app or agent that looks suited to this yet." |
+| another is within 70% of the best | **choice**: up to three, the person picks |
+| "What apps can help me ...?" | **choice**: a list, never the work |
+| 2.5 or more, and 1.5× the runner-up | **sure** |
+| otherwise | **likely**: named, but Home asks before starting anything |
+
+No score ever leaves the server. "Why?" is one plain sentence: what the
+person said it is for, what it works with ("Career Agent works with
+opportunities, vacancies and applications."), or its own description.
+
+## How it can be used now
+
+`app/routing/resolve.py`, for the chosen item:
+
+| Outcome | When | Home offers |
+|---|---|---|
+| `direct` | Bevro can send it work now | starts it (sure), or **Use it** (likely) |
+| `handoff` | no way in for Bevro; it has a web app | **Open it** |
+| `blocked` | the way in needs a credential Bevro doesn't have | **Add credential**, How to use it |
+| `unavailable` | the way in stopped answering, isn't running, or its helper is away | **Try again**, Open app |
+| `how_to` | no app to open, but it runs on a schedule, posts results... | **How to use it** |
+| `setup` | known, and nothing says how it is used | **Set up direct access** |
+
+"Can Bevro send it work" is decided exactly as execution decides it, so a
+`direct` answer is never contradicted by the task it starts; a missing
+credential is checked first, because work without it can only fail.
+Paused and removed items are never considered.
+
+## The Router interface and the optional routing model
+
+**DeterministicRouter** (`api/app/routing/deterministic.py`) is the same fit
+scorer limited to what a Router may choose - providers Bevro can drive now
+- and selects one only when one clearly fits. It is the default, needs
+nothing, calls nothing, and is the fallback.
 
 **LLMRouter** (`api/app/routing/llm.py`) sends the request and a sanitised
-provider catalogue to a routing model and expects a structured decision
-back. Every decision is validated; any failure falls back to the
-deterministic router.
-
-The task service depends only on the `Router` protocol
-(`api/app/routing/router.py`). Which one is active comes from configuration.
+catalogue of the providers Bevro can drive to a routing model and expects a
+structured decision back. It is a bounded fallback: it is asked only when
+the words settle nothing, or only thinly for something Bevro would run.
+Its proposal is never "sure" (Home asks first), and it never sees - so can
+never overrule - an app Bevro can't drive. Obvious requests never call it.
 
 ## Configuration
 
@@ -60,8 +135,9 @@ simply falls back to the rules (and the log says why). Settings shows
 
 ## Privacy
 
-With `BEVRO_ROUTER_MODE=llm`, **each request typed on Home is sent to the
-configured model provider**, together with the sanitised catalogue below and,
+With `BEVRO_ROUTER_MODE=llm`, **a request typed on Home is sent to the
+configured model provider when the words alone did not settle it** (see
+above; an obvious request never is), together with the sanitised catalogue below and,
 when continuing a task, the previous question and the person's answer. That
 is all. Provider secrets, workspace paths, adapter configuration, endpoints,
 worker details, task history, artifacts and logs are never sent.
@@ -154,7 +230,8 @@ LLMRouter.route
   DeterministicRouter.decide(request)  with routing_source = "fallback"
 ```
 
-The person sees nothing unusual; the task simply proceeds. The task keeps
+It is only asked when the words were not enough (see above). The person
+sees nothing unusual: the words' answer stands. The task keeps
 `routing.source = "fallback"` and a short `fallback_reason` (e.g.
 `RoutingModelError: routing model timed out`). Home never waits longer than
 `BEVRO_ROUTER_TIMEOUT_SECONDS` for the model.
