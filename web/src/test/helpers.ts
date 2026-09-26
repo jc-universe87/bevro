@@ -19,7 +19,8 @@ export function mockApi(routes: Record<string, Handler | unknown>) {
       });
       if (!key) return new Response(JSON.stringify({ detail: "no route" }), { status: 404 });
       const handler = routes[key];
-      const value = typeof handler === "function" ? (handler as Handler)(path, init) : handler;
+      // A handler may answer later (a promise), to catch what the page shows meanwhile.
+      const value = await (typeof handler === "function" ? (handler as Handler)(path, init) : handler);
       return new Response(JSON.stringify(value), { status: method === "POST" ? 201 : 200, headers: { "Content-Type": "application/json" } });
     }),
   );

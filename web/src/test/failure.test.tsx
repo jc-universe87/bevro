@@ -23,34 +23,39 @@ function renderAt(path: string) {
   );
 }
 
+const failedStatus = { kind: "failed", label: "Needs a credential", headline: "Market Research needs an OpenAI credential before it can run.", note: null, quiet: false, since: "2026-09-21T21:17:08Z", can_cancel: false };
+const startingStatus = { kind: "starting", label: "Starting", headline: "Starting…", note: null, quiet: false, since: null, can_cancel: true };
+
 test("a failed task explains itself, offers Add credential and Try again, and hides internals behind Details", async () => {
-  const failed = task({ id: "t5", state: "failed", summary: "Market Research stopped with an error.", provider: providerRef, runs: [failedRun] });
+  const failed = task({ id: "t5", state: "failed", summary: "Market Research stopped with an error.", provider: providerRef, runs: [failedRun], status: failedStatus });
+  const again = () => task({ ...failed, state: "queued", summary: null, status: startingStatus, runs: [failedRun, { ...failedRun, id: "run-2", state: "pending", failure: null }] });
   let retried = false;
   const calls = mockApi({
-    "GET /api/tasks/t5": () => (retried ? task({ ...failed, state: "queued", summary: null, runs: [failedRun, { ...failedRun, id: "run-2", state: "pending", failure: null }] }) : failed),
-    "POST /api/tasks/t5/retry": () => { retried = true; return task({ ...failed, state: "queued", summary: null, runs: [failedRun, { ...failedRun, id: "run-2", state: "pending", failure: null }] }); },
-    "GET /api/tasks": [], "GET /api/providers": [provider],
+    "GET /api/tasks/t5": () => (retried ? again() : failed),
+    "POST /api/tasks/t5/retry": () => { retried = true; return again(); },
+    "GET /api/tasks": [], "GET /api/providers": [provider], "GET /api/providers/p9": provider,
   });
   const user = userEvent.setup();
   renderAt("/tasks/t5");
-  const card = await screen.findByRole("region", { name: "What went wrong" });
-  expect(within(card).getByRole("heading", { name: "Needs a credential" })).toBeInTheDocument();
-  expect(within(card).getByText("Market Research needs an OpenAI credential before it can run.")).toBeInTheDocument();
-  expect(within(card).getByRole("link", { name: "Add credential" })).toHaveAttribute("href", "/apps/p9?credential=1");
-  expect(within(card).getByRole("link", { name: "Go to Market Research" })).toHaveAttribute("href", "/apps/p9");
+  const status = await screen.findByRole("region", { name: "Status" });
+  expect(within(status).getByText("Market Research needs an OpenAI credential before it can run.")).toBeInTheDocument();
+  expect(within(status).getByRole("link", { name: "Add credential" })).toHaveAttribute("href", "/apps/p9?credential=1");
+  // The raw summary is not how a failure is told.
   expect(screen.queryByText("Market Research stopped with an error.")).not.toBeInTheDocument();
   expect(document.body.textContent).not.toMatch(/Traceback|argv|exit_code|\/home\//);
 
-  await user.click(within(card).getByText("Details"));
-  expect(within(card).getByText("run-1")).toBeInTheDocument();
-  expect(within(card).getByText("Done by", { selector: "dt" })).toBeInTheDocument();
-  expect(within(card).getByText("Market Research", { selector: "dd" })).toBeInTheDocument();
-  expect(within(card).getByText("Needs a credential", { selector: "dd" })).toBeInTheDocument();
+  // Internals are there for whoever wants them, closed until asked.
+  const details = screen.getByText("Details").closest("details")!;
+  expect(details).not.toHaveAttribute("open");
+  await user.click(screen.getByText("Details"));
+  expect(within(details).getByText("Reference run-1")).toBeInTheDocument();
+  expect(within(details).getByText("Market Research", { selector: "dd" })).toBeInTheDocument();
 
-  await user.click(within(card).getByRole("button", { name: "Try again" }));
-  expect(calls.some((c) => c.method === "POST" && c.url === "/api/tasks/t5/retry")).toBe(true);
-  expect(await screen.findByText("Queued")).toBeInTheDocument();
-  expect(screen.queryByRole("region", { name: "What went wrong" })).not.toBeInTheDocument();
+  // Nothing reached the app, so trying again asks nothing first.
+  await user.click(within(status).getByRole("button", { name: "Try again" }));
+  expect(calls.filter((c) => c.method === "POST" && c.url === "/api/tasks/t5/retry")).toHaveLength(1);
+  expect(await screen.findByText("Starting…")).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Add credential" })).not.toBeInTheDocument();
 });
 
 test("a provider that has its own credential is not asked for one", async () => {
@@ -89,13 +94,15 @@ test("Add credential opens its page with the field ready; saving never echoes th
 test("a run that needed a second connection says so quietly, with no mechanism", async () => {
   const done = task({
     id: "t7", state: "completed", summary: "Done. 3 findings.", provider: providerRef,
+    status: { kind: "completed", label: "Completed", headline: "Market Research finished this.", note: "It worked after Bevro tried another way to reach it.", quiet: false, since: "2026-09-21T21:17:08Z", can_cancel: false },
     runs: [{ ...failedRun, id: "run-9", state: "completed", failure: null, error_summary: null, result_summary: "Done. 3 findings.", recovered: true }],
   });
   mockApi({ "GET /api/tasks/t7": done, "GET /api/tasks": [], "GET /api/providers": [] });
   renderAt("/tasks/t7");
-  const outcome = await screen.findByRole("region", { name: "Outcome" });
-  expect(within(outcome).getByText("Done. 3 findings.")).toBeInTheDocument();
-  expect(within(outcome).getByText("Recovered using another connection.")).toBeInTheDocument();
+  const status = await screen.findByRole("region", { name: "Status" });
+  expect(within(status).getByText("Market Research finished this.")).toBeInTheDocument();
+  expect(within(status).getByText("It worked after Bevro tried another way to reach it.")).toBeInTheDocument();
+  expect(within(screen.getByRole("region", { name: "Result" })).getByText("Done. 3 findings.")).toBeInTheDocument();
   expect(document.body.textContent).not.toMatch(/HTTP|CLI|runtime|fallback|attempt/i);
 });
 

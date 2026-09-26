@@ -163,6 +163,26 @@ export type TaskState =
   | "failed"
   | "cancelled";
 
+/**
+ * Where a task is, as a person would put it (docs/TASKS.md). Worked out on
+ * the server, once, so every page says the same thing.
+ */
+export type StatusKind = "starting" | "working" | "needs_you" | "completed" | "failed" | "stopped";
+
+export interface TaskStatusInfo {
+  kind: StatusKind;
+  /** A few words, for lists: "Working", "Completed", "Needs a credential". */
+  label: string;
+  /** One sentence: "Jobs Desk is working on this." */
+  headline: string;
+  /** One more true thing, when there is one. */
+  note: string | null;
+  /** Nothing heard for a while. Not a failure. */
+  quiet: boolean;
+  since: string | null;
+  can_cancel: boolean;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -173,10 +193,13 @@ export interface Task {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  /** Absent only from very old responses. */
+  status?: TaskStatusInfo;
+  results?: number;
 }
 
 export interface FailureAction {
-  kind: "retry" | "add_credential" | "test_connection" | "manage" | string;
+  kind: "retry" | "add_credential" | "test_connection" | "manage" | "open_app" | string;
   label: string;
   secret_name: string | null;
   secret_label: string | null;
@@ -188,6 +211,8 @@ export interface Failure {
   title: string;
   message: string;
   actions: FailureAction[];
+  /** The app may already have acted on this: trying again may send it again. */
+  may_repeat?: boolean;
 }
 
 export interface Run {
@@ -201,6 +226,8 @@ export interface Run {
   recovered: boolean;
   phase: string | null;
   steps: string[];
+  /** Every way Bevro tried to reach the app, in words. For Details. */
+  tried?: { way: string; outcome: string }[];
   workspace: { id: string; name: string } | null;
   permissions: string[];
   started_at: string | null;
@@ -233,6 +260,8 @@ export interface Artifact {
   content_url: string | null;
   metadata: Record<string, unknown>;
   known: boolean;
+  /** The result to show first. */
+  primary?: boolean;
   created_at: string;
 }
 

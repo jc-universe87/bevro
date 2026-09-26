@@ -3,14 +3,15 @@ import { Link } from "react-router-dom";
 import PageHeader, { Page } from "../components/PageHeader";
 import TaskStatus from "../components/TaskStatus";
 import { api, ApiError, type Task } from "../lib/api";
-import { relativeTime } from "../lib/format";
+import { relativeTime, statusOf } from "../lib/format";
 
 const FILTERS: { value: string; label: string }[] = [
   { value: "", label: "All" },
   { value: "open", label: "In progress" },
-  { value: "completed", label: "Done" },
-  { value: "failed", label: "Didn't finish" },
+  { value: "completed", label: "Completed" },
+  { value: "failed", label: "Couldn't complete" },
 ];
+const REFRESH_MS = 5000;
 const OPEN = new Set(["created", "queued", "working", "waiting", "needs_input", "needs_approval", "scheduled", "monitoring"]);
 
 /** What removing something actually does, said once, in the same words everywhere. */
@@ -30,15 +31,22 @@ export default function Recent() {
 
   useEffect(() => {
     let cancelled = false;
-    const handle = setTimeout(() => {
+    let again: ReturnType<typeof setTimeout> | undefined;
+    const load = () =>
       api
         .listTasks({ q: query || undefined, state: filter && filter !== "open" ? filter : undefined })
-        .then((list) => !cancelled && setTasks(list))
+        .then((list) => {
+          if (cancelled) return;
+          setTasks(list);
+          // Anything still going: look again quietly, so finished work shows as finished.
+          if (list.some((t) => OPEN.has(t.state))) again = setTimeout(load, REFRESH_MS);
+        })
         .catch(() => !cancelled && setError("Recent work couldn't be loaded."));
-    }, query ? 150 : 0);
+    const handle = setTimeout(load, query ? 150 : 0);
     return () => {
       cancelled = true;
       clearTimeout(handle);
+      if (again) clearTimeout(again);
     };
   }, [query, filter]);
 
@@ -128,26 +136,36 @@ export default function Recent() {
       )}
 
       <ul className="bv-divide" aria-label="Recent work">
-        {visible.map((t) => (
+        {visible.map((t) => {
+          const status = statusOf(t);
+          // The time that matters: when it finished, otherwise when it was asked.
+          const when = t.completed_at ?? t.created_at;
+          return (
           <li key={t.id}>
             <Link to={`/tasks/${t.id}`} className="block pt-3 -mx-2 px-2 rounded-md hover:bg-sunken">
               <div className="flex items-baseline justify-between gap-4">
-                <span className="font-medium truncate">{t.title}</span>
-                <time dateTime={t.created_at} className="text-xs text-subtle shrink-0">
-                  {relativeTime(t.created_at)}
+                <span className="font-medium truncate min-w-0">{t.title}</span>
+                <time dateTime={when} className="text-xs text-subtle shrink-0">
+                  {relativeTime(when)}
                 </time>
               </div>
               <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-muted">
                 {t.provider && (
-                  <span>
+                  <span className="min-w-0 break-words">
                     {t.provider.name}
                     {t.provider.removed && <span className="text-subtle"> · Removed</span>}
                   </span>
                 )}
                 {t.provider && <span aria-hidden="true">·</span>}
-                <TaskStatus state={t.state} />
+                <TaskStatus task={t} />
+                {status.kind === "completed" && (t.results ?? 0) > 0 && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span>{t.results === 1 ? "1 result" : `${t.results} results`}</span>
+                  </>
+                )}
               </div>
-              {t.summary && <p className="mt-1 text-sm text-muted truncate">{t.summary}</p>}
+              {status.kind === "completed" && t.summary && <p className="mt-1 text-sm text-muted truncate">{t.summary}</p>}
             </Link>
             <div className="-mx-2 px-2 pb-3 text-sm">
               {removing === t.id ? (
@@ -170,7 +188,8 @@ export default function Recent() {
               )}
             </div>
           </li>
-        ))}
+          );
+        })}
       </ul>
     </Page>
   );

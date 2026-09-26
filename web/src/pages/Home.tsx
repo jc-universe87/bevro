@@ -17,6 +17,8 @@ export default function Home() {
   const [error, setError] = useState<HomeError | null>(null);
   // Which app or agent is for this, when Bevro isn't simply starting it.
   const [answer, setAnswer] = useState<RouteAnswer | null>(null);
+  // Between "go" and the task's own page: said, so the screen is never just still.
+  const [starting, setStarting] = useState(false);
   // When someone asks for work to happen again, Bevro shows what it would set
   // up and waits: recurring work is never created behind their back.
   const [intent, setIntent] = useState<ScheduleIntent | null>(null);
@@ -54,10 +56,12 @@ export default function Home() {
   /** Start the work. `provider_id` when the person chose who does it. */
   const start = async (request: string, provider_id?: string) => {
     setBusy(true);
+    setStarting(true);
     try {
       const task = await api.submitTask(provider_id ? { request, provider_id } : { request });
       navigate(`/tasks/${task.id}`);
     } catch (err) {
+      setStarting(false);
       failed(err);
     }
   };
@@ -224,7 +228,11 @@ export default function Home() {
         )}
 
         <div className="mt-3 flex items-start justify-between gap-4 text-sm text-muted min-h-[1.5rem]">
-          {answer ? (
+          {starting && !answer && !error ? (
+            <p role="status" className="text-ink">
+              Starting…
+            </p>
+          ) : answer ? (
             <GoalAnswer answer={answer} mine={mine ?? []} busy={busy} onUse={(id) => void start(text.trim(), id)} onChoose={(id) => void ask(text.trim(), id)} onRetry={(id) => void retry(id)} />
           ) : error ? (
             <HomeAnswer error={error} mine={mine ?? []} />

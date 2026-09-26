@@ -1,4 +1,4 @@
-import type { TaskState } from "./api";
+import { isTerminal, type Task, type TaskState, type TaskStatusInfo } from "./api";
 
 /** Human wording for a task state. Neutral and textual by design. */
 export const STATE_LABEL: Record<TaskState, string> = {
@@ -35,4 +35,31 @@ export function relativeTime(iso: string, now: Date = new Date()): string {
 
 export function fullDateTime(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+const KIND_OF: Partial<Record<TaskState, TaskStatusInfo["kind"]>> = {
+  created: "starting",
+  queued: "starting",
+  needs_input: "needs_you",
+  needs_approval: "needs_you",
+  completed: "completed",
+  failed: "failed",
+  cancelled: "stopped",
+};
+
+/** The task's status as the server put it; derived from the bare state only for old responses. */
+export function statusOf(task: Task): TaskStatusInfo {
+  if (task.status) return task.status;
+  const label = stateLabel(task.state);
+  return { kind: KIND_OF[task.state] ?? "working", label, headline: label, note: null, quiet: false, since: null, can_cancel: !isTerminal(task.state) };
+}
+
+/** "3 min" - how long something has been going, in the largest sensible unit. */
+export function elapsed(iso: string, now: Date = new Date()): string {
+  const seconds = Math.max(0, Math.round((now.getTime() - new Date(iso).getTime()) / 1000));
+  if (seconds < 60) return "less than a minute";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours} h ${minutes % 60} min`;
 }
