@@ -144,7 +144,7 @@ def test_manage_test_keeps_reachable_and_needs_a_credential_apart(seeded):
     assert out.detail == "It can be reached, but it needs a credential before it can run."
     assert [(c["label"], c["ok"]) for c in out.checks] == [
         ("Bevro can reach it", True),
-        ("No OpenAI credential yet for tasks Bevro starts", False),
+        ("No OpenAI API key yet for tasks Bevro starts", False),
         ("No real task was run", None),
     ]
     out = _with_checks(provider, HealthOut(ok=True, detail=None), ["OPENAI_API_KEY"])

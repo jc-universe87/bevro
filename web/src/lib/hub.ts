@@ -174,6 +174,12 @@ export function availableThrough(p: Provider, usable: boolean): string[] {
   return [...new Set(out)];
 }
 
+/** "an OpenAI API key", or "a credential" when Bevro can't tell which. */
+export function credentialWords(needs: string | undefined): string {
+  if (!needs) return "a credential";
+  return `${/^[aeiou]/i.test(needs) ? "an" : "a"} ${needs}`;
+}
+
 export function hubView(p: Provider, at: Here): HubView {
   const state = directState(p);
   const usable = p.enabled && state === "ready" && p.actions.includes("ask");
@@ -189,7 +195,7 @@ export function hubView(p: Provider, at: Here): HubView {
     primary,
     secondary: secondary.filter((a): a is HubAction => a !== null && a.id !== primary.id),
     attention: building ?? problem,
-    directNote: p.enabled && state === "needs_credential" ? "Direct use in Bevro needs a credential" : null,
+    directNote: p.enabled && state === "needs_credential" ? `Direct use in Bevro needs ${credentialWords(p.direct?.needs)}` : null,
     progress: p.build && p.build.state !== "ready" && p.build.state !== "failed" ? "Building a new version" : null,
     web,
     opening,

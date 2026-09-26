@@ -52,7 +52,8 @@ export interface Provider {
   /** How the person uses it apart from Bevro. A web app comes with how its address was published. */
   surfaces?: Surface[];
   /** Can Bevro itself send it work. "not_set_up" is not a fault. */
-  direct?: { state: DirectState; note?: string };
+  /** `needs`: what the credential is called ("OpenAI API key"), when Bevro can tell. */
+  direct?: { state: DirectState; note?: string; needs?: string };
   /** For agents Bevro created: what it is for and which version is in use. */
   build?: { purpose: string; version: number; state: string; built_by: string | null; needs: string[]; can_rebuild: boolean } | null;
   created_at: string;

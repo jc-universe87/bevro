@@ -249,7 +249,7 @@ test("a credential nothing here has is still asked for", async () => {
     "POST /api/connect/discover": draftWith({
       required: true,
       secret_name: "OPENAI_API_KEY",
-      label: "OpenAI credential",
+      label: "OpenAI API key",
       hint: "Passed to the agent as OPENAI_API_KEY when it runs. Stored encrypted; never shown again.",
     }),
   });
@@ -262,7 +262,7 @@ test("a credential nothing here has is still asked for", async () => {
   await userEvent.keyboard("{Enter}");
 
   const found = await screen.findByLabelText("Found");
-  expect(within(found).getByRole("heading", { name: "Watcher needs an OpenAI credential." })).toBeInTheDocument();
+  expect(within(found).getByRole("heading", { name: "Watcher needs an OpenAI API key." })).toBeInTheDocument();
   expect(within(found).getByRole("button", { name: "Add credential" })).toBeDisabled();
   expect(found.querySelector('input[type="password"]')).not.toBeNull();
 });

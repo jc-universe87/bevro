@@ -65,7 +65,7 @@ test("the primary action follows the first unresolved fact", () => {
   expect(app.primary).toEqual({ id: "connect", label: "Add to Bevro" });
   expect(app.secondary).toEqual({ id: "setup", label: "Set up direct access" });
 
-  const credential = step({ draft: view({ auth: { required: true, secret_name: "OPENAI_API_KEY", label: "OpenAI credential", hint: null, why: null } }) });
+  const credential = step({ draft: view({ auth: { required: true, secret_name: "OPENAI_API_KEY", label: "OpenAI API key", hint: null, why: null } }) });
   expect(credential).toMatchObject({ kind: "needs_credential", input: "credential", primary: { id: "add_credential", label: "Add credential" }, secondary: { id: "test", label: "Test" } });
 
   expect(step({ state: "trust_required", draft: null, trust: { kind: "folder", label: "Filing Cabinet", path: "/allowed/filing-cabinet" } }).primary).toEqual({ id: "allow", label: "Allow folder" });
@@ -94,7 +94,7 @@ test("plain credential copy explains an existing scheduled credential without sy
       auth: {
         required: true,
         secret_name: "OPENAI_API_KEY",
-        label: "OpenAI credential",
+        label: "OpenAI API key",
         hint: "Market Watch already has a credential for its scheduled runs, but that credential isn't available when Bevro starts a new task.",
         why: "The credential is handed over only when its scheduled service starts. When Bevro starts a task, it runs Market Watch separately, so the credential doesn't reach it.",
       },

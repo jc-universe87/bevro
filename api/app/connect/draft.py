@@ -289,19 +289,29 @@ class ProviderDraft(BaseModel):
         }
 
 
-_SECRET_LABELS = {
-    "OPENAI_API_KEY": "OpenAI credential",
-    "ANTHROPIC_API_KEY": "Anthropic credential",
-    "GOOGLE_API_KEY": "Google credential",
-    "MISTRAL_API_KEY": "Mistral credential",
-    "COHERE_API_KEY": "Cohere credential",
-    "GROQ_API_KEY": "Groq credential",
+# What each credential is called, for a person: the one table Bevro uses
+# everywhere (Connect, Apps & agents, failures, Home). From names only.
+SECRET_LABELS = {
+    "OPENAI_API_KEY": "OpenAI API key",
+    "ANTHROPIC_API_KEY": "Anthropic API key",
+    "GOOGLE_API_KEY": "Google API key",
+    "MISTRAL_API_KEY": "Mistral API key",
+    "COHERE_API_KEY": "Cohere API key",
+    "GROQ_API_KEY": "Groq API key",
     "api_key": "API token",
 }
 
 
-def _secret_label(name: str) -> str:
-    return _SECRET_LABELS.get(name) or name.replace("_", " ").title()
+def secret_label(name: str) -> str:
+    """What a credential is called, for a person. From its name only - never its value."""
+    if name in SECRET_LABELS:
+        return SECRET_LABELS[name]
+    if name.upper().endswith("_API_KEY") and len(name) > 8:
+        return f"{name[:-8].replace('_', ' ').title()} API key"
+    return name.replace("_", " ").title()
+
+
+_secret_label = secret_label
 
 
 def not_found(name: str, mechanism: str, message: str, evidence: list[str] | None = None) -> ProviderDraft:

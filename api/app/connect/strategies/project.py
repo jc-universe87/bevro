@@ -72,14 +72,7 @@ SECRET_BY_DEPENDENCY = {
     "@google/generative-ai": "GOOGLE_API_KEY",
 }
 
-SECRET_LABELS = {
-    "OPENAI_API_KEY": "OpenAI credential",
-    "ANTHROPIC_API_KEY": "Anthropic credential",
-    "GOOGLE_API_KEY": "Google credential",
-    "MISTRAL_API_KEY": "Mistral credential",
-    "COHERE_API_KEY": "Cohere credential",
-    "GROQ_API_KEY": "Groq credential",
-}
+from app.connect.draft import SECRET_LABELS  # noqa: E402 - the one table of credential names
 
 # Request-taking options, in order of preference.
 INPUT_FLAGS = ("--topic", "--query", "--question", "--prompt", "--request", "--task", "--input", "--text", "--message", "--goal")

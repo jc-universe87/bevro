@@ -47,8 +47,8 @@ def test_project_with_its_own_dotenv_is_self_configured(tmp_path, monkeypatch):
     (project / "pyproject.toml").write_text((project / "pyproject.toml").read_text().replace('"httpx>=0.27"', '"httpx>=0.27", "python-dotenv"'), encoding="utf-8")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     draft = discover(project, root)
-    assert draft.auth.required is False and draft.auth.hint.startswith("Uses its own OpenAI credential")
-    assert "Uses its own OpenAI credential (the project loads its .env)" in draft.evidence
+    assert draft.auth.required is False and draft.auth.hint.startswith("Uses its own OpenAI API key")
+    assert "Uses its own OpenAI API key (the project loads its .env)" in draft.evidence
     assert draft.adapter["config"]["self_configured"] == ["OPENAI_API_KEY"]
     assert "hunter2" not in str(draft.model_dump())  # the .env value stays in the project
     # Without a value in that .env the project cannot be self-configured, however it loads it.
@@ -92,7 +92,7 @@ def test_worker_report_tells_the_api_where_the_credential_comes_from(client, see
         # The API (in Docker) cannot see the host; the worker's report says the host has it.
         record_availability(seeded, row, HealthResult(ok=True, state="available", credentials={"OPENAI_API_KEY": "host"}))
         listed = next(p for p in client.get("/api/providers").json() if p["id"] == provider["id"])
-        assert listed["credentials"] == [{"name": "OPENAI_API_KEY", "label": "OpenAI credential", "present": True, "source": "host", "status": "From this machine", "note": None, "why": None}]
+        assert listed["credentials"] == [{"name": "OPENAI_API_KEY", "label": "OpenAI API key", "present": True, "source": "host", "status": "From this machine", "note": None, "why": None}]
         record_availability(seeded, row, HealthResult(ok=True, state="available", credentials={"OPENAI_API_KEY": "missing"}))
         listed = next(p for p in client.get("/api/providers").json() if p["id"] == provider["id"])
         assert listed["credentials"][0]["status"] == "Missing"

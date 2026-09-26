@@ -107,12 +107,14 @@ def way_in(db: Session, provider: Provider) -> tuple[str, str]:
     return SETUP, state
 
 
-def _message(outcome: str, name: str, sure: bool, state: str | None = None) -> str:
+def _message(outcome: str, name: str, sure: bool, state: str | None = None, needs: str | None = None) -> str:
     if outcome == DIRECT:
         return f"{name} can handle this directly." if sure else f"{name} looks like the right one for this."
     if outcome == HANDOFF:
         return f"{name} is the best place for this." if sure else f"{name} looks like the place for this."
     if outcome == BLOCKED:
+        if needs:
+            return f"{name} can do this, but direct use in Bevro needs {'an' if needs[:1].lower() in 'aeiou' else 'a'} {needs}."
         return f"{name} can do this, but direct use in Bevro needs a credential."
     if outcome == UNAVAILABLE:
         tail = {
@@ -131,9 +133,14 @@ def _message(outcome: str, name: str, sure: bool, state: str | None = None) -> s
 
 def _one(db: Session, provider: Provider, *, sure: bool, why: str | None, rationale: str, source: str = "deterministic") -> Answer:
     outcome, state = way_in(db, provider)
+    needs = None
+    if outcome == BLOCKED:
+        from app.services.reconcile import direct_access
+
+        needs = direct_access(db, provider).get("needs")
     return Answer(
         outcome=outcome,
-        message=_message(outcome, provider.name, sure, state),
+        message=_message(outcome, provider.name, sure, state, needs),
         sure=sure,
         provider=provider,
         why=why,

@@ -8,12 +8,12 @@ const providerRef = { id: "p9", slug: "market-research", name: "Market Research"
 const failedRun = {
   id: "run-1", provider: providerRef, state: "failed", result_summary: null, error_summary: "Market Research needs a credential before it can run.",
   failure: {
-    category: "credential_required", title: "Needs a credential", message: "Market Research needs an OpenAI credential before it can run.",
-    actions: [{ kind: "add_credential", label: "Add credential", secret_name: "OPENAI_API_KEY", secret_label: "OpenAI credential" }, { kind: "retry", label: "Try again", secret_name: null, secret_label: null }],
+    category: "credential_required", title: "Needs a credential", message: "Market Research needs an OpenAI API key before it can run.",
+    actions: [{ kind: "add_credential", label: "Add credential", secret_name: "OPENAI_API_KEY", secret_label: "OpenAI API key" }, { kind: "retry", label: "Try again", secret_name: null, secret_label: null }],
   },
   recovered: false, phase: null, steps: ["Running Market Research"], workspace: null, permissions: [], started_at: "2026-09-21T21:17:04Z", completed_at: "2026-09-21T21:17:08Z",
 };
-const provider = { id: "p9", slug: "market-research", name: "Market Research", description: "Research", enabled: true, capabilities: [], app_url: null, icon: null, origin: "connected", actions: ["ask"], connection: "command", availability: { state: "available", note: null }, secret_names: [], credentials: [{ name: "OPENAI_API_KEY", label: "OpenAI credential", present: false }], runtime: { display_name: "Runs from this project", availability: "needs_worker", credentials_label: "Missing", runtimes_found: 1, alternatives: 0, health: "available", built: false, review: null, abilities: {} }, created_at: "", updated_at: "" };
+const provider = { id: "p9", slug: "market-research", name: "Market Research", description: "Research", enabled: true, capabilities: [], app_url: null, icon: null, origin: "connected", actions: ["ask"], connection: "command", availability: { state: "available", note: null }, secret_names: [], credentials: [{ name: "OPENAI_API_KEY", label: "OpenAI API key", present: false }], runtime: { display_name: "Runs from this project", availability: "needs_worker", credentials_label: "Missing", runtimes_found: 1, alternatives: 0, health: "available", built: false, review: null, abilities: {} }, created_at: "", updated_at: "" };
 
 function renderAt(path: string) {
   return render(
@@ -23,7 +23,7 @@ function renderAt(path: string) {
   );
 }
 
-const failedStatus = { kind: "failed", label: "Needs a credential", headline: "Market Research needs an OpenAI credential before it can run.", note: null, quiet: false, since: "2026-09-21T21:17:08Z", can_cancel: false };
+const failedStatus = { kind: "failed", label: "Needs a credential", headline: "Market Research needs an OpenAI API key before it can run.", note: null, quiet: false, since: "2026-09-21T21:17:08Z", can_cancel: false };
 const startingStatus = { kind: "starting", label: "Starting", headline: "Starting…", note: null, quiet: false, since: null, can_cancel: true };
 
 test("a failed task explains itself, offers Add credential and Try again, and hides internals behind Details", async () => {
@@ -38,7 +38,7 @@ test("a failed task explains itself, offers Add credential and Try again, and hi
   const user = userEvent.setup();
   renderAt("/tasks/t5");
   const status = await screen.findByRole("region", { name: "Status" });
-  expect(within(status).getByText("Market Research needs an OpenAI credential before it can run.")).toBeInTheDocument();
+  expect(within(status).getByText("Market Research needs an OpenAI API key before it can run.")).toBeInTheDocument();
   expect(within(status).getByRole("link", { name: "Add credential" })).toHaveAttribute("href", "/apps/p9?credential=1");
   // The raw summary is not how a failure is told.
   expect(screen.queryByText("Market Research stopped with an error.")).not.toBeInTheDocument();
@@ -59,11 +59,11 @@ test("a failed task explains itself, offers Add credential and Try again, and hi
 });
 
 test("a provider that has its own credential is not asked for one", async () => {
-  mockApi({ "GET /api/providers/p9": { ...provider, credentials: [{ name: "OPENAI_API_KEY", label: "OpenAI credential", present: true, source: "host", status: "From this machine" }] } });
+  mockApi({ "GET /api/providers/p9": { ...provider, credentials: [{ name: "OPENAI_API_KEY", label: "OpenAI API key", present: true, source: "host", status: "From this machine" }] } });
   renderAt("/apps/p9");
   const care = await screen.findByRole("region", { name: "Settings" });
-  expect(within(care).getByText("OpenAI credential · From this machine")).toBeInTheDocument();
-  expect(screen.queryByLabelText("OpenAI credential")).not.toBeInTheDocument();
+  expect(within(care).getByText("OpenAI API key · From this machine")).toBeInTheDocument();
+  expect(screen.queryByLabelText("OpenAI API key")).not.toBeInTheDocument();
   expect(screen.queryByText(/Needs openai credential/)).not.toBeInTheDocument();
   expect(screen.queryByText("Needs a credential")).not.toBeInTheDocument();
 });
@@ -72,20 +72,20 @@ test("Add credential opens its page with the field ready; saving never echoes th
   const needsKey = { ...provider, direct: { state: "needs_credential", note: "Bevro needs a credential before it can send it work." } };
   const calls = mockApi({
     "GET /api/providers/p9": needsKey,
-    "PUT /api/providers/p9/secrets/OPENAI_API_KEY": { ...provider, direct: { state: "ready", note: "Bevro can send it work." }, secret_names: ["OPENAI_API_KEY"], credentials: [{ name: "OPENAI_API_KEY", label: "OpenAI credential", present: true }] },
+    "PUT /api/providers/p9/secrets/OPENAI_API_KEY": { ...provider, direct: { state: "ready", note: "Bevro can send it work." }, secret_names: ["OPENAI_API_KEY"], credentials: [{ name: "OPENAI_API_KEY", label: "OpenAI API key", present: true }] },
   });
   const user = userEvent.setup();
   renderAt("/apps/p9?credential=1");
   const direct = await screen.findByRole("region", { name: "Direct Bevro access" });
-  expect(within(direct).getByText("OpenAI credential · Missing")).toBeInTheDocument();
-  const field = within(direct).getByLabelText("OpenAI credential");
+  expect(within(direct).getByText("OpenAI API key · Missing")).toBeInTheDocument();
+  const field = within(direct).getByLabelText("OpenAI API key");
   expect(field).toHaveFocus();
   expect(field).toHaveAttribute("type", "password");
   await user.type(field, "sk-live-secret");
   await user.click(within(direct).getByRole("button", { name: "Save" }));
   expect(calls.find((c) => c.method === "PUT")?.body).toEqual({ value: "sk-live-secret" });
   const care = screen.getByRole("region", { name: "Settings" });
-  expect(await within(care).findByText("OpenAI credential · Added")).toBeInTheDocument();
+  expect(await within(care).findByText("OpenAI API key · Added")).toBeInTheDocument();
   expect(await screen.findByText("Bevro can send it work.")).toBeInTheDocument();
   expect(screen.queryByDisplayValue("sk-live-secret")).not.toBeInTheDocument();
   expect(document.body.textContent).not.toContain("sk-live-secret");

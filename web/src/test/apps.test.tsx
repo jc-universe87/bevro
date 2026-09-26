@@ -64,7 +64,7 @@ const briefing = {
   connection: "command",
   direct: { state: "needs_credential", note: "Bevro needs a credential before it can send it work." },
   availability: { state: "unavailable", note: "Needs a credential", reason: "needs_credential" },
-  credentials: [{ name: "OPENAI_API_KEY", label: "OpenAI credential", present: false, source: "missing", status: "Missing", note: "Briefing already has a credential for its scheduled runs, but that credential isn't available when Bevro starts a new task.", why: "The credential is handed over only when its scheduled service starts." }],
+  credentials: [{ name: "OPENAI_API_KEY", label: "OpenAI API key", present: false, source: "missing", status: "Missing", note: "Briefing already has a credential for its scheduled runs, but that credential isn't available when Bevro starts a new task.", why: "The credential is handed over only when its scheduled service starts." }],
   surfaces: [
     { kind: "telegram", role: "delivers", label: "Telegram", sentence: "It sends its results to Telegram." },
     { kind: "schedule", role: "runs", label: "Scheduled runs", sentence: "It runs by itself, every Monday at 07:30 UTC.", when: "every Monday at 07:30 UTC", installed: true },
@@ -245,7 +245,7 @@ test("a missing credential is explained where direct access is, and asked for on
   const user = userEvent.setup();
   renderAt("/apps/p3?credential=1");
   const direct = await screen.findByRole("region", { name: "Direct Bevro access" });
-  const field = within(direct).getByLabelText("OpenAI credential");
+  const field = within(direct).getByLabelText("OpenAI API key");
   expect(field).toHaveFocus();
   expect(field).toHaveAttribute("type", "password");
   expect(direct.textContent?.match(/already has a credential for its scheduled runs/g)).toBeNull(); // the note waits until the form is closed
@@ -262,7 +262,7 @@ test("links from before Apps & agents had pages still arrive at the right place"
   mockApi({ "GET /api/providers/p3": briefing });
   renderAt("/agents?manage=p3&credential=1");
   expect(await screen.findByRole("heading", { level: 1, name: "Briefing" })).toBeInTheDocument();
-  expect(screen.getByLabelText("OpenAI credential")).toHaveFocus();
+  expect(screen.getByLabelText("OpenAI API key")).toHaveFocus();
 });
 
 test("something removed says so plainly", async () => {
@@ -335,7 +335,7 @@ test("on its page, Add credential appears once and opens the field where direct 
   expect(buttons).toHaveLength(1);
   await user.click(buttons[0]);
   const direct = screen.getByRole("region", { name: "Direct Bevro access" });
-  expect(within(direct).getByLabelText("OpenAI credential")).toHaveFocus();
+  expect(within(direct).getByLabelText("OpenAI API key")).toHaveFocus();
 });
 
 // --------------------------------------------------------------------------- direct access for something already here
@@ -382,4 +382,13 @@ test("a failed setup says so and stays on the page, with the item untouched", as
   expect(await screen.findByRole("alert")).toBeInTheDocument();
   expect(screen.getByRole("heading", { level: 1, name: "Set up direct access" })).toBeInTheDocument();
   expect(calls.filter((c) => c.method === "POST").map((c) => c.url)).toEqual(["/api/providers/p2/direct-access"]);
+});
+
+test("when Bevro knows which credential direct use needs, the row names it", async () => {
+  mockApi({ "GET /api/providers": [{ ...briefing, direct: { ...briefing.direct, needs: "OpenAI API key" } }, notebook] });
+  renderAt("/apps");
+  const b = item(await screen.findByRole("heading", { name: "Briefing" }).then(() => "Briefing"));
+  expect(b).toHaveTextContent("Direct use in Bevro needs an OpenAI API key");
+  // A web app Bevro can't drive is never said to need one.
+  expect(item("Notebook").textContent).not.toMatch(/credential|API key/i);
 });

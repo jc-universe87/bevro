@@ -39,12 +39,12 @@ def test_missing_credential_is_explained_and_fixed_from_the_browser(client, seed
         provider = connect_fixture(client, seeded, root, with_key=False)
         # "Missing" with nothing else found; where something *was* found, the
         # note says what, so the two are never the same answer.
-        assert provider["credentials"] == [{"name": "OPENAI_API_KEY", "label": "OpenAI credential", "present": False, "source": "missing", "status": "Missing", "note": None, "why": None}]
+        assert provider["credentials"] == [{"name": "OPENAI_API_KEY", "label": "OpenAI API key", "present": False, "source": "missing", "status": "Missing", "note": None, "why": None}]
 
         # Routed, the missing credential is said before anything starts.
         r = client.post("/api/tasks", json={"request": "Fixture research: what changed among competitors?"})
         assert r.status_code == 503 and r.json()["detail"]["answer"]["outcome"] == "blocked"
-        assert r.json()["detail"]["message"] == "Fixture Research Agent can do this, but direct use in Bevro needs a credential."
+        assert r.json()["detail"]["message"] == "Fixture Research Agent can do this, but direct use in Bevro needs an OpenAI API key."
         # Asked for by name, the run itself explains what is missing.
         r = client.post("/api/tasks", json={"request": "Fixture research: what changed among competitors?", "provider_id": provider["id"]})
         assert r.status_code == 201, r.text
@@ -55,7 +55,7 @@ def test_missing_credential_is_explained_and_fixed_from_the_browser(client, seed
         detail = client.get(f"/api/tasks/{task.id}").json()
         failure = detail["runs"][-1]["failure"]
         assert failure["category"] == "credential_required" and failure["title"] == "Needs a credential"
-        assert failure["message"] == "Fixture Research Agent needs an OpenAI credential before it can run."
+        assert failure["message"] == "Fixture Research Agent needs an OpenAI API key before it can run."
         assert [a["kind"] for a in failure["actions"]] == ["add_credential", "retry"]
         assert failure["actions"][0]["secret_name"] == "OPENAI_API_KEY"
         text = r.text + client.get(f"/api/tasks/{task.id}").text
@@ -64,7 +64,7 @@ def test_missing_credential_is_explained_and_fixed_from_the_browser(client, seed
         # Add the credential from Manage: stored encrypted, never echoed back.
         r = client.put(f"/api/providers/{provider['id']}/secrets/OPENAI_API_KEY", json={"value": "sk-added-in-browser"})
         assert r.status_code == 200, r.text
-        assert r.json()["credentials"] == [{"name": "OPENAI_API_KEY", "label": "OpenAI credential", "present": True, "source": "bevro", "status": "Added", "note": None, "why": None}]
+        assert r.json()["credentials"] == [{"name": "OPENAI_API_KEY", "label": "OpenAI API key", "present": True, "source": "bevro", "status": "Added", "note": None, "why": None}]
         assert "sk-added-in-browser" not in r.text and "sk-added-in-browser" not in client.get("/api/providers").text
         assert client.put(f"/api/providers/{provider['id']}/secrets/bad name", json={"value": "x"}).status_code == 422
 

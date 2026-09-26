@@ -37,7 +37,7 @@ class ProviderOut(BaseModel):
     # {"state": "available" | "not_installed" | "not_authenticated" | "unavailable", "note": "Not available on this installation" | None}
     availability: dict[str, str | None] = Field(default_factory=dict)
     secret_names: list[str] = Field(default_factory=list)
-    # What the connection needs and whether it has it: [{"name": "OPENAI_API_KEY", "label": "OpenAI credential", "present": false}]
+    # What the connection needs and whether it has it: [{"name": "OPENAI_API_KEY", "label": "OpenAI API key", "present": false}]
     credentials: list[dict[str, Any]] = Field(default_factory=list)
     # How this installation runs, in words: {"display_name": "Already running on this machine",
     # "credentials_label": "Managed by provider", "runtimes_found": 2, "built": false}.

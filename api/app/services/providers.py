@@ -481,19 +481,7 @@ def record_availability(db: Session, provider: Provider, result: HealthResult) -
     db.commit()
 
 
-SECRET_LABELS = {
-    "OPENAI_API_KEY": "OpenAI credential",
-    "ANTHROPIC_API_KEY": "Anthropic credential",
-    "GOOGLE_API_KEY": "Google credential",
-    "MISTRAL_API_KEY": "Mistral credential",
-    "COHERE_API_KEY": "Cohere credential",
-    "GROQ_API_KEY": "Groq credential",
-    "api_key": "API token",
-}
-
-
-def secret_label(name: str) -> str:
-    return SECRET_LABELS.get(name) or name.replace("_", " ").title()
+from app.connect.draft import SECRET_LABELS, secret_label  # noqa: E402,F401 - the one table of credential names
 
 
 def required_secrets(provider: Provider) -> list[str]:

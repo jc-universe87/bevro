@@ -202,7 +202,7 @@ def test_local_project_connects_and_is_routed_and_run(client, seeded, local_root
         ("Found it on this machine", True),
         ("Its Python environment is available", True),
         ("Found the command Bevro will use", True),
-        ("No OpenAI credential yet for tasks Bevro starts", False),
+        ("No OpenAI API key yet for tasks Bevro starts", False),
         ("It doesn't offer a self-check, so no real task was run", None),
     ]
     r = client.post(f"/api/connect/drafts/{body['id']}/test", json={"secrets": {"OPENAI_API_KEY": "sk-fixture"}})

@@ -30,8 +30,9 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from adapters.runtime import RuntimeProfile, credentials_label
+from adapters.runtime import CredentialStrategy, RuntimeProfile, credentials_label
 from app.models import Provider
+from app.services import providers as provider_service
 from app.services import runtime as runtime_service
 
 log = logging.getLogger("bevro.reconcile")
@@ -117,7 +118,9 @@ def state_of(db, provider: Provider) -> ProviderState:
         state.connection = _nothing_usable_because(skipped)
     elif selected.availability == "needs_start":
         state.connection = "needs_start"
-    elif selected.credentials.required_from_user:
+    elif selected.credentials.required_from_user and not (selected.credentials.strategy == CredentialStrategy.BEVRO_MANAGED and runtime_service.credentials_satisfied(selected, held)):
+        # Discovery said the person would have to supply it; once Bevro holds
+        # it for this item, that is no longer in the way.
         state.connection = "needs_credential"
     else:
         state.connection = _reachable_now(db, provider, selected)
@@ -128,14 +131,23 @@ def state_of(db, provider: Provider) -> ProviderState:
 
 
 def _nothing_usable_because(skipped: list[tuple[RuntimeProfile, str]]) -> str:
-    """Why no way in can be used, in the order a person would care about."""
-    reasons = {why for _rt, why in skipped}
-    if "credential" in reasons:
+    """Why no way in can be used, in the order a person would care about.
+
+    A missing credential is the answer only when it is what stands in the
+    way of *every* way in that could take work. A way in that needs nothing
+    from the person but is down right now is the truer answer: getting it
+    back gives Bevro the app without anyone handing over a key.
+    """
+    workable = [(rt, why) for rt, why in skipped if why not in ("cannot take a task", "no adapter for this mechanism")]
+    others = [(rt, why) for rt, why in workable if why != "credential"]
+    if workable and not others:
         return "needs_credential"
+    reasons = {why for _rt, why in others}
     if "needs the worker on the host" in reasons:
         return "waiting_for_worker"
     if "cooling down after a failure" in reasons:
-        return "unreachable"
+        resting = [rt for rt, why in others if why == "cooling down after a failure"]
+        return "needs_start" if all(rt.availability == "needs_start" for rt in resting) else "unreachable"
     return "nothing_usable"
 
 
@@ -155,9 +167,12 @@ def _reachable_now(db, provider: Provider, selected: RuntimeProfile) -> str:
     """
     from app.services import providers as provider_service
 
-    if runtime_service.execution_of(provider) != "background":
+    # Where a run would really go - asked exactly as execution asks it, so the
+    # two cannot disagree: with no worker, a way in the API can reach is used.
+    worker = worker_state(db)
+    if runtime_service.execution_of(provider, worker != "absent") != "background":
         return "ready"  # this process drives it; nothing to wait for
-    if worker_state(db) == "absent":
+    if worker == "absent":
         # A thing Bevro ships that nobody has set up is not waiting for
         # anything; it simply is not set up, and says so more kindly.
         never_reported = not (provider.availability or {})
@@ -212,7 +227,32 @@ def direct_access(db, provider: Provider) -> dict[str, Any]:
         }.get(connection, connection)
         if state not in DIRECT_STATES:
             state = "unreachable"
-    return {"state": state, "note": DIRECT_WORDS[state]}
+    out: dict[str, Any] = {"state": state, "note": DIRECT_WORDS[state]}
+    if state == "needs_credential":
+        needs = missing_credential(provider)
+        if needs is not None:
+            label = provider_service.secret_label(needs)
+            out["needs"] = label
+            out["note"] = f"Bevro needs {_article(label)} {label} before it can send it work."
+    return out
+
+
+def _article(label: str) -> str:
+    return "an" if label[:1].lower() in "aeiou" else "a"
+
+
+def missing_credential(provider: Provider) -> str | None:
+    """The name of the credential standing between Bevro and this item: the
+    first one the best way in that needs one lacks. Names only, and only
+    credentials of *this* item's ways in; what Bevro holds for another item
+    never counts. None when it can't be told which."""
+    from app.connect.runtimes import rank
+
+    held = {s.name: "" for s in provider.secrets}
+    for rt in rank(runtime_service.runtimes_of(provider)):
+        if rt.invocable and not runtime_service.credentials_satisfied(rt, held):
+            return next((n for n in rt.credentials.names if n not in held), None)
+    return None
 
 
 # --------------------------------------------------------------------------- bringing the record in line
