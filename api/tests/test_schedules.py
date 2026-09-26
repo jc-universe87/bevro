@@ -54,13 +54,13 @@ def test_a_person_never_types_cron(text, recurrence, described):
 
 
 def test_a_one_off_request_is_not_a_schedule():
-    for text in ("Research competitors in event management software.", "Compare three note-taking apps.", "Fix the spacing on Recent."):
+    for text in ("Research competitors in note-taking apps.", "Compare three note-taking apps.", "Fix the spacing on Recent."):
         assert london(text) is None and not has_recurring_intent(text)
 
 
 def test_monitoring_is_recognised_from_the_words():
     assert wants_monitoring("Check this every day and tell me only when something changes.")
-    assert wants_monitoring("Watch for a competitor launching room allocation.")
+    assert wants_monitoring("Watch for a competitor launching a free plan.")
     assert not wants_monitoring("Research competitors every Monday.")
 
 

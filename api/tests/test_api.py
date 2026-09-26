@@ -13,14 +13,14 @@ def submit(client, **body):
 
 
 def test_home_flow_submit_and_find_under_recent(client, seeded):
-    task = submit(client, request="Allocate participants for the spring conference")
+    task = submit(client, request="Move my meetings to free up Friday afternoon")
     assert task["state"] == "completed"
-    assert task["summary"] == "Done. 148 participants allocated. 7 need review."
-    assert task["provider"]["name"] == "Event Allocation Demo"
+    assert task["summary"] == "Done. 3 meetings moved. 1 needs your reply."
+    assert task["provider"]["name"] == "Calendar Demo"
     link = next(a for a in task["artifacts"] if a["type"] == "deep_link")
-    assert link["title"] == "Review in the events app" and link["known"] is True
+    assert link["title"] == "Open in Calendar" and link["known"] is True
 
-    r = client.get("/api/tasks", params={"q": "spring"})
+    r = client.get("/api/tasks", params={"q": "friday"})
     assert [t["id"] for t in r.json()] == [task["id"]]
 
     r = client.get(f"/api/tasks/{task['id']}")

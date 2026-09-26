@@ -50,9 +50,9 @@ is new). Restart it: `docker compose restart api`.
 ## 2. Capabilities
 
 Capabilities are how Bevro decides who could take a request. The demo router
-looks for `coding`, `events.allocate` and `research`; a real router will
+looks for `coding`, `calendar.schedule` and `research`; a real router will
 match on whatever you declare. Use dotted ids for specific actions
-(`events.allocate`) and plain ones for broad abilities (`research`).
+(`calendar.schedule`) and plain ones for broad abilities (`research`).
 
 Only claim what your implementation genuinely does.
 
@@ -149,9 +149,9 @@ For things you cannot decide alone, return `NEEDS_INPUT` or
 ## 7. Deep links
 
 A `deep_link` artifact with an `external_url` becomes the headline action of
-the result ("Review in the events app →"). Build it from `provider.app_url` plus a
+the result ("Open in Calendar →"). Build it from `provider.app_url` plus a
 path in `adapter.config` so that the configuration, not the code, decides
-where the application lives. `providers/event_demo.py` shows the pattern.
+where the application lives. `providers/calendar_demo.py` shows the pattern.
 
 ## 8. UI
 

@@ -18,7 +18,7 @@ from adapters.runtime import RuntimeProfile
 from app.config import get_settings
 from app.models import Provider
 from app.models._common import utcnow
-from providers import DEMO, INTEGRATION, demo_slugs, load_manifests
+from providers import DEMO, INTEGRATION, RETIRED_DEMOS, demo_slugs, load_manifests
 
 log = logging.getLogger("bevro.providers")
 
@@ -158,7 +158,12 @@ def shipped_demo(provider: Provider) -> bool:
     the shipped one. Someone's own agent called "Research" is connected or
     created, so it fails the first test and is never touched.
     """
-    if provider.origin != "example" or provider.slug not in demo_slugs():
+    if provider.origin != "example":
+        return False
+    if provider.slug in RETIRED_DEMOS:
+        adapter = provider.adapter or {}
+        return adapter.get("kind") == "local" and adapter.get("ref") == RETIRED_DEMOS[provider.slug]
+    if provider.slug not in demo_slugs():
         return False
     shipped = next((m for m in load_manifests(seed=DEMO) if m["slug"] == provider.slug), None)
     if shipped is None:
@@ -167,8 +172,9 @@ def shipped_demo(provider: Provider) -> bool:
     return adapter.get("kind") == shipped["adapter"].get("kind") and adapter.get("ref") == shipped["adapter"].get("ref")
 
 
-def retire_demo_providers(db: Session) -> int:
-    """Take the shipped demos out of a workspace that is not in demo mode.
+def retire_demo_providers(db: Session, *, only_retired: bool = False) -> int:
+    """Take the shipped demos out of a workspace that is not in demo mode -
+    or, with `only_retired`, just the ones this release no longer ships.
 
     Only rows that are positively the untouched seeded demos. One that has
     done work cannot be deleted - its runs point at it - so it is disabled
@@ -178,7 +184,7 @@ def retire_demo_providers(db: Session) -> int:
 
     removed = 0
     for provider in list_providers(db, enabled_only=False):
-        if not shipped_demo(provider):
+        if not shipped_demo(provider) or (only_retired and provider.slug not in RETIRED_DEMOS):
             continue
         used = db.scalar(select(ProviderRun.id).where(ProviderRun.provider_id == provider.id).limit(1))
         if used is not None:
@@ -224,6 +230,8 @@ def seed_examples(db: Session, *, demo: bool | None = None) -> int:
                         existing.runtimes = []  # re-derived below from the manifest's adapter
     if not demo:
         added -= retire_demo_providers(db)
+    else:
+        retire_demo_providers(db, only_retired=True)
     db.commit()
     from app.services.runtime import ensure_runtimes
 

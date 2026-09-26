@@ -24,7 +24,7 @@ Then open <http://localhost:6140>.
 
 That is the whole core installation: web app, API, PostgreSQL and the
 no agents of its own. Set `BEVRO_DEMO_MODE=true` for the example
-providers (Research and the Event Allocation Demo). No configuration file is
+providers (Research and the Calendar Demo). No configuration file is
 required; a secret key for provider credentials is generated once into
 `data/secret.key`. Copy `.env.example` to `.env` only if you want to change
 ports or set your own key.
@@ -183,6 +183,6 @@ bevro/
 ```sh
 curl -s localhost:6141/api/providers | python3 -m json.tool
 curl -s -X POST localhost:6141/api/tasks -H 'content-type: application/json' \
-  -d '{"request":"Allocate participants for the spring conference"}'
+  -d '{"request":"Move my meetings to free up Friday afternoon"}'
 curl -s localhost:6141/api/tasks
 ```

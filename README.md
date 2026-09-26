@@ -296,7 +296,7 @@ BEVRO_DEMO_MODE=true
 | Example | What it shows |
 |---|---|
 | **Research** | The plumbing: a request in, a note artifact out. Example data, not a real search. |
-| **Event Allocation Demo** | An app-backed provider: a specialist application answering with a one-line outcome and a deep link into its own interface. Sample data; nothing is called. |
+| **Calendar Demo** | An app-backed provider: an application answering with a one-line outcome and a deep link into its own interface. Sample data; nothing is called. |
 
 Turn demo mode off again and Bevro takes them back out, leaving anything you
 connected or created exactly where it is.

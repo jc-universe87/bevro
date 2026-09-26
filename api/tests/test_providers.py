@@ -20,7 +20,7 @@ def test_demo_providers_are_opted_into(db):
     assert provider_service.seed_examples(db, demo=True) == 3
     assert provider_service.seed_examples(db, demo=True) == 0
     slugs = {p.slug for p in provider_service.list_providers(db, enabled_only=False)}
-    assert slugs == {"event-demo", "research", "claude-code"}
+    assert slugs == {"calendar-demo", "research", "claude-code"}
 
 
 def test_register_provider_with_free_form_capabilities(db):
@@ -45,12 +45,12 @@ def test_slug_collisions_are_resolved(db):
 
 
 def test_actions_only_list_what_is_supported(seeded):
-    event_demo = provider_service.get_by_slug(seeded, "event-demo")
+    calendar_demo = provider_service.get_by_slug(seeded, "calendar-demo")
     research = provider_service.get_by_slug(seeded, "research")
-    assert provider_actions(event_demo) == ["ask", "open"]
+    assert provider_actions(calendar_demo) == ["ask", "open"]
     assert provider_actions(research) == ["ask"]
-    event_demo.enabled = False
-    assert provider_actions(event_demo) == ["open"]
+    calendar_demo.enabled = False
+    assert provider_actions(calendar_demo) == ["open"]
 
 
 def test_declared_provider_has_no_ask_action(db):

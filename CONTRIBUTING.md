@@ -56,7 +56,7 @@ docker compose exec db psql -U bevro -d postgres -c 'DROP DATABASE bevro_fresh'
 ## Conventions
 
 - **Plain language in the interface.** Copy is short, practical and human:
-  "Working…", "Done. 7 participants need review." No jargon, no model names,
+  "Working…", "Done. 1 meeting needs your reply." No jargon, no model names,
   no "AI magic". Errors shown to people are sentences, not exceptions.
 - **Nothing raw reaches the browser.** Logs, subprocess output, filesystem
   paths, credentials and adapter configuration stay on the server. API

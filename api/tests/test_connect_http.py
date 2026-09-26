@@ -87,11 +87,11 @@ def test_openapi_with_bearer_security_reveals_authentication():
 
 
 def test_bevro_manifest_is_an_optional_fast_path():
-    manifest = {"name": "Event Allocation Demo", "description": "Events", "capabilities": [{"id": "events.allocate", "title": "Allocate"}], "invoke_path": "/bevro/invoke", "auth": {"type": "bearer"}, "app_url": "https://events.example/app"}
+    manifest = {"name": "Calendar Demo", "description": "Calendar", "capabilities": [{"id": "calendar.schedule", "title": "Plan the week"}], "invoke_path": "/bevro/invoke", "auth": {"type": "bearer"}, "app_url": "https://calendar.example/app"}
     transport, calls = fake_service(openapi=OPENAPI, manifest=manifest)
-    draft = discover("http://event-demo.local", transport)
-    assert draft.name == "Event Allocation Demo" and draft.confidence == "high"
-    assert draft.adapter["config"]["invoke_path"] == "/bevro/invoke" and draft.app_url == "https://events.example/app"
+    draft = discover("http://calendar-demo.local", transport)
+    assert draft.name == "Calendar Demo" and draft.confidence == "high"
+    assert draft.adapter["config"]["invoke_path"] == "/bevro/invoke" and draft.app_url == "https://calendar.example/app"
     assert draft.auth.required
     assert "GET /openapi.json" not in calls
 

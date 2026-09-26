@@ -26,7 +26,7 @@ infers all of that. What comes back is a description to agree to:
 
 ```
 Market Watch
-Tracks competitors and relevant changes in event management software.
+Tracks competitors and relevant changes in note-taking apps.
 
 Can:
 • Research

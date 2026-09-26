@@ -31,25 +31,25 @@ def test_long_requests_get_a_short_title(seeded):
     assert task.original_request == words
 
 
-def test_demo_router_sends_event_wording_to_event_demo(seeded):
-    task = task_service.submit(seeded, "Allocate the participants for the spring conference")
-    assert task.runs[0].provider.slug == "event-demo"
+def test_demo_router_sends_calendar_wording_to_calendar_demo(seeded):
+    task = task_service.submit(seeded, "Move my meetings to free up Friday afternoon")
+    assert task.runs[0].provider.slug == "calendar-demo"
 
 
 def test_example_task_completes_with_summary_and_artifacts(seeded):
-    task = task_service.submit(seeded, "Allocate the participants for the spring conference")
+    task = task_service.submit(seeded, "Move my meetings to free up Friday afternoon")
     seeded.commit()
     run = task_service.execute_run(seeded, task.runs[0].id)
     seeded.refresh(task)
     assert run.state == RunState.COMPLETED
     assert task.state == TaskState.COMPLETED
-    assert task.summary == "Done. 148 participants allocated. 7 need review."
+    assert task.summary == "Done. 3 meetings moved. 1 needs your reply."
     assert task.completed_at is not None
     types = {a.type for a in task.artifacts}
     assert types == {"structured", "deep_link"}
     link = next(a for a in task.artifacts if a.type == "deep_link")
-    assert link.title == "Review in the events app"
-    assert link.external_url.startswith("https://events.example/app/events/")
+    assert link.title == "Open in Calendar"
+    assert link.external_url.startswith("https://calendar.example/app/week/")
 
 
 def test_research_stores_a_file_backed_artifact(seeded):
@@ -126,9 +126,9 @@ def test_cancel_open_task_and_not_completed_one(seeded):
 
 
 def test_task_can_target_a_specific_provider(seeded):
-    event_demo = provider_service.get_by_slug(seeded, "event-demo")
-    task = task_service.submit(seeded, "Find something unrelated to events", provider=event_demo)
-    assert task.runs[0].provider_id == event_demo.id
+    calendar_demo = provider_service.get_by_slug(seeded, "calendar-demo")
+    task = task_service.submit(seeded, "Find something unrelated to calendars", provider=calendar_demo)
+    assert task.runs[0].provider_id == calendar_demo.id
 
 
 def test_missing_run_raises(seeded):

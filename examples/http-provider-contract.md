@@ -6,7 +6,7 @@ Bevro calls `POST {base_url}{invoke_path}` (default `/invoke`) with:
 {
   "task_id": "b6b3...",
   "run_id": "0a1c...",
-  "request": "Allocate participants for the spring conference",
+  "request": "Move my meetings to free up Friday afternoon",
   "input": {}
 }
 ```
@@ -19,20 +19,20 @@ The provider answers `200` with:
 ```json
 {
   "state": "completed",
-  "summary": "Done. 148 participants allocated. 7 need review.",
+  "summary": "Done. 3 meetings moved. 1 needs your reply.",
   "error": null,
   "external_ref": null,
   "artifacts": [
     {
       "type": "deep_link",
-      "title": "Review in the events app",
-      "summary": "7 participants need a decision",
-      "external_url": "https://events.example/app/events/spring/allocation?filter=review",
+      "title": "Open in Calendar",
+      "summary": "1 invitation needs your reply",
+      "external_url": "https://calendar.example/app/week/this-week?filter=needs-reply",
       "metadata": {"event_id": "spring"}
     },
     {
       "type": "note",
-      "title": "Allocation notes",
+      "title": "Notes",
       "mime_type": "text/markdown",
       "payload": {"text": "# Notes\n..."}
     }

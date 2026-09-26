@@ -43,7 +43,7 @@ Neither carries a path, a command line, a host or a secret.
 ### Runtime abilities vs provider capabilities
 
 Provider capabilities say *what work* (`research`, `coding`,
-`events.allocate`, `reporting`); routers choose by them. Runtime abilities
+`calendar.schedule`, `reporting`); routers choose by them. Runtime abilities
 say *what the mechanism can do for Bevro*: `accepts_prompt`, `background`,
 `cancel`, `status`, `streaming`, `file_artifacts`, `health`. The router
 never sees the runtime; the execution layer never looks at capabilities.

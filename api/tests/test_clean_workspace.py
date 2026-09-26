@@ -230,7 +230,7 @@ def test_clearing_an_empty_history_is_harmless(client, seeded):
 
 def test_the_shipped_demos_are_retired_when_demo_mode_is_off(db):
     provider_service.seed_examples(db, demo=True)
-    assert {p.slug for p in provider_service.list_providers(db, enabled_only=False)} == {"research", "event-demo", "claude-code"}
+    assert {p.slug for p in provider_service.list_providers(db, enabled_only=False)} == {"research", "calendar-demo", "claude-code"}
 
     provider_service.seed_examples(db, demo=False)
     assert {p.slug for p in provider_service.list_providers(db, enabled_only=False)} == {"claude-code"}
@@ -250,7 +250,29 @@ def test_a_demo_that_did_real_work_is_disabled_rather_than_deleted(db):
     still_there = provider_service.get_by_slug(db, "research")
     assert still_there is not None and still_there.enabled is False
     assert db.get(Task, task.id) is not None  # the work is still readable
-    assert provider_service.get_by_slug(db, "event-demo") is None  # that one did nothing, so it went
+    assert provider_service.get_by_slug(db, "calendar-demo") is None  # that one did nothing, so it went
+
+
+def test_a_demo_an_earlier_release_shipped_is_cleaned_up_even_in_demo_mode(db):
+    """0.1.0 shipped an event demo; its handler is gone, so it could only fail."""
+    old = provider_service.register_provider(
+        db,
+        {
+            "slug": "event-demo",
+            "name": "Event Allocation Demo",
+            "description": "Allocate participants for an event (demo)",
+            "capabilities": [{"id": "events.allocate", "title": "Allocate participants"}],
+            "adapter": {"kind": "local", "ref": "providers.event_demo:run", "config": {}},
+            "origin": "example",
+        },
+    )
+    db.commit()
+    assert old is not None
+
+    provider_service.seed_examples(db, demo=True)
+
+    slugs = {p.slug for p in provider_service.list_providers(db, enabled_only=False)}
+    assert "event-demo" not in slugs and "calendar-demo" in slugs
 
 
 def test_an_agent_of_your_own_called_research_is_never_touched(db):

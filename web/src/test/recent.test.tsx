@@ -7,9 +7,9 @@ import { mockApi, task } from "./helpers";
 test("recent is a list with title, provider, state and summary, and search hits the API", async () => {
   const calls = mockApi({
     "GET /api/tasks*": (url: string) =>
-      url.includes("q=spring")
-        ? [task({ state: "completed", summary: "Done. 148 participants allocated. 7 need review." })]
-        : [task({ state: "completed", summary: "Done. 148 participants allocated. 7 need review." }), task({ id: "t2", title: "Compare note apps", provider: { id: "p2", slug: "research", name: "Research" }, state: "working" })],
+      url.includes("q=friday")
+        ? [task({ state: "completed", summary: "Done. 3 meetings moved. 1 needs your reply." })]
+        : [task({ state: "completed", summary: "Done. 3 meetings moved. 1 needs your reply." }), task({ id: "t2", title: "Compare note apps", provider: { id: "p2", slug: "research", name: "Research" }, state: "working" })],
     "GET /api/providers": [],
   });
   const user = userEvent.setup();
@@ -21,13 +21,13 @@ test("recent is a list with title, provider, state and summary, and search hits 
   const list = await screen.findByRole("list", { name: "Recent work" });
   const items = await screen.findAllByRole("listitem");
   expect(items).toHaveLength(2);
-  expect(list).toHaveTextContent("Allocate participants for the spring conference");
-  expect(list).toHaveTextContent("Event Allocation Demo");
-  expect(list).toHaveTextContent("Done. 148 participants allocated. 7 need review.");
+  expect(list).toHaveTextContent("Move my meetings to free up Friday afternoon");
+  expect(list).toHaveTextContent("Calendar Demo");
+  expect(list).toHaveTextContent("Done. 3 meetings moved. 1 needs your reply.");
   expect(list).toHaveTextContent("Research");
   expect(list).toHaveTextContent("Working…");
 
-  await user.type(screen.getByRole("searchbox", { name: "Search recent work" }), "spring");
+  await user.type(screen.getByRole("searchbox", { name: "Search recent work" }), "friday");
   await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
-  expect(calls.some((c) => c.url.includes("q=spring"))).toBe(true);
+  expect(calls.some((c) => c.url.includes("q=friday"))).toBe(true);
 });

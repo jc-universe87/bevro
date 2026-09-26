@@ -3,6 +3,14 @@
 Notable changes to Bevro. This project uses [semantic versioning](https://semver.org);
 while it is pre-1.0, minor versions may change behaviour.
 
+## Unreleased
+
+- The app-backed example provider is now a **Calendar Demo** ("Move my
+  meetings to free up Friday afternoon") instead of the Event Allocation
+  Demo. A workspace that still has the old one has it removed, or switched
+  off if it has done work.
+- README and screenshots describe Bevro with everyday agents.
+
 ## 0.1.0
 
 The first public release. Bevro is a self-hostable workspace for getting work

@@ -6,7 +6,7 @@ import PageHeader, { Page } from "../components/PageHeader";
 import { api, ApiError, type CreatePreview, type CreateStatus } from "../lib/api";
 
 const EXAMPLES = [
-  "Research competitors in the event management software market and give me a short weekly report.",
+  "Research competitors in the note-taking app market and give me a short weekly report.",
   "Review pull requests and point out risky changes.",
   "Summarise new research papers about a topic I follow.",
 ];

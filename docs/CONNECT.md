@@ -249,10 +249,10 @@ Transports (all in `adapters/`, see [PROVIDER_MODEL.md](PROVIDER_MODEL.md)):
 A service *may* publish `/.well-known/bevro.json` to skip inference:
 
 ```json
-{"name": "Event Allocation Demo", "description": "Events and organisation",
- "capabilities": [{"id": "events.allocate", "title": "Allocate participants"}],
+{"name": "Calendar", "description": "Plan your week and find time for meetings",
+ "capabilities": [{"id": "calendar.schedule", "title": "Plan the week"}],
  "invoke_path": "/bevro/invoke", "health_path": "/health",
- "auth": {"type": "bearer"}, "app_url": "https://events.example/app"}
+ "auth": {"type": "bearer"}, "app_url": "https://calendar.example/app"}
 ```
 
 It is a fast path, never a requirement.

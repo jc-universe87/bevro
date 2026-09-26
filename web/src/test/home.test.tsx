@@ -24,9 +24,9 @@ test("asking creates a task, shows it working, then shows the outcome and deep l
   let polls = 0;
   const done = task({
     state: "completed",
-    summary: "Done. 148 participants allocated. 7 need review.",
+    summary: "Done. 3 meetings moved. 1 needs your reply.",
     artifacts: [
-      { id: "a1", task_id: "t1", provider_run_id: null, type: "deep_link", title: "Review in the events app", summary: null, mime_type: null, payload: null, external_url: "https://events.example/app/events/x", content_url: null, metadata: {}, known: true, created_at: "" },
+      { id: "a1", task_id: "t1", provider_run_id: null, type: "deep_link", title: "Open in Calendar", summary: null, mime_type: null, payload: null, external_url: "https://calendar.example/app/week/x", content_url: null, metadata: {}, known: true, created_at: "" },
     ],
   });
   const calls = mockApi({
@@ -42,15 +42,15 @@ test("asking creates a task, shows it working, then shows the outcome and deep l
       <App />
     </MemoryRouter>,
   );
-  await user.type(screen.getByRole("textbox", { name: "What do you want to get done?" }), "Allocate participants for the spring conference{Enter}");
+  await user.type(screen.getByRole("textbox", { name: "What do you want to get done?" }), "Move my meetings to free up Friday afternoon{Enter}");
 
   // Home checks whether this repeats, then sends the one-off task as always.
-  expect(calls.find((c) => c.url === "/api/automations/intent")?.body).toMatchObject({ text: "Allocate participants for the spring conference" });
-  expect(calls.find((c) => c.url === "/api/tasks" && c.method === "POST")?.body).toEqual({ request: "Allocate participants for the spring conference" });
+  expect(calls.find((c) => c.url === "/api/automations/intent")?.body).toMatchObject({ text: "Move my meetings to free up Friday afternoon" });
+  expect(calls.find((c) => c.url === "/api/tasks" && c.method === "POST")?.body).toEqual({ request: "Move my meetings to free up Friday afternoon" });
   expect(await screen.findByText("Working…")).toBeInTheDocument();
-  expect(await screen.findByText("Done. 148 participants allocated. 7 need review.", {}, { timeout: 3000 })).toBeInTheDocument();
-  const link = screen.getByRole("link", { name: /Review in the events app/ });
-  expect(link).toHaveAttribute("href", "https://events.example/app/events/x");
+  expect(await screen.findByText("Done. 3 meetings moved. 1 needs your reply.", {}, { timeout: 3000 })).toBeInTheDocument();
+  const link = screen.getByRole("link", { name: /Open in Calendar/ });
+  expect(link).toHaveAttribute("href", "https://calendar.example/app/week/x");
   await waitFor(() => expect(screen.getByText("Done")).toBeInTheDocument());
 });
 

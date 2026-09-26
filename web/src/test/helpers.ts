@@ -29,11 +29,11 @@ export function mockApi(routes: Record<string, Handler | unknown>) {
 
 export const task = (over: Record<string, unknown> = {}) => ({
   id: "t1",
-  title: "Allocate participants for the spring conference",
-  original_request: "Allocate participants for the spring conference",
+  title: "Move my meetings to free up Friday afternoon",
+  original_request: "Move my meetings to free up Friday afternoon",
   state: "queued",
   summary: null,
-  provider: { id: "p1", slug: "event-demo", name: "Event Allocation Demo" },
+  provider: { id: "p1", slug: "calendar-demo", name: "Calendar Demo" },
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
   completed_at: null,

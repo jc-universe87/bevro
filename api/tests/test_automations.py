@@ -66,10 +66,10 @@ def settle_all(seeded, model=None) -> int:
 # ----------------------------------------------------------------------------- setting up
 
 def test_recurring_intent_is_confirmed_before_anything_is_created(client, seeded):
-    r = client.post("/api/automations/intent", json={"text": "Every Friday, research new event management software competitors.", "timezone": "Europe/London"})
+    r = client.post("/api/automations/intent", json={"text": "Every Friday, research new note-taking app competitors.", "timezone": "Europe/London"})
     body = r.json()
     assert body["recurring"] is True and body["schedule"] == "Every Friday · 09:00"
-    assert body["instruction"] == "research new event management software competitors" and body["mode"] == "scheduled"
+    assert body["instruction"] == "research new note-taking app competitors" and body["mode"] == "scheduled"
     # Nothing was created by asking.
     assert client.get("/api/automations").json() == []
 
@@ -236,7 +236,7 @@ def test_a_scheduled_run_is_bound_by_the_same_rules_as_a_person_asking(seeded, m
 
 def test_monitoring_is_quiet_until_something_changes(seeded, research, monkeypatch):
     automation = make(seeded, mode="monitoring", condition=ConditionSpec(kind=ConditionKind.CHANGED, text="the result changes"), provider=research)
-    answers = iter(["Prices are steady.", "Prices are steady.", "A rival launched room allocation."])
+    answers = iter(["Prices are steady.", "Prices are steady.", "A rival launched a free plan."])
     monkeypatch.setattr(
         task_service,
         "execute",
@@ -291,12 +291,12 @@ def test_a_small_model_may_judge_the_persons_own_words(seeded, research, monkeyp
         def structured(self, system, user, schema, name, max_tokens=400):
             seen.append(user)
             assert "never do the work yourself" in system.lower() or "data, not requests" in system.lower()
-            return {"matched": "room allocation" in user, "reason": "A rival now offers room allocation."}
+            return {"matched": "free plan" in user, "reason": "A rival now offers a free plan."}
 
     condition = parse_condition("tell me when there is a meaningful new competitor")
     assert condition.kind == ConditionKind.MODEL
     automation = make(seeded, mode="monitoring", condition=condition, provider=research)
-    answers = iter(["Nothing new this week.", "Rival X launched room allocation."])
+    answers = iter(["Nothing new this week.", "Rival X launched a free plan."])
     monkeypatch.setattr(task_service, "execute", lambda *a, **k: (InvocationResult(state=ResultState.COMPLETED, summary=next(answers)), []))
 
     tick(seeded, datetime(2026, 3, 5, 9, 0, tzinfo=timezone.utc))
@@ -306,9 +306,9 @@ def test_a_small_model_may_judge_the_persons_own_words(seeded, research, monkeyp
     tick(seeded, datetime(2026, 3, 6, 9, 0, tzinfo=timezone.utc))
     settle_all(seeded, model=FakeModel())
     matched = automation_service.last_run(seeded, automation)
-    assert matched.matched is True and matched.reason == "A rival now offers room allocation."
+    assert matched.matched is True and matched.reason == "A rival now offers a free plan."
     # It was given the condition and the two results, and nothing else.
-    assert "room allocation" in seen[-1] and "asked_to_hear_about" in seen[-1]
+    assert "free plan" in seen[-1] and "asked_to_hear_about" in seen[-1]
     assert "provider" not in seen[-1] and "/home/" not in seen[-1]
 
 

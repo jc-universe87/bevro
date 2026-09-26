@@ -103,7 +103,7 @@ Recurring work with a condition, evaluated by a provider-neutral
 | Kind | Read from | Decides by |
 |---|---|---|
 | `changed` | "tell me when it changes" | comparing a fingerprint of the result; dates and spacing are not a change |
-| `keyword` | "tell me when it mentions “room allocation”" | the quoted words appearing |
+| `keyword` | "tell me when it mentions “free plan”" | the quoted words appearing |
 | `threshold` | "tell me if the value exceeds 100" | the numbers in the result |
 | `model` | anything else: "when there is a meaningful new competitor" | a small structured judgement |
 

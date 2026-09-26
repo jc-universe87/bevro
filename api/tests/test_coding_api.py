@@ -33,7 +33,7 @@ def test_without_a_worker_claude_is_listed_calmly_and_coding_requests_fail_clear
     assert detail["reason"] == "unavailable" and detail["answer"]["outcome"] == "unavailable" and detail["answer"]["item"]["name"] == "Claude Code"
     r = client.post("/api/tasks", json={"request": "Fix it", "provider_id": claude["id"]})
     assert r.status_code == 503 and "isn't available" in r.json()["detail"]["message"]
-    r = client.post("/api/tasks", json={"request": "Allocate participants for the spring conference"})
+    r = client.post("/api/tasks", json={"request": "Move my meetings to free up Friday afternoon"})
     assert r.status_code == 201
 
 

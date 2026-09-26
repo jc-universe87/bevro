@@ -24,9 +24,9 @@ test("unknown type without anywhere to open says so plainly", () => {
 test("notes render their text and structured data renders as a table", () => {
   const { rerender } = render(<ArtifactView artifact={{ ...base, payload: { text: "# Findings\nHello" } }} />);
   expect(screen.getByText(/Hello/)).toBeInTheDocument();
-  rerender(<ArtifactView artifact={{ ...base, type: "structured", title: "Allocation summary", payload: { columns: ["Outcome", "Count"], rows: [["Allocated", 148], ["Need review", 7]] } }} />);
+  rerender(<ArtifactView artifact={{ ...base, type: "structured", title: "Your week", payload: { columns: ["Change", "Count"], rows: [["Meetings moved", 3], ["Waiting for your reply", 1]] } }} />);
   expect(screen.getByRole("table")).toBeInTheDocument();
-  expect(screen.getByText("148")).toBeInTheDocument();
+  expect(screen.getByText("3")).toBeInTheDocument();
 });
 
 test("a very long result opens to a readable amount, with the rest a click away", async () => {
@@ -56,10 +56,10 @@ test("a long table shows the first rows and offers the rest", async () => {
 });
 
 test("structured data that is not a table is still readable", () => {
-  render(<ArtifactView artifact={{ ...base, type: "structured", title: "Summary", payload: { allocated: 148, needs_review: 7, notes: ["a", "b"] } }} />);
-  expect(screen.getByText("allocated")).toBeInTheDocument();
-  expect(screen.getByText("148")).toBeInTheDocument();
-  expect(screen.getByText("needs review")).toBeInTheDocument();
+  render(<ArtifactView artifact={{ ...base, type: "structured", title: "Summary", payload: { moved: 3, needs_reply: 1, notes: ["a", "b"] } }} />);
+  expect(screen.getByText("moved")).toBeInTheDocument();
+  expect(screen.getByText("3")).toBeInTheDocument();
+  expect(screen.getByText("needs reply")).toBeInTheDocument();
   expect(screen.getByText("2 items")).toBeInTheDocument();
   // No raw JSON anywhere.
   expect(screen.queryByText(/[{}]/)).not.toBeInTheDocument();

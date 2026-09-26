@@ -38,3 +38,9 @@ def load_manifests(*, seed: str | None = None) -> list[dict[str, Any]]:
 def demo_slugs() -> set[str]:
     """Slugs Bevro ships purely as examples."""
     return {m["slug"] for m in load_manifests(seed=DEMO)}
+
+
+# Demos an earlier release shipped and this one does not, with the handler
+# they ran. A workspace that still has one is cleaned up like any other demo,
+# in demo mode too: its handler is gone, so it could only fail.
+RETIRED_DEMOS = {"event-demo": "providers.event_demo:run"}

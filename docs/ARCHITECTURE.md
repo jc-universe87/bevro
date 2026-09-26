@@ -137,7 +137,7 @@ Provider ──< ProviderRun >── Task ──< Artifact
    error, and artifact drafts. Drafts are stored; the run and task states are
    set through the transition table; the summary lands on the task.
 6. The UI renders the summary and artifacts. Deep links become
-   "Review in the events app →". The task now appears under Recent.
+   "Open in Calendar →". The task now appears under Recent.
 
 A provider that raises never takes Bevro down: the run is marked failed with a
 plain message, and the internal error goes to the server log only. If the

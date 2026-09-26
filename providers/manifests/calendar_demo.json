@@ -1,0 +1,47 @@
+{
+  "slug": "calendar-demo",
+  "seed": "demo",
+  "name": "Calendar Demo",
+  "description": "Plan your week and move meetings (demo)",
+  "enabled": true,
+  "capabilities": [
+    {
+      "id": "calendar.schedule",
+      "title": "Plan the week",
+      "description": "Demo: move meetings, find free time and plan the week in a calendar. Returns sample numbers.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string"
+          },
+          "week": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request"
+        ]
+      }
+    },
+    {
+      "id": "app.open",
+      "title": "Open in the calendar app",
+      "description": "Deep-link into the application that did the work."
+    }
+  ],
+  "adapter": {
+    "kind": "local",
+    "ref": "providers.calendar_demo:run",
+    "config": {
+      "review_path": "/week/{week_id}?filter=needs-reply"
+    }
+  },
+  "app_url": "https://calendar.example/app",
+  "icon": {
+    "kind": "letter",
+    "text": "C"
+  },
+  "origin": "example",
+  "$comment": "Demo of an app-backed provider: an application answering with a concise outcome and a deep link back into its own UI. The numbers are sample data and the URL is sample configuration - nothing is called."
+}

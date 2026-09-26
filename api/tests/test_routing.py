@@ -91,7 +91,7 @@ def test_catalogue_is_sanitised_and_filters_unavailable(seeded, tmp_path):
 
     selectable = {e.id for e in build_catalogue(seeded)}
     assert "claude-code" not in selectable  # no worker has reported
-    assert {"research", "event-demo", "sales"} <= selectable
+    assert {"research", "calendar-demo", "sales"} <= selectable
     claude_available(seeded)
     entry = next(e for e in build_catalogue(seeded) if e.id == "claude-code")
     assert entry.requires == ["workspace"] and entry.can_invoke and entry.available
@@ -229,8 +229,8 @@ def test_llm_router_selects_a_valid_provider_and_records_metadata(seeded, two_wo
 def test_an_obvious_request_never_calls_the_model(seeded, two_workspaces):
     router, model = llm(RoutingDecision(selected_provider_ids=["research"]))
     set_router(router)
-    task = task_service.submit(seeded, "Allocate the participants for the spring conference")
-    assert task.runs[0].provider.slug == "event-demo" and task.routing["source"] == "deterministic"
+    task = task_service.submit(seeded, "Move my meetings to free up Friday afternoon")
+    assert task.runs[0].provider.slug == "calendar-demo" and task.routing["source"] == "deterministic"
     assert model.calls == []
 
 
@@ -291,14 +291,14 @@ def test_llm_rejects_disabled_and_unavailable_providers(seeded, two_workspaces):
         task_service.submit(seeded, "Fix the login bug.")
     # The right one, unavailable, is said as such: nothing else is tried in its place.
     assert model.calls == []
-    event_demo = provider_service.get_by_slug(seeded, "event-demo")
-    event_demo.enabled = False
-    router, model = llm(RoutingDecision(selected_provider_ids=["event-demo"]))
+    calendar_demo = provider_service.get_by_slug(seeded, "calendar-demo")
+    calendar_demo.enabled = False
+    router, model = llm(RoutingDecision(selected_provider_ids=["calendar-demo"]))
     set_router(router)
     task = task_service.submit(seeded, "Compare the venues.")
     assert task.routing["source"] == "fallback"
     assert "disabled" in task.routing["fallback_reason"] or "unknown" in task.routing["fallback_reason"]
-    assert all(e["id"] != "event-demo" for e in model.calls[0]["catalogue"])  # a paused one is not even offered
+    assert all(e["id"] != "calendar-demo" for e in model.calls[0]["catalogue"])  # a paused one is not even offered
     assert task.runs[0].provider.slug == "research"
 
 

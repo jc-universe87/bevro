@@ -164,8 +164,8 @@ def no_leftover_roots():
 @pytest.fixture(autouse=True)
 def fast_providers(monkeypatch):
     """Example providers pause for realism; tests do not need that."""
-    import providers.event_demo as event_demo
+    import providers.calendar_demo as calendar_demo
     import providers.research as research
 
     monkeypatch.setattr(research, "WORK_SECONDS", 0)
-    monkeypatch.setattr(event_demo, "WORK_SECONDS", 0)
+    monkeypatch.setattr(calendar_demo, "WORK_SECONDS", 0)
