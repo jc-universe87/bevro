@@ -13,9 +13,11 @@ worker process (app/worker.py) to pick up; they may take minutes.
 from __future__ import annotations
 
 import logging
+import threading
 import uuid
+from contextlib import contextmanager
 from datetime import timedelta
-from typing import Any
+from typing import Any, Iterator
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -368,6 +370,65 @@ def record_progress(run_id: uuid.UUID, text: str) -> None:
         db.close()
 
 
+def record_fallback(run_id: uuid.UUID) -> None:
+    """One way of reaching the provider failed and the next is being tried.
+    Not a failure: the person is told Bevro is trying another way, and the
+    run keeps working. Own session: safe from any thread."""
+    db = get_sessionmaker()()
+    try:
+        run = db.get(ProviderRun, run_id)
+        if run is None:
+            return
+        run.progress = {**(run.progress or {}), "fallback": True}
+        run.heartbeat_at = utcnow()
+        db.commit()
+    finally:
+        db.close()
+
+
+# How often a run that is being driven says it is still alive.
+HEARTBEAT_SECONDS = 5.0
+
+
+@contextmanager
+def run_context(run_id: uuid.UUID, *, worker_id: str | None = None, stopping: threading.Event | None = None) -> Iterator[InvocationContext]:
+    """Everything a run being driven by this process reports while it works:
+    a heartbeat, the phases the provider tells about, a fallback between ways
+    of reaching it, and whether the person asked for it to stop. The same for
+    the API, the scheduler and the worker."""
+    beat_stop = threading.Event()
+
+    def beat() -> None:
+        while not beat_stop.wait(HEARTBEAT_SECONDS):
+            try:
+                heartbeat(run_id, worker_id)
+            except Exception:  # noqa: BLE001
+                log.exception("heartbeat failed")
+
+    threading.Thread(target=beat, daemon=True, name=f"beat-{run_id}").start()
+    last_check = [0.0, False]
+
+    def cancelled() -> bool:
+        import time
+
+        if stopping is not None and stopping.is_set():
+            return True
+        if time.monotonic() - last_check[0] > 1.0:
+            last_check[0] = time.monotonic()
+            last_check[1] = is_cancel_requested(run_id)
+        return last_check[1]
+
+    try:
+        yield InvocationContext(
+            progress=lambda text: record_progress(run_id, text),
+            cancelled=cancelled,
+            log_dir=get_settings().log_dir,
+            fallback=lambda: record_fallback(run_id),
+        )
+    finally:
+        beat_stop.set()
+
+
 def is_cancel_requested(run_id: uuid.UUID) -> bool:
     db = get_sessionmaker()()
     try:
@@ -393,11 +454,16 @@ def finish_run(db: Session, run: ProviderRun, result: InvocationResult, artifact
     """Record what came back. Commits. `artifacts` are the normalised drafts from
     the runtime's collect_artifacts(); without them, what the result carried."""
     task = run.task
+    lost = 0
     for draft in (artifacts if artifacts is not None else result.artifacts):
         try:
             artifact_service.store_draft(db, task.id, run.id, draft)
         except Exception:  # noqa: BLE001
-            log.exception("could not store artifact %r from %s", draft.title, run.provider.slug)
+            lost += 1
+            log.exception("could not store artifact %r from %s", draft.title, run.provider_slug)
+    if lost:
+        # The work is still done; the person is told part of it couldn't be kept.
+        run.meta = {**(run.meta or {}), "artifacts_lost": lost}
 
     if run.cancel_requested and result.state != ResultState.CANCELLED:
         result = result.model_copy(update={"state": ResultState.CANCELLED, "error": "The task was stopped before completion.", "summary": None})
@@ -447,7 +513,11 @@ def execute_run(db: Session, run_id: uuid.UUID, *, secret_store: SecretStore | N
     run = load_run(db, run_id)
     begin_run(db, run)
     request = build_request(db, run, secret_store=secret_store)
-    result, artifacts = execute(run.provider, request, context, execution=run.execution)
+    if context is None:
+        with run_context(run.id) as own:
+            result, artifacts = execute(run.provider, request, own, execution=run.execution)
+    else:
+        result, artifacts = execute(run.provider, request, context, execution=run.execution)
     if _hand_to_worker(db, run, result):
         return run
     return finish_run(db, run, result, artifacts)
@@ -511,12 +581,19 @@ def execute_run_in_background(run_id: uuid.UUID) -> None:
     except Exception:  # noqa: BLE001
         log.exception("background run %s failed", run_id)
         db.rollback()
-        mark_failed(db, run_id, "Something went wrong while running this.")
+        mark_failed(db, run_id, "Bevro hit a problem while handling this.", category=BEVRO_ERROR)
     finally:
         db.close()
 
 
-def mark_failed(db: Session, run_id: uuid.UUID, message: str, failure: FailureKind = FailureKind.INVOCATION_FAILED) -> None:
+# Why a run ended that no provider reported: Bevro's own categories, beside
+# the adapters' FailureKind values (app/schemas/serialise.py words them).
+NOT_STARTED = "not_started"  # Bevro never got the work to the provider
+LOST_CONTACT = "lost_contact"  # the process driving it stopped reporting mid-way
+BEVRO_ERROR = "bevro_error"  # Bevro itself failed while handling it
+
+
+def mark_failed(db: Session, run_id: uuid.UUID, message: str, failure: FailureKind = FailureKind.INVOCATION_FAILED, *, category: str | None = None) -> None:
     run = db.get(ProviderRun, run_id, options=[selectinload(ProviderRun.task)])
     if run is None:
         return
@@ -524,7 +601,7 @@ def mark_failed(db: Session, run_id: uuid.UUID, message: str, failure: FailureKi
     run.error_summary = message
     run.completed_at = utcnow()
     run.progress = {**(run.progress or {}), "phase": None}
-    run.meta = {**(run.meta or {}), "failure": failure.value}
+    run.meta = {**(run.meta or {}), "failure": category or failure.value}
     if not is_terminal(TaskState(run.task.state)):
         try:
             transition(run.task, TaskState.FAILED)
@@ -535,19 +612,39 @@ def mark_failed(db: Session, run_id: uuid.UUID, message: str, failure: FailureKi
 
 
 def reap_stale_runs(db: Session) -> int:
-    """Runs whose worker stopped reporting are failed honestly instead of spinning forever."""
+    """Work nobody is driving any more is ended honestly instead of spinning forever.
+
+    Every process that drives a run (API, scheduler, worker) heartbeats it
+    while it works (`run_context`). So a running run whose heartbeat has gone
+    quiet has lost the process driving it - it may or may not have reached
+    the provider. A run the API or scheduler was about to start, still not
+    started long after, never reached it at all. Work waiting for the worker
+    on this machine is not stale: it is waiting, and says so.
+    """
     cutoff = utcnow() - timedelta(seconds=get_settings().worker_stale_seconds)
     stale = db.scalars(
         select(ProviderRun).where(
-            ProviderRun.execution == "background",
             ProviderRun.state == RunState.RUNNING,
             (ProviderRun.heartbeat_at.is_(None)) | (ProviderRun.heartbeat_at < cutoff),
         )
     ).all()
     for run in stale:
-        log.warning("run %s lost its worker; marking failed", run.id)
-        mark_failed(db, run.id, "The task was stopped before completion.", FailureKind.PROVIDER_UNAVAILABLE)
-    return len(stale)
+        log.warning("run %s stopped reporting; marking failed", run.id)
+        mark_failed(db, run.id, "Bevro lost contact with this while it was working.", category=LOST_CONTACT)
+    never = db.scalars(
+        select(ProviderRun)
+        .join(Task, ProviderRun.task_id == Task.id)
+        .where(
+            ProviderRun.execution == "inline",
+            ProviderRun.state == RunState.PENDING,
+            ProviderRun.created_at < cutoff,
+            Task.state.in_([TaskState.CREATED, TaskState.QUEUED]),
+        )
+    ).all()
+    for run in never:
+        log.warning("run %s was never started; marking failed", run.id)
+        mark_failed(db, run.id, "This couldn't be started.", category=NOT_STARTED)
+    return len(stale) + len(never)
 
 
 # --------------------------------------------------------------------------- retry
@@ -565,6 +662,8 @@ def retry_task(db: Session, task: Task) -> ProviderRun:
     if last is None:
         raise InvalidInput("This task has nothing to retry.")
     provider = last.provider
+    if provider is None:
+        raise InvalidInput(f"{last.provider_name or 'That agent'} was removed from Bevro, so this can't be tried again.")
     if not provider.enabled or not is_available(provider):
         raise NoProviderAvailable(f"{provider.name} isn't available on this installation right now.")
     adapter = _adapter_for(provider)
@@ -592,7 +691,28 @@ def retry_task(db: Session, task: Task) -> ProviderRun:
 
 # --------------------------------------------------------------------------- cancel / queries
 
+def can_cancel(task: Task) -> bool:
+    """Can Bevro actually stop this? Only honestly: work not yet handed to a
+    provider, work a question is waiting on, or a run on the worker whose way
+    of running can be stopped. Once a request has been sent to a service over
+    the network, nothing Bevro does takes it back."""
+    if is_terminal(TaskState(task.state)):
+        return False
+    running = [r for r in task.runs if r.state == RunState.RUNNING]
+    if not running:
+        return True
+    for run in running:
+        if run.execution != "background" or run.provider is None:
+            return False
+        rt = runtime_service.active_runtime(run.provider)
+        if rt is None or not rt.abilities.cancel:
+            return False
+    return True
+
+
 def cancel_task(db: Session, task: Task) -> Task:
+    if not is_terminal(TaskState(task.state)) and not can_cancel(task):
+        raise InvalidInput("This is already with the app and can't be stopped from Bevro. Bevro will show the result when it's done.")
     transition(task, TaskState.CANCELLED)
     for run in task.runs:
         if run.state in RUN_TERMINAL:
@@ -611,7 +731,7 @@ def cancel_task(db: Session, task: Task) -> Task:
 def list_tasks(db: Session, *, query: str | None = None, state: str | None = None, limit: int = 100) -> list[Task]:
     stmt = (
         select(Task)
-        .options(selectinload(Task.runs).selectinload(ProviderRun.provider))
+        .options(selectinload(Task.runs).selectinload(ProviderRun.provider), selectinload(Task.artifacts))
         .order_by(Task.created_at.desc())
         .limit(limit)
     )

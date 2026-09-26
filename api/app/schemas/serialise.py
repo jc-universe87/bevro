@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from adapters.registry import adapter_kinds
@@ -10,7 +11,7 @@ from app.models import Artifact, Automation, Provider, ProviderRun, Task, Worksp
 from app.schemas.automations import AutomationDetail, AutomationOut
 from app.schemas.notifications import NotifyPreference
 from app.schemas.providers import ProviderDetails, ProviderOut
-from app.schemas.tasks import ArtifactOut, FailureAction, FailureOut, InputRequestOut, ProviderRef, RunOut, TaskDetail, TaskOut, WorkspaceRef
+from app.schemas.tasks import ArtifactOut, FailureAction, FailureOut, InputRequestOut, ProviderRef, RunOut, StatusOut, TaskDetail, TaskOut, TriedOut, WorkspaceRef
 from app.services.artifacts import is_known_type
 from app.services.providers import availability_of, credential_status, credentials_of, is_available, required_secrets, secret_label
 from app.services.workspaces import permission_sentences
@@ -295,14 +296,20 @@ def run_provider_ref(run: ProviderRun) -> ProviderRef:
 
 
 FAILURE_TITLES = {
-    "configuration_problem": "Needs setting up again",
+    "configuration_problem": "Couldn't start",
+    "not_started": "Couldn't start",
     "credential_required": "Needs a credential",
-    "provider_unavailable": "Couldn't be reached",
-    "invocation_failed": "Didn't finish",
+    "provider_unavailable": "Couldn't reach it",
+    "invocation_failed": "Couldn't complete",
     "timed_out": "Took too long",
     "cancelled": "Stopped",
-    "output_invalid": "Unreadable answer",
+    "output_invalid": "Couldn't read the result",
+    "lost_contact": "Lost contact",
+    "bevro_error": "Bevro hit a problem",
 }
+# Failures that happen before the provider has the request: trying again
+# cannot repeat anything it did. Every other kind, it might.
+_NEVER_REACHED = {"configuration_problem", "not_started", "credential_required", "provider_unavailable"}
 # Values written before the kinds were renamed.
 _LEGACY_FAILURES = {"execution_failed": "invocation_failed"}
 
@@ -324,14 +331,20 @@ def failure_out(run: ProviderRun, stored_secret_names: list[str] | None = None) 
         )
     category = str((run.meta or {}).get("failure") or "")
     category = _LEGACY_FAILURES.get(category, category)
-    missing = [n for n, source in credential_status(provider, stored_secret_names or []).items() if source == "missing"]
+    if stored_secret_names is None:
+        # Names only; values never leave the secret store.
+        stored_secret_names = [s.name for s in provider.secrets]
+    missing = [n for n, source in credential_status(provider, stored_secret_names).items() if source == "missing"]
     if missing:
         # Whatever the run said, a credential the connection needs is not there. Say that first.
         category = "credential_required"
     if category not in FAILURE_TITLES:
         category = "invocation_failed"
+    if category in ("bevro_error", "lost_contact") and not run.started_at:
+        category = "not_started"
     retry = FailureAction(kind="retry", label="Try again")
     manage = FailureAction(kind="manage", label=f"Go to {name}")
+    may_repeat = category not in _NEVER_REACHED and bool(run.started_at)
     if category == "credential_required":
         target = missing[0] if missing else (required_secrets(provider) or ["api_key"])[0]
         label = secret_label(target)
@@ -340,11 +353,20 @@ def failure_out(run: ProviderRun, stored_secret_names: list[str] | None = None) 
         message = f"{name} {verb} {article} {label} before it can run." if missing else f"{name} {verb} its {label}. Check it and try again."
         actions = [FailureAction(kind="add_credential", label="Add credential" if missing else "Update credential", secret_name=target, secret_label=label), retry]
     elif category == "provider_unavailable":
-        message = f"{name} isn't available right now."
-        actions = [FailureAction(kind="test_connection", label=f"Check {name}"), retry]
+        message = f"I couldn't reach {name}."
+        actions = [retry, FailureAction(kind="open_app", label="Open app"), FailureAction(kind="test_connection", label=f"Check {name}")]
     elif category == "configuration_problem":
-        message = f"Bevro couldn't start {name} with its current connection."
+        message = f"I couldn't start this with {name}. Its connection needs setting up again."
         actions = [FailureAction(kind="manage", label=f"Go to {name}")]
+    elif category == "not_started":
+        message = f"I couldn't start this with {name}."
+        actions = [retry, manage]
+    elif category == "lost_contact":
+        message = f"Bevro lost contact with {name} while it was working on this."
+        actions = [retry, FailureAction(kind="open_app", label="Open app"), manage]
+    elif category == "bevro_error":
+        message = "Bevro hit a problem while handling this."
+        actions = [retry, manage]
     elif category == "timed_out":
         message = f"{name} took too long and was stopped."
         actions = [retry, manage]
@@ -355,9 +377,13 @@ def failure_out(run: ProviderRun, stored_secret_names: list[str] | None = None) 
         message = f"{name} answered, but Bevro couldn't read the result."
         actions = [retry, manage]
     else:
-        message = f"{name} started but couldn't finish this task."
+        message = f"{name} started the work but couldn't complete it."
         actions = [retry, manage]
-    return FailureOut(category=category, title=FAILURE_TITLES[category], message=message, actions=actions)
+    if category in ("provider_unavailable", "lost_contact") and not is_available(provider):
+        # Trying again now would only be refused: checking it comes first, and
+        # "Try again" is back once Bevro can reach it.
+        actions = [FailureAction(kind="test_connection", label=f"Check {name}"), FailureAction(kind="open_app", label="Open app")]
+    return FailureOut(category=category, title=FAILURE_TITLES[category], message=message, actions=actions, may_repeat=may_repeat)
 
 
 def recovered_after_fallback(run: ProviderRun) -> bool:
@@ -366,6 +392,47 @@ def recovered_after_fallback(run: ProviderRun) -> bool:
         return False
     attempts = (run.meta or {}).get("attempts") or []
     return sum(1 for a in attempts if isinstance(a, dict) and a.get("outcome") != "skipped") > 1
+
+
+_WAY_BY_KIND = {"http": "Over the network", "openapi": "Over the network", "mcp": "As a tool server", "command": "As a program on this computer", "python_entrypoint": "As a program on this computer"}
+
+
+def _outcome_words(attempt: dict[str, Any]) -> str:
+    outcome = str(attempt.get("outcome") or "")
+    if outcome == "completed":
+        return "Worked"
+    if outcome == "skipped":
+        return "Not tried: it needs the same credential"
+    if outcome == "cancelled":
+        return "Stopped"
+    if outcome in ("running", "needs_input", "needs_approval"):
+        return "Took the work"
+    kind = str(attempt.get("failure_kind") or "")
+    return {
+        "provider_unavailable": "Couldn't reach it",
+        "credential_required": "Needed a credential",
+        "configuration_problem": "Couldn't start it",
+        "timed_out": "Took too long",
+        "output_invalid": "Answered with something unreadable",
+    }.get(kind, "Didn't complete")
+
+
+def tried_ways(run: ProviderRun) -> list[TriedOut]:
+    """Every way Bevro tried to reach the provider, by name and result. Only
+    the plain display names Bevro gave each way - never an address or a
+    command."""
+    names: dict[str, str] = {}
+    if run.provider is not None:
+        from app.services.runtime import runtimes_of
+
+        names = {rt.id: rt.display_name for rt in runtimes_of(run.provider)}
+    out: list[TriedOut] = []
+    for a in (run.meta or {}).get("attempts") or []:
+        if not isinstance(a, dict):
+            continue
+        way = names.get(str(a.get("runtime_id"))) or _WAY_BY_KIND.get(str(a.get("kind")), "Another way")
+        out.append(TriedOut(way=way, outcome=_outcome_words(a)))
+    return out
 
 
 def run_out(run: ProviderRun, workspaces: dict[str, Workspace] | None = None, stored_secret_names: list[str] | None = None) -> RunOut:
@@ -387,6 +454,7 @@ def run_out(run: ProviderRun, workspaces: dict[str, Workspace] | None = None, st
         recovered=recovered_after_fallback(run),
         phase=progress.get("phase") if run.state == "running" else None,
         steps=[str(step) for step in progress.get("steps") or []],
+        tried=tried_ways(run),
         workspace=workspace,
         permissions=permissions,
         started_at=run.started_at,
@@ -408,7 +476,33 @@ def input_request_out(task: Task) -> InputRequestOut | None:
     return None
 
 
-def artifact_out(artifact: Artifact) -> ArtifactOut:
+_ABSOLUTE = re.compile(r"^(/|~[/\\]|[A-Za-z]:[\\/]|\\\\)")
+
+
+def _without_paths(value: Any) -> Any:
+    """Metadata as a provider wrote it, minus anything that looks like a place
+    on a disk: those say where things live, not what they are."""
+    if isinstance(value, dict):
+        return {k: _without_paths(v) for k, v in value.items() if not (isinstance(v, str) and _ABSOLUTE.match(v))}
+    if isinstance(value, list):
+        return [_without_paths(v) for v in value if not (isinstance(v, str) and _ABSOLUTE.match(v))]
+    return value
+
+
+# Which result to show first, when there are several: something to read
+# before something to open, a document before a link into another app.
+_RESULT_RANK = {"report": 0, "note": 0, "text": 0, "structured": 1, "image": 1, "file": 1, "diff": 2, "interactive": 3, "mini_app": 3, "deep_link": 3}
+
+
+def ordered_artifacts(artifacts: list[Artifact]) -> list[Artifact]:
+    """Best result first; otherwise the order they arrived in. A provider can
+    say which is its main result (`metadata.primary`)."""
+    indexed = list(enumerate(artifacts))
+    indexed.sort(key=lambda pair: (0 if (pair[1].meta or {}).get("primary") is True else 1, _RESULT_RANK.get(pair[1].type, 4), pair[0]))
+    return [a for _i, a in indexed]
+
+
+def artifact_out(artifact: Artifact, *, primary: bool = False) -> ArtifactOut:
     return ArtifactOut(
         id=artifact.id,
         task_id=artifact.task_id,
@@ -420,8 +514,9 @@ def artifact_out(artifact: Artifact) -> ArtifactOut:
         payload=artifact.payload,
         external_url=artifact.external_url,
         content_url=f"/api/artifacts/{artifact.id}/content" if artifact.storage_path else None,
-        metadata=artifact.meta,
+        metadata=_without_paths(artifact.meta or {}),
         known=is_known_type(artifact.type),
+        primary=primary,
         created_at=artifact.created_at,
     )
 
@@ -430,6 +525,66 @@ def _primary_provider(task: Task) -> ProviderRef | None:
     if not task.runs:
         return None
     return run_provider_ref(task.runs[-1])
+
+
+# Nothing heard from a run for this long is worth saying. Not a failure:
+# the process driving it heartbeats while it lives (tasks.run_context), and
+# work nobody drives any more is ended by reap_stale_runs.
+QUIET_AFTER = timedelta(seconds=45)
+# Work for the worker on this machine that has not been picked up by then.
+UNCLAIMED_AFTER = timedelta(seconds=20)
+
+
+def _aware(moment: datetime | None) -> datetime | None:
+    if moment is None:
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
+def task_status(task: Task, now: datetime | None = None) -> StatusOut:
+    """The one place a task's state becomes words. Recent, the task page and
+    anything else that shows a task use this, so they cannot disagree."""
+    from app.services.tasks import can_cancel
+
+    now = now or datetime.now(timezone.utc)
+    run = task.runs[-1] if task.runs else None
+    name = run_provider_ref(run).name if run is not None else "Bevro"
+    state = task.state
+    cancellable = can_cancel(task)
+    if state == "completed":
+        notes = []
+        if run is not None and recovered_after_fallback(run):
+            notes.append("It worked after Bevro tried another way to reach it.")
+        if run is not None and (run.meta or {}).get("artifacts_lost"):
+            notes.append("Part of the result couldn't be saved.")
+        return StatusOut(kind="completed", label="Completed", headline=f"{name} finished this.", note=" ".join(notes) or None, since=task.completed_at)
+    if state == "failed":
+        failure = failure_out(run) if run is not None else None
+        return StatusOut(
+            kind="failed",
+            label=failure.title if failure else "Couldn't complete",
+            headline=failure.message if failure else "This couldn't be completed.",
+            since=task.completed_at,
+        )
+    if state == "cancelled":
+        return StatusOut(kind="stopped", label="Stopped", headline="Stopped before it finished.", since=task.completed_at)
+    if state == "needs_input":
+        return StatusOut(kind="needs_you", label="Needs you", headline=f"{name} needs an answer from you.", can_cancel=cancellable, since=task.updated_at)
+    if state == "needs_approval":
+        return StatusOut(kind="needs_you", label="Needs you", headline=f"{name} needs your approval to go on.", can_cancel=cancellable, since=task.updated_at)
+    if run is None or run.state == "pending":
+        note = None
+        if run is not None and run.execution == "background" and now - _aware(run.created_at) > UNCLAIMED_AFTER:
+            note = "Waiting for the helper on this computer to pick this up."
+        return StatusOut(kind="starting", label="Starting", headline="Starting…", note=note, can_cancel=cancellable, since=task.created_at)
+    progress = run.progress or {}
+    heard = _aware(run.heartbeat_at or run.started_at)
+    quiet = heard is not None and now - heard > QUIET_AFTER
+    phase = progress.get("phase")
+    phase = phase if isinstance(phase, str) and phase and phase != "Working…" else None
+    headline = f"Trying another way to reach {name}…" if progress.get("fallback") else f"{name} is working on this."
+    note = "Bevro hasn't had an update recently." if quiet else phase
+    return StatusOut(kind="working", label="Working", headline=headline, note=note, quiet=quiet, can_cancel=cancellable, since=run.started_at)
 
 
 def task_out(task: Task) -> TaskOut:
@@ -443,6 +598,8 @@ def task_out(task: Task) -> TaskOut:
         created_at=task.created_at,
         updated_at=task.updated_at,
         completed_at=task.completed_at,
+        status=task_status(task),
+        results=len(task.artifacts),
     )
 
 
@@ -453,7 +610,7 @@ def task_detail(task: Task, workspaces: dict[str, Workspace] | None = None, secr
     return TaskDetail(
         **base.model_dump(),
         runs=[run_out(r, workspaces, (secret_names or {}).get(str(r.provider_id))) for r in task.runs],
-        artifacts=[artifact_out(a) for a in task.artifacts],
+        artifacts=[artifact_out(a, primary=i == 0) for i, a in enumerate(ordered_artifacts(list(task.artifacts)))],
         input_request=input_request_out(task),
     )
 

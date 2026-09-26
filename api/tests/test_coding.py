@@ -410,7 +410,12 @@ def test_stale_worker_runs_are_failed(seeded, claude, workspace):
     seeded.flush()
     assert task_service.reap_stale_runs(seeded) == 1
     seeded.refresh(task)
-    assert task.state == TaskState.FAILED and task.summary == "The task was stopped before completion."
+    assert task.state == TaskState.FAILED and task.summary == "Bevro lost contact with this while it was working."
+    # It may have got as far as the app: trying again might repeat that, and says so.
+    from app.schemas.serialise import failure_out
+
+    failure = failure_out(run)
+    assert failure.category == "lost_contact" and failure.may_repeat is True
 
 
 def test_worker_acquires_pending_background_runs_once(seeded, claude, workspace):

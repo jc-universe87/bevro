@@ -30,7 +30,7 @@ def test_home_flow_submit_and_find_under_recent(client, seeded):
 def test_run_output_never_includes_raw_input_or_logs(client, seeded):
     task = submit(client, request="Find three options")
     run = task["runs"][0]
-    assert set(run) == {"id", "provider", "state", "result_summary", "error_summary", "failure", "recovered", "phase", "steps", "workspace", "permissions", "started_at", "completed_at"}
+    assert set(run) == {"id", "provider", "state", "result_summary", "error_summary", "failure", "recovered", "phase", "steps", "tried", "workspace", "permissions", "started_at", "completed_at"}
     assert "input" not in run and "meta" not in run and "worker_id" not in run
 
 

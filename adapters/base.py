@@ -54,7 +54,9 @@ class InvocationContext:
 
     `progress(text)` reports a short human phase ("Running checks"). It must
     never be raw output. `cancelled()` is polled by well-behaved adapters.
-    Both are optional; the defaults do nothing.
+    `falling_back()` is Bevro's own: the runtime layer calls it when one way
+    of reaching a provider failed and the next is being tried. All optional;
+    the defaults do nothing.
     """
 
     def __init__(
@@ -62,9 +64,11 @@ class InvocationContext:
         progress: Callable[[str], None] | None = None,
         cancelled: Callable[[], bool] | None = None,
         log_dir: str | None = None,
+        fallback: Callable[[], None] | None = None,
     ) -> None:
         self._progress = progress
         self._cancelled = cancelled
+        self._fallback = fallback
         # Where an adapter may keep technical logs for debugging. Server-side only.
         self.log_dir = log_dir
 
@@ -74,6 +78,10 @@ class InvocationContext:
 
     def cancelled(self) -> bool:
         return bool(self._cancelled and self._cancelled())
+
+    def falling_back(self) -> None:
+        if self._fallback is not None:
+            self._fallback()
 
 
 class ResultState(StrEnum):

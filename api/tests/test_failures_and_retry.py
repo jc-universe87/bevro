@@ -86,21 +86,25 @@ def test_missing_credential_is_explained_and_fixed_from_the_browser(client, seed
 
 def test_failure_categories_map_to_actions(client, seeded, monkeypatch):
     research = provider_service.get_by_slug(seeded, "research")
+    # (title, message, actions, whether trying again might repeat what the app already did)
     cases = {
-        FailureKind.PROVIDER_UNAVAILABLE: ("Couldn't be reached", "Research isn't available right now.", ["test_connection", "retry"]),
-        FailureKind.INVOCATION_FAILED: ("Didn't finish", "Research started but couldn't finish this task.", ["retry", "manage"]),
-        FailureKind.CONFIGURATION_PROBLEM: ("Needs setting up again", "Bevro couldn't start Research with its current connection.", ["manage"]),
-        FailureKind.TIMED_OUT: ("Took too long", "Research took too long and was stopped.", ["retry", "manage"]),
-        FailureKind.OUTPUT_INVALID: ("Unreadable answer", "Research answered, but Bevro couldn't read the result.", ["retry", "manage"]),
-        FailureKind.EXECUTION_FAILED: ("Didn't finish", "Research started but couldn't finish this task.", ["retry", "manage"]),  # the old name still reads
-        None: ("Didn't finish", "Research started but couldn't finish this task.", ["retry", "manage"]),
+        FailureKind.PROVIDER_UNAVAILABLE: ("Couldn't reach it", "I couldn't reach Research.", ["retry", "open_app", "test_connection"], False),
+        FailureKind.INVOCATION_FAILED: ("Couldn't complete", "Research started the work but couldn't complete it.", ["retry", "manage"], True),
+        FailureKind.CONFIGURATION_PROBLEM: ("Couldn't start", "I couldn't start this with Research. Its connection needs setting up again.", ["manage"], False),
+        FailureKind.TIMED_OUT: ("Took too long", "Research took too long and was stopped.", ["retry", "manage"], True),
+        FailureKind.OUTPUT_INVALID: ("Couldn't read the result", "Research answered, but Bevro couldn't read the result.", ["retry", "manage"], True),
+        FailureKind.EXECUTION_FAILED: ("Couldn't complete", "Research started the work but couldn't complete it.", ["retry", "manage"], True),  # the old name still reads
+        None: ("Couldn't complete", "Research started the work but couldn't complete it.", ["retry", "manage"], True),
     }
-    for kind, (title, message, actions) in cases.items():
+    for kind, (title, message, actions, may_repeat) in cases.items():
         monkeypatch.setattr(task_service, "execute", lambda *a, kind=kind, **k: (InvocationResult(state=ResultState.FAILED, error="technical words", failure=kind), []))
         task_id = client.post("/api/tasks", json={"request": "Find three options", "provider_id": str(research.id)}).json()["id"]
-        failure = client.get(f"/api/tasks/{task_id}").json()["runs"][-1]["failure"]
-        assert (failure["title"], failure["message"], [a["kind"] for a in failure["actions"]]) == (title, message, actions), kind
+        detail = client.get(f"/api/tasks/{task_id}").json()
+        failure = detail["runs"][-1]["failure"]
+        assert (failure["title"], failure["message"], [a["kind"] for a in failure["actions"]], failure["may_repeat"]) == (title, message, actions, may_repeat), kind
         assert "technical words" not in str(failure)
+        # The task's own status says the same thing, in the same words.
+        assert detail["status"] == {**detail["status"], "kind": "failed", "label": title, "headline": message}
 
 
 def test_retry_needs_an_available_provider(client, seeded, monkeypatch):

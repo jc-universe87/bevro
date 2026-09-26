@@ -100,7 +100,7 @@ class Scheduler:
         except Exception:  # noqa: BLE001 - one bad provider must not stop the clock
             log.exception("scheduled run %s failed in the scheduler", run.id)
             db.rollback()
-            task_service.mark_failed(db, run.id, "Something went wrong while running this.")
+            task_service.mark_failed(db, run.id, "Bevro hit a problem while handling this.", category=task_service.BEVRO_ERROR)
 
     def run_forever(self) -> None:
         log.info("scheduler %s started", self.id)
@@ -109,6 +109,10 @@ class Scheduler:
             try:
                 with Session() as db:
                     self.tick(db)
+                with Session() as db:
+                    # The scheduler always runs, with or without the worker:
+                    # it is where work nobody is driving any more is noticed.
+                    task_service.reap_stale_runs(db)
             except OperationalError as exc:
                 log.warning("database unavailable (%s); retrying in %ss", str(exc).splitlines()[0][:120], DB_RETRY_SECONDS)
                 self.stop.wait(DB_RETRY_SECONDS)

@@ -148,6 +148,8 @@ def cancel_task(task_id: uuid.UUID, db: Session = Depends(get_db)) -> TaskDetail
         task_service.cancel_task(db, task)
     except IllegalTransition:
         raise HTTPException(409, "This task can no longer be cancelled.") from None
+    except task_service.InvalidInput as exc:
+        raise HTTPException(409, str(exc)) from None
     db.commit()
     db.refresh(task)
     return _detail(db, task)

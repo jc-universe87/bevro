@@ -50,6 +50,39 @@ class FailureOut(BaseModel):
     title: str
     message: str
     actions: list[FailureAction] = Field(default_factory=list)
+    # The provider may already have acted on the request, so trying again may
+    # send it again. False only when Bevro knows the work never reached it.
+    may_repeat: bool = False
+
+
+class TriedOut(BaseModel):
+    """One way Bevro tried to reach the provider, in words. For Details."""
+
+    way: str
+    outcome: str
+
+
+class StatusOut(BaseModel):
+    """Where a task is, as a person would put it. One mapping for every page.
+
+    kind:  starting | working | needs_you | completed | failed | stopped
+    """
+
+    kind: str
+    # A few words, for lists: "Working", "Completed", "Needs a credential".
+    label: str
+    # One sentence: "Jobs Desk is working on this."
+    headline: str
+    # Something true worth adding: what the provider says it is doing, that
+    # Bevro is waiting for the helper on this machine, that it has not heard
+    # anything for a while, that part of a result couldn't be kept.
+    note: str | None = None
+    # Nothing has been heard for a while. Said, never treated as a failure.
+    quiet: bool = False
+    # When the task entered this state (created, started or finished).
+    since: datetime | None = None
+    # Only when Bevro can really stop it.
+    can_cancel: bool = False
 
 
 class RunOut(BaseModel):
@@ -67,6 +100,8 @@ class RunOut(BaseModel):
     # Short human phase while working, e.g. "Running checks".
     phase: str | None = None
     steps: list[str] = Field(default_factory=list)
+    # Every way Bevro tried to reach the provider for this run, in order.
+    tried: list[TriedOut] = Field(default_factory=list)
     workspace: WorkspaceRef | None = None
     # Plain sentences, e.g. "Read and modify files in Bevro".
     permissions: list[str] = Field(default_factory=list)
@@ -98,6 +133,8 @@ class ArtifactOut(BaseModel):
     metadata: dict[str, Any]
     # True when Bevro knows how to render this type itself.
     known: bool
+    # The result to show first; the others are "More results".
+    primary: bool = False
     created_at: datetime
 
 
@@ -111,6 +148,9 @@ class TaskOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None
+    status: StatusOut
+    # How many results it produced, for a list to say so.
+    results: int = 0
 
 
 class TaskDetail(TaskOut):

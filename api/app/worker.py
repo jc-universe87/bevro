@@ -26,7 +26,7 @@ import uuid
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
-from adapters import HealthResult, InvocationContext, get_adapter
+from adapters import HealthResult, get_adapter
 from adapters.localroots import configured_roots
 from adapters.registry import adapter_kinds, may_run_in_background
 from app.config import get_settings
@@ -46,7 +46,6 @@ from app.services.secrets import SecretStore
 log = logging.getLogger("bevro.worker")
 
 POLL_SECONDS = 1.0
-HEARTBEAT_SECONDS = 5.0
 REAP_EVERY_SECONDS = 30.0
 DB_RETRY_SECONDS = 5.0
 AVAILABILITY_EVERY_SECONDS = 60.0
@@ -210,38 +209,13 @@ class Worker:
     def process(self, run_id: uuid.UUID) -> None:
         Session = get_sessionmaker()
         log.info("run %s: starting", run_id)
-        beat_stop = threading.Event()
-
-        def beat() -> None:
-            while not beat_stop.wait(HEARTBEAT_SECONDS):
-                try:
-                    task_service.heartbeat(run_id, self.worker_id)
-                except Exception:  # noqa: BLE001
-                    log.exception("heartbeat failed")
-
-        threading.Thread(target=beat, daemon=True, name=f"beat-{run_id}").start()
-
-        last_cancel_check = [0.0, False]
-
-        def cancelled() -> bool:
-            if self.stop.is_set():
-                return True
-            if time.monotonic() - last_cancel_check[0] > 1.0:
-                last_cancel_check[0] = time.monotonic()
-                last_cancel_check[1] = task_service.is_cancel_requested(run_id)
-            return last_cancel_check[1]
-
-        context = InvocationContext(
-            progress=lambda text: task_service.record_progress(run_id, text),
-            cancelled=cancelled,
-            log_dir=get_settings().log_dir,
-        )
         try:
             with Session() as db:
                 run = task_service.load_run(db, run_id)
                 provider: Provider = run.provider
                 request = task_service.build_request(db, run, secret_store=self.secrets)
-            result, artifacts = task_service.execute(provider, request, context, execution="background")
+            with task_service.run_context(run_id, worker_id=self.worker_id, stopping=self.stop) as context:
+                result, artifacts = task_service.execute(provider, request, context, execution="background")
             with Session() as db:
                 run = task_service.load_run(db, run_id)
                 task_service.finish_run(db, run, result, artifacts)
@@ -250,9 +224,7 @@ class Worker:
         except Exception:  # noqa: BLE001
             log.exception("run %s crashed in the worker", run_id)
             with Session() as db:
-                task_service.mark_failed(db, run_id, "Something went wrong while running this.")
-        finally:
-            beat_stop.set()
+                task_service.mark_failed(db, run_id, "Bevro hit a problem while handling this.", category=task_service.BEVRO_ERROR)
 
     def shutdown(self, *_: object) -> None:
         log.info("worker stopping; cancelling anything in flight")

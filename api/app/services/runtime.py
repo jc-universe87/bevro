@@ -402,6 +402,11 @@ def execute(provider: Provider, request: InvocationRequest, context: InvocationC
                 attempts.append(RuntimeAttempt(runtime_id=runtime.id, kind=runtime.kind.value, started_at=_now(), completed_at=_now(), outcome="skipped", fallback_reason="same credential strategy as the runtime that just failed"))
                 continue
             log.info("run %s: falling back to runtime %s (%s) for %s", request.run_id, runtime.id, runtime.kind.value, provider.slug)
+            if context is not None:
+                try:
+                    context.falling_back()
+                except Exception:  # noqa: BLE001 - saying so must never stop the next attempt
+                    log.exception("run %s: could not record the fallback", request.run_id)
         started = _now()
         log.info("run %s: attempting runtime %s (%s) for %s", request.run_id, runtime.id, runtime.kind.value, provider.slug)
         result, artifacts = _invoke_once(provider, runtime, request, context)
