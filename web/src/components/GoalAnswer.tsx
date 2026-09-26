@@ -89,6 +89,8 @@ function ForItem({
         return view ? [view.primary] : [];
       case "blocked":
         return [{ id: "add_credential", label: "Add credential" }, { id: "how_to", label: "How to use it" }];
+      case "choose":
+        return [{ id: "choose", label: "Choose which one" }];
       case "unavailable":
         return [{ id: "retry", label: "Try again" }, ...(openApp ? [openApp] : [])];
       case "how_to":

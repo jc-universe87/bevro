@@ -30,7 +30,7 @@ class RouteAnswer(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    outcome: Literal["direct", "handoff", "blocked", "unavailable", "how_to", "setup", "choice", "none"]
+    outcome: Literal["direct", "handoff", "blocked", "choose", "unavailable", "how_to", "setup", "choice", "none"]
     message: str
     # Sure enough to act without asking. Only ever a yes or no.
     sure: bool

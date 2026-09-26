@@ -195,6 +195,9 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
     # A website is evidence that the application is running, and where to
     # open it; a way to send it work only if something behind it says so.
     website: dict | None = None
+    # A running API that serves several profiles (workspaces, tenants...)
+    # asks which one this connection is for, as it would if connected by address.
+    scope_choices: list[dict[str, str]] = []
 
     # 1. Already running: a process of yours in this folder that listens on a port.
     probed_ports: set[int] = set()
@@ -214,6 +217,7 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
                 if found is not None:
                     rt = _adopt_service(found, unique_id("running", ids), RuntimeKind.PROCESS, "Already running on this machine", evidence=[f"A process from this project ({proc.program}) is listening on port {port}", *found.evidence], credentials=Credentials(strategy=CredentialStrategy.RUNTIME_MANAGED, names=secret_names, supplied=list(secret_names), note="Already running with its own environment."))
                     runtimes.append(rt)
+                    scope_choices = scope_choices or list(found.scope_choices)
                     # What the running service itself declares it can do is
                     # stronger evidence than words picked out of its README.
                     capabilities = found.capabilities or capabilities
@@ -231,6 +235,7 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
         if found is not None:
             runtimes.append(_adopt_service(found, unique_id("compose", ids), RuntimeKind.DOCKER_COMPOSE, "Runs as a local service (already running)", evidence=[service["source"], "It answers on that port", *found.evidence], credentials=creds))
             capabilities = found.capabilities or capabilities
+            scope_choices = scope_choices or list(found.scope_choices)
         elif site is not None:
             continue  # running, with a website and nothing behind it that takes work
         else:
@@ -307,6 +312,7 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
     # about" is decided here.
     _first, choice = select(runtimes)
     draft = ProviderDraft(name=name, description=description, capabilities=capabilities, mechanism="local", evidence=evidence, warnings=warnings, confidence="medium", surfaces=surfaces)
+    draft.scope_choices = scope_choices
     if website:
         draft.web_ui = _public_site(website)
     draft.with_runtimes(runtimes, None, choice)

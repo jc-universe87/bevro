@@ -322,3 +322,67 @@ def test_G_H_looking_again_replaces_what_was_found_and_keeps_what_the_person_sai
     assert provider.capabilities[0]["by"] == "person"
     # And the person's words made no way in of their own.
     assert all(rt.id != "household_admin" for rt in runtime_service.runtimes_of(provider))
+
+
+# --------------------------------------------------------------------------- which one is this for?
+
+PROFILES = [{"profile_id": "alex", "display_name": "Alex Morgan"}, {"profile_id": "sam", "display_name": "Sam Lee"}]
+
+
+def test_a_running_api_behind_a_folder_asks_which_profile_like_one_connected_by_address(tmp_path, monkeypatch):
+    project_dir = _web_project(tmp_path, "fixture-desk", "# Fixture Desk\n\nAnswers questions.\n")
+    monkeypatch.setattr(local, "listening_processes", lambda root: [probes.RunningProcess(pid=1, program="python", ports=[6300], addresses={6300: "10.9.8.7"})])
+    inner, _ = fx.service(descriptor=fx.scoped_api(PROFILES), spa=True, profiles=PROFILES)
+    transport = httpx.MockTransport(lambda r: inner.handle_request(r) if r.url.host == "10.9.8.7" else (_ for _ in ()).throw(httpx.ConnectError("refused", request=r)))
+    project = Project(project_dir)
+    draft = local.compose_draft(project, [inspect_python(project)], [], DiscoveryContext(roots=[tmp_path], transport=transport, timeout=3.0), probe_host=True)
+    assert draft.scope_choices == [{"value": "alex", "label": "Alex Morgan"}, {"value": "sam", "label": "Sam Lee"}]
+
+
+def _pending_scope_item(db):
+    api_way = http_runtime(
+        "running", kind=RuntimeKind.HTTP, adapter={"kind": "openapi", "config": fx.as_config(fx.scoped_api(PROFILES))}, display_name="Already running on this machine",
+        availability="not_invocable", confidence="high", credentials=Credentials(strategy=CredentialStrategy.RUNTIME_MANAGED), evidence=[], accepts_prompt=False,
+    )
+    p = _provider(db, "Fixture Desk", [_cli(), api_way])
+    p.source = {"kind": "local", "target": "/nowhere", "scope_choices": [{"value": "alex", "label": "Alex Morgan"}, {"value": "sam", "label": "Sam Lee"}]}
+    db.commit()
+    return p
+
+
+def test_an_item_whose_api_needs_a_choice_says_so_rather_than_asking_for_a_key(db):
+    p = _pending_scope_item(db)
+    access = direct_access(db, p)
+    assert access["state"] == "needs_choice" and "needs" not in access
+    assert access["choices"] == [{"value": "alex", "label": "Alex Morgan"}, {"value": "sam", "label": "Sam Lee"}]
+    answer = resolve(db, "Ask Fixture Desk to review my cases")
+    assert answer.outcome == "choose" and answer.message == "Fixture Desk can do this once you say which one it's for."
+
+
+def test_answering_which_one_makes_the_api_the_way_in_and_is_kept(db):
+    from app.services import connect as connect_service
+
+    p = _pending_scope_item(db)
+    with pytest.raises(connect_service.DraftError):
+        connect_service.choose_scope(db, p, "nobody")
+    connect_service.choose_scope(db, p, "sam")
+    assert direct_access(db, p)["state"] == "ready"
+    selected = state_of(db, p).selected
+    assert selected.id == "running" and selected.adapter["config"]["context"] == {"profile_id": "sam"}
+    assert p.source["connection_context"] == {"profile_id": "sam"} and "scope_choices" not in p.source
+
+
+def test_looking_again_applies_the_answer_already_given(seeded):
+    from app.services import connect as connect_service
+    from tests.test_execution_location import _discovery_over
+
+    _discovery_over(fx.service(descriptor=fx.scoped_api(PROFILES), spa=True, profiles=PROFILES)[0])
+    row = connect_service.start_discovery(seeded, "http://service.local/")
+    provider = connect_service.confirm_draft(seeded, row, name=None, description=None, capability_summary=None, secrets={}, app_url=None, scope="sam")
+    assert direct_access(seeded, provider)["state"] == "ready"
+    _discovery_over(fx.service(descriptor=fx.scoped_api(PROFILES), spa=True, profiles=PROFILES)[0])
+    connect_service.reconnect_provider(seeded, provider)
+    seeded.refresh(provider)
+    assert direct_access(seeded, provider)["state"] == "ready"
+    assert state_of(seeded, provider).selected.adapter["config"]["context"] == {"profile_id": "sam"}
+    assert "scope_choices" not in (provider.source or {})

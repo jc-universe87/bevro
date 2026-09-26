@@ -99,6 +99,48 @@ function CredentialRow({ provider, credential, onChange, autoFocus, hideButton =
   );
 }
 
+/** "Which one is this connection for?" - its service serves several profiles
+ * (workspaces, tenants...), and only the person can say. Asked once, kept. */
+function ScopeChoice({ provider, onChosen }: { provider: Provider; onChosen: (p: Provider) => void }) {
+  const choices = provider.direct?.choices ?? [];
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const choose = async () => {
+    if (!chosen) return;
+    setBusy(true);
+    setError(null);
+    try {
+      onChosen(await api.chooseScope(provider.id, chosen));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Bevro couldn't reach the server. Try again in a moment.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <fieldset>
+      <legend className="max-w-prose">{provider.direct?.note ?? "Bevro can send it work once you say which one this connection is for."}</legend>
+      <div className="mt-3 space-y-1">
+        {choices.map((c) => (
+          <label key={c.value} className="flex items-center gap-2 cursor-pointer min-h-[36px]">
+            <input type="radio" name={`scope-${provider.id}`} value={c.value} checked={chosen === c.value} onChange={() => setChosen(c.value)} className="accent-[var(--bv-accent)]" />
+            <span className="break-words">{c.label}</span>
+          </label>
+        ))}
+      </div>
+      <button type="button" className="bv-btn-primary mt-3" onClick={() => void choose()} disabled={busy || !chosen}>
+        {busy ? "Saving…" : "Use this one"}
+      </button>
+      {error && (
+        <p role="alert" className="mt-2 text-sm">
+          {error}
+        </p>
+      )}
+    </fieldset>
+  );
+}
+
 function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
   return (
     <section id={id} aria-labelledby={`${id}-heading`} className="mt-10 scroll-mt-20">
@@ -518,6 +560,7 @@ export default function AppDetail() {
             </button>
           </>
         )}
+        {direct === "needs_choice" && <ScopeChoice provider={p} onChosen={setProvider} />}
         {direct === "needs_credential" && (
           <>
             <p>{p.direct?.note ?? "Bevro needs a credential before it can send it work."}</p>

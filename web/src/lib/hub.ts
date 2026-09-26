@@ -119,7 +119,7 @@ function sameHost(a: string, b: string): boolean {
   return a.replace(/^\[|\]$/g, "").toLowerCase() === b.replace(/^\[|\]$/g, "").toLowerCase();
 }
 
-export type HubActionId = "use" | "open" | "add_credential" | "retry" | "setup_direct" | "how_to" | "how_to_open" | "resume";
+export type HubActionId = "use" | "open" | "add_credential" | "choose" | "retry" | "setup_direct" | "how_to" | "how_to_open" | "resume";
 
 export interface HubAction {
   id: HubActionId;
@@ -195,7 +195,13 @@ export function hubView(p: Provider, at: Here): HubView {
     primary,
     secondary: secondary.filter((a): a is HubAction => a !== null && a.id !== primary.id),
     attention: building ?? problem,
-    directNote: p.enabled && state === "needs_credential" ? `Direct use in Bevro needs ${credentialWords(p.direct?.needs)}` : null,
+    directNote: !p.enabled
+      ? null
+      : state === "needs_credential"
+        ? `Direct use in Bevro needs ${credentialWords(p.direct?.needs)}`
+        : state === "needs_choice"
+          ? "Direct use in Bevro needs you to say which one it's for"
+          : null,
     progress: p.build && p.build.state !== "ready" && p.build.state !== "failed" ? "Building a new version" : null,
     web,
     opening,
@@ -208,7 +214,9 @@ export function hubView(p: Provider, at: Here): HubView {
   // Bevro can't send it work. Whatever else it offers comes first; setting
   // up direct access is always there, and always quiet.
   const fix: HubAction | null =
-    state === "needs_credential"
+    state === "needs_choice"
+      ? { id: "choose", label: "Choose which one" }
+      : state === "needs_credential"
       ? { id: "add_credential", label: "Add credential" }
       : state === "unreachable" || state === "waiting_for_worker" || state === "needs_start"
         ? { id: "retry", label: "Try again" }

@@ -51,6 +51,12 @@ export function ActionButton({ action, provider, primary, onAsk, onRetry, onResu
           {action.label}
         </button>
       );
+    case "choose":
+      return (
+        <button type="button" className={cls} onClick={() => navigate(`${detail}#direct`)}>
+          {action.label}
+        </button>
+      );
     case "setup_direct":
       // Always this item: Advanced setup is told which one, and adds a way in to it.
       return (

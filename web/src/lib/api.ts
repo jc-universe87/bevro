@@ -53,14 +53,14 @@ export interface Provider {
   surfaces?: Surface[];
   /** Can Bevro itself send it work. "not_set_up" is not a fault. */
   /** `needs`: what the credential is called ("OpenAI API key"), when Bevro can tell. */
-  direct?: { state: DirectState; note?: string; needs?: string };
+  direct?: { state: DirectState; note?: string; needs?: string; choices?: { value: string; label: string }[] };
   /** For agents Bevro created: what it is for and which version is in use. */
   build?: { purpose: string; version: number; state: string; built_by: string | null; needs: string[]; can_rebuild: boolean } | null;
   created_at: string;
   updated_at: string;
 }
 
-export type DirectState = "ready" | "needs_credential" | "waiting_for_worker" | "needs_start" | "unreachable" | "paused" | "not_set_up";
+export type DirectState = "ready" | "needs_choice" | "needs_credential" | "waiting_for_worker" | "needs_start" | "unreachable" | "paused" | "not_set_up";
 
 /** One way of using an app or agent, or one place its results go. See docs/HUB.md. */
 export interface Surface {
@@ -517,7 +517,7 @@ export type HealthOut = TestResult;
  *   choice       a few fit about as well: the person picks
  *   none         nothing the person has fits
  */
-export type RouteOutcome = "direct" | "handoff" | "blocked" | "unavailable" | "how_to" | "setup" | "choice" | "none";
+export type RouteOutcome = "direct" | "handoff" | "blocked" | "choose" | "unavailable" | "how_to" | "setup" | "choice" | "none";
 
 export interface RouteAnswer {
   outcome: RouteOutcome;
@@ -658,6 +658,8 @@ export const api = {
     request<ConnectDraft>(`/connect/drafts/${id}/trust`, { method: "POST", body: JSON.stringify({ scope }) }),
   access: () => request<{ grants: TrustGrant[]; ceiling: string[] }>("/trust"),
   revokeGrant: (id: string) => request<void>(`/trust/${id}`, { method: "DELETE" }),
+  /** Which profile (workspace, tenant...) this connection is for, when its service serves several. */
+  chooseScope: (id: string, value: string) => request<Provider>(`/providers/${id}/scope`, { method: "POST", body: JSON.stringify({ value }) }),
   reconnectProvider: (id: string) => request<Provider>(`/providers/${id}/reconnect`, { method: "POST" }),
   /** Advanced setup for something already in Bevro: attach a way in to that same item. */
   addDirectAccess: (id: string, body: { method: string; details: Record<string, string>; secrets: Record<string, string> }) =>

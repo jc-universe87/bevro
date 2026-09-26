@@ -576,28 +576,70 @@ def _test_on_host(row: ConnectDraft, roots: list[Path]) -> None:
 
 # --------------------------------------------------------------------------- confirm
 
-def _scoped_to(pd: ProviderDraft, chosen: str) -> ProviderDraft:
-    """Fix this connection to one profile, workspace or tenant.
+def scope_runtimes(runtimes: list, chosen: str) -> dict[str, str] | None:
+    """Fix every way in that is a described API to one profile, workspace or
+    tenant, in place. Returns the context it now carries, or None when none
+    of them has anything to choose.
 
     The name of the parameter comes from the service's own operations, so
-    nothing here knows what kind of thing is being chosen.
+    nothing here knows what kind of thing is being chosen. The API may be
+    any of an item's ways in - found behind a project folder it sits beside
+    command-line ones - so each is looked at, not only the first.
     """
     from app.connect.openapi import catalogue_from_json
 
-    config = pd.adapter.get("config") or {}
-    catalogue = catalogue_from_json(config.get("operations"))
-    parameter = next((n for op in catalogue for n in op.scope_parameters()), None)
-    if parameter is None:
+    context: dict[str, str] | None = None
+    for rt in runtimes:
+        if str(rt.adapter.get("kind")) != "openapi":
+            continue
+        config = rt.adapter.get("config") or {}
+        parameter = next((n for op in catalogue_from_json(config.get("operations")) for n in op.scope_parameters()), None)
+        if parameter is None:
+            continue
+        context = {**(config.get("context") or {}), parameter: chosen}
+        rt.adapter = {**rt.adapter, "config": {**config, "context": context}}
+        rt.availability = "ready"
+        rt.abilities = rt.abilities.model_copy(update={"accepts_prompt": True})
+    return context
+
+
+def choose_scope(db: Session, provider: Provider, chosen: str) -> Provider:
+    """The person's answer to "which one is this connection for?", given on
+    the item itself - for one connected before the question could be asked,
+    or whose service began serving several since. Applied exactly as at
+    Connect, and kept, so looking again applies it again."""
+    from app.connect.runtimes import select
+    from app.services.runtime import runtimes_of, set_runtimes
+
+    choices = [str(c.get("value")) for c in (provider.source or {}).get("scope_choices") or [] if isinstance(c, dict)]
+    if chosen not in choices:
+        raise DraftError("That isn't one of the ones Bevro found.", 422)
+    runtimes = runtimes_of(provider)
+    context = scope_runtimes(runtimes, chosen)
+    if context is None:
+        raise DraftError("Bevro no longer finds anything to choose here. Choose Look again.", 409)
+    active_id, _choice = select(runtimes)
+    set_runtimes(provider, runtimes, active_id)
+    provider.source = {**{k: v for k, v in (provider.source or {}).items() if k != "scope_choices"}, "connection_context": context}
+    db.commit()
+    reconcile_service.reconcile(db, provider)
+    db.refresh(provider)
+    return provider
+
+
+def _scoped_to(pd: ProviderDraft, chosen: str) -> ProviderDraft:
+    """Fix this connection to one profile, workspace or tenant."""
+    context = scope_runtimes(pd.runtimes, chosen)
+    if context is None:
         return pd
-    context = {**(config.get("context") or {}), parameter: chosen}
-    pd.adapter = {**pd.adapter, "config": {**config, "context": context}}
+    config = pd.adapter.get("config") or {}
+    if str(pd.adapter.get("kind")) == "openapi":
+        pd.adapter = {**pd.adapter, "config": {**config, "context": context}}
     pd.source = {**(pd.source or {}), "connection_context": context}
     pd.scope_choices = []
     pd.invocable = True
-    for rt in pd.runtimes:
-        if str(rt.adapter.get("kind")) == "openapi":
-            rt.adapter = {**rt.adapter, "config": {**(rt.adapter.get("config") or {}), "context": context}}
-            rt.availability = "ready"
+    # With the API usable, it may now be the best way in.
+    pd.with_runtimes(pd.runtimes, None, False)
     return pd
 
 
@@ -757,6 +799,16 @@ def _reconnect_here(db: Session, provider: Provider, *, location: str = API, rul
         raise DraftError(str(exc), 409) from exc
     if not draft.runtimes and not draft.surfaces:
         raise DraftError("Nothing usable was found there any more.", 409)
+    # Which profile (workspace, tenant...) this connection is for is the
+    # person's answer, not something discovery finds: once given, it is
+    # applied again; until then the question stays with the item.
+    pending: list[dict[str, str]] = []
+    if draft.scope_choices:
+        answered = next(iter(((provider.source or {}).get("connection_context") or {}).values()), None)
+        if answered is not None and answered in [c.get("value") for c in draft.scope_choices]:
+            draft = _scoped_to(draft, str(answered))
+        else:
+            pending = list(draft.scope_choices)
     stored = SecretStore().names(db, provider.id) if _has_secret_store() else []
     active = draft.runtime
     if active is not None and active.credentials.names and all(n in stored for n in active.credentials.names):
@@ -795,7 +847,9 @@ def _reconnect_here(db: Session, provider: Provider, *, location: str = API, rul
     provider.surfaces = [x.model_dump(mode="json", exclude_none=True) for x in merge(given, draft.surfaces)]
     provider.availability = None  # whoever can reach it reports afresh
     provider.discovery_version = reconcile_service.DISCOVERY_VERSION
-    provider.source = {k: v for k, v in (provider.source or {}).items() if not k.startswith("reconnect_")}
+    provider.source = {k: v for k, v in (provider.source or {}).items() if not k.startswith("reconnect_") and k != "scope_choices"}
+    if pending:
+        provider.source = {**provider.source, "scope_choices": pending}
     db.commit()
     # Nothing from the previous configuration survives a reconnect: which way
     # in is used is decided again, from what was just found.

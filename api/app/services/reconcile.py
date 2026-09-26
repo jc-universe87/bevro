@@ -196,10 +196,11 @@ def _reachable_now(db, provider: Provider, selected: RuntimeProfile) -> str:
 # first seven describe a way in that exists; "not_set_up" means there never
 # was one, which is how a web app with no interface for programs simply is -
 # neutral, and never shown as a fault.
-DIRECT_STATES = ("ready", "needs_credential", "waiting_for_worker", "needs_start", "unreachable", "paused", "not_set_up")
+DIRECT_STATES = ("ready", "needs_choice", "needs_credential", "waiting_for_worker", "needs_start", "unreachable", "paused", "not_set_up")
 
 DIRECT_WORDS = {
     "ready": "Bevro can send it work.",
+    "needs_choice": "Bevro can send it work once you say which one this connection is for.",
     "needs_credential": "Bevro needs a credential before it can send it work.",
     "waiting_for_worker": "Bevro reaches it through the helper on this computer, which isn't running.",
     "needs_start": "It isn't running, so Bevro can't send it work right now.",
@@ -227,7 +228,15 @@ def direct_access(db, provider: Provider) -> dict[str, Any]:
         }.get(connection, connection)
         if state not in DIRECT_STATES:
             state = "unreachable"
+    choices = [c for c in (provider.source or {}).get("scope_choices") or [] if isinstance(c, dict) and c.get("value")]
+    if choices and state not in ("ready", "paused"):
+        # Its API serves several profiles (workspaces, tenants...) and nobody
+        # has said which one this is for: a question for the person, not a
+        # credential they lack and not something Bevro should guess.
+        state = "needs_choice"
     out: dict[str, Any] = {"state": state, "note": DIRECT_WORDS[state]}
+    if state == "needs_choice":
+        out["choices"] = [{"value": str(c["value"]), "label": str(c.get("label") or c["value"])} for c in choices]
     if state == "needs_credential":
         needs = missing_credential(provider)
         if needs is not None:

@@ -32,6 +32,7 @@ log = logging.getLogger("bevro.routing")
 DIRECT = "direct"  # Bevro sends it the work
 HANDOFF = "handoff"  # the person opens its own app
 BLOCKED = "blocked"  # Bevro could, once it has a credential
+CHOOSE = "choose"  # Bevro could, once the person says which one it is for
 UNAVAILABLE = "unavailable"  # Bevro could, but can't reach it right now
 HOW_TO = "how_to"  # no app to open, but the person has a way to use it
 SETUP = "setup"  # known, and nothing yet says how it is used
@@ -90,6 +91,8 @@ def way_in(db: Session, provider: Provider) -> tuple[str, str]:
     state = direct_access(db, provider)["state"]
     if state == "needs_credential":
         return BLOCKED, state
+    if state == "needs_choice":
+        return CHOOSE, state
     # A way in that has stopped answering, or isn't running, is known from
     # its own recent history; whether a helper process is around is
     # execution's call, below.
@@ -112,6 +115,8 @@ def _message(outcome: str, name: str, sure: bool, state: str | None = None, need
         return f"{name} can handle this directly." if sure else f"{name} looks like the right one for this."
     if outcome == HANDOFF:
         return f"{name} is the best place for this." if sure else f"{name} looks like the place for this."
+    if outcome == CHOOSE:
+        return f"{name} can do this once you say which one it's for."
     if outcome == BLOCKED:
         if needs:
             return f"{name} can do this, but direct use in Bevro needs {'an' if needs[:1].lower() in 'aeiou' else 'a'} {needs}."

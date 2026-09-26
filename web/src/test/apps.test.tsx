@@ -392,3 +392,21 @@ test("when Bevro knows which credential direct use needs, the row names it", asy
   // A web app Bevro can't drive is never said to need one.
   expect(item("Notebook").textContent).not.toMatch(/credential|API key/i);
 });
+
+test("an app whose service serves several profiles asks which one, on its row and its page", async () => {
+  const choices = [{ value: "alex", label: "Alex Morgan" }, { value: "sam", label: "Sam Lee" }];
+  const pending = { ...ledger, id: "p8", name: "Fixture Desk", actions: [], direct: { state: "needs_choice", note: "Bevro can send it work once you say which one this connection is for.", choices } };
+  const calls = mockApi({ "GET /api/providers": [pending], "GET /api/providers/p8": pending, "POST /api/providers/p8/scope": { ...pending, actions: ["ask"], direct: { state: "ready", note: "Bevro can send it work." } } });
+  const user = userEvent.setup();
+  renderAt("/apps");
+  const row = item(await screen.findByRole("heading", { name: "Fixture Desk" }).then(() => "Fixture Desk"));
+  expect(row).toHaveTextContent("Direct use in Bevro needs you to say which one it's for");
+  expect(row.textContent).not.toMatch(/credential|API key/i);
+  await user.click(within(row).getByRole("button", { name: "Choose which one" }));
+  const question = await screen.findByRole("group", { name: "Bevro can send it work once you say which one this connection is for." });
+  expect(within(question).getByRole("button", { name: "Use this one" })).toBeDisabled();
+  await user.click(within(question).getByRole("radio", { name: "Sam Lee" }));
+  await user.click(within(question).getByRole("button", { name: "Use this one" }));
+  expect(calls.find((c) => c.url === "/api/providers/p8/scope")?.body).toEqual({ value: "sam" });
+  expect(await screen.findByText("Bevro can send it work.")).toBeInTheDocument();
+});

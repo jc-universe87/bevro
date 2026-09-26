@@ -6,6 +6,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -310,6 +311,25 @@ def get_details(provider_id: uuid.UUID, db: Session = Depends(get_db)) -> Provid
     if provider is None:
         raise HTTPException(404, "Agent not found.")
     return provider_details(provider, db)
+
+
+class ScopeIn(BaseModel):
+    value: str = Field(min_length=1, max_length=200)
+
+
+@router.post("/{provider_id}/scope", response_model=ProviderOut)
+def choose_scope(provider_id: uuid.UUID, body: ScopeIn, db: Session = Depends(get_db)) -> ProviderOut:
+    """Which profile (workspace, tenant...) this connection is for, when its service serves several."""
+    from app.services import connect as connect_service
+
+    provider = provider_service.get_provider(db, provider_id)
+    if provider is None:
+        raise HTTPException(404, "Agent not found.")
+    try:
+        connect_service.choose_scope(db, provider, body.value)
+    except connect_service.DraftError as exc:
+        raise HTTPException(exc.status, str(exc)) from None
+    return _out(db, provider)
 
 
 @router.post("/{provider_id}/reconnect", response_model=ProviderOut)
