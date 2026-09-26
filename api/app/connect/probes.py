@@ -45,11 +45,38 @@ class RunningProcess:
     pid: int
     program: str  # basename only
     ports: list[int] = field(default_factory=list)
+    # port -> the one address it is bound to, when it isn't every address.
+    # A service bound only to, say, a private-network address does not answer
+    # on 127.0.0.1; it has to be asked where it actually listens.
+    addresses: dict[int, str] = field(default_factory=dict)
 
 
-def _listening_inodes() -> dict[str, int]:
-    """socket inode -> port for every listening TCP socket on this host."""
-    out: dict[str, int] = {}
+# Bound to every address (or to loopback): 127.0.0.1 reaches it.
+_ANY_OR_LOOPBACK = {"0.0.0.0", "::", "127.0.0.1", "::1"}
+
+
+def _address(hex_addr: str) -> str | None:
+    """The address in /proc/net/tcp{,6}'s "local_address" column (host byte
+    order, in groups of four bytes), as text."""
+    import ipaddress
+
+    try:
+        raw = bytes.fromhex(hex_addr)
+    except ValueError:
+        return None
+    if len(raw) not in (4, 16):
+        return None
+    # Each 32-bit word is stored little-endian.
+    ordered = b"".join(raw[i : i + 4][::-1] for i in range(0, len(raw), 4))
+    ip = ipaddress.ip_address(ordered)
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return str(ip)
+
+
+def _listening_inodes() -> dict[str, tuple[int, str | None]]:
+    """socket inode -> (port, address it is bound to) for every listening TCP socket on this host."""
+    out: dict[str, tuple[int, str | None]] = {}
     for name in ("/proc/net/tcp", "/proc/net/tcp6"):
         try:
             with open(name, encoding="ascii") as fh:
@@ -57,8 +84,8 @@ def _listening_inodes() -> dict[str, int]:
                 for line in fh:
                     parts = line.split()
                     if len(parts) > 9 and parts[3] == _LISTEN:
-                        port = int(parts[1].rsplit(":", 1)[1], 16)
-                        out[parts[9]] = port
+                        addr, port_hex = parts[1].rsplit(":", 1)
+                        out[parts[9]] = (int(port_hex, 16), _address(addr))
         except (OSError, ValueError, StopIteration):
             continue
     return out
@@ -85,6 +112,7 @@ def listening_processes(root: Path) -> list[RunningProcess]:
         except OSError:
             program = "?"
         ports: list[int] = []
+        addresses: dict[int, str] = {}
         try:
             for fd in os.listdir(proc / "fd"):
                 try:
@@ -93,11 +121,16 @@ def listening_processes(root: Path) -> list[RunningProcess]:
                     continue
                 if link.startswith("socket:["):
                     inode = link[8:-1]
-                    if inode in inodes and inodes[inode] not in ports:
-                        ports.append(inodes[inode])
+                    if inode not in inodes:
+                        continue
+                    port, address = inodes[inode]
+                    if port not in ports:
+                        ports.append(port)
+                    if address and address not in _ANY_OR_LOOPBACK and port not in addresses:
+                        addresses[port] = address
         except OSError:
             pass
-        found.append(RunningProcess(pid=int(entry), program=program, ports=sorted(ports)))
+        found.append(RunningProcess(pid=int(entry), program=program, ports=sorted(ports), addresses=addresses))
     return found
 
 
@@ -263,9 +296,61 @@ def systemd_timers(project: Project, *, ask_systemd: bool = True) -> list[System
             when = next((m.group(1).strip() for m in re.finditer(r"^\s*OnCalendar\s*=\s*(.+)$", text, re.MULTILINE)), None)
             timer = SystemdTimer(name=name, when=when)
             if ask_systemd:
-                timer.active, timer.installed, _scope = _unit_state(name)
+                timer.active, timer.installed, scope = _unit_state(name)
+                if timer.installed and not _timer_is_projects(name, scope, project.root):
+                    # A timer of the same name is set up, but for something else.
+                    timer.active, timer.installed = None, False
             timers.append(timer)
     return timers
+
+
+def _points_into(unit: SystemdUnit, root: Path) -> bool:
+    """Does this unit, as systemd has it, run from this project's folder?
+
+    A unit is found by the name of a file the project ships, but a name is
+    not an identity: another project may ship one called the same. What
+    systemd runs is this project's only if its working directory or the
+    program it starts is inside the project.
+    """
+    import os
+    import shlex
+
+    home = str(Path.home())
+    candidates: list[str] = []
+    if unit.working_directory:
+        candidates.append(unit.working_directory.lstrip("-"))
+    if unit.exec_start:
+        try:
+            words = shlex.split(unit.exec_start)
+        except ValueError:
+            words = unit.exec_start.split()
+        candidates += [w.lstrip("-+@!:") for w in words]
+    base = os.path.normpath(str(root))
+    for raw in candidates:
+        path = raw.replace("%h", home)
+        if not path.startswith("/"):
+            continue
+        path = os.path.normpath(path)
+        if path == base or path.startswith(base + os.sep):
+            return True
+    return False
+
+
+def _timer_is_projects(name: str, scope: str | None, root: Path) -> bool:
+    """An installed timer is this project's when the service it starts is."""
+    text = ""
+    for path in _unit_files(name, scope):
+        try:
+            text += Path(path).read_text(encoding="utf-8", errors="replace")[:16_000] + "\n"
+        except OSError:
+            continue
+    started = next((m.group(1).strip() for m in re.finditer(r"^\s*Unit\s*=\s*(\S+)", text, re.MULTILINE)), None) or name.removesuffix(".timer") + ".service"
+    service = SystemdUnit(name=started)
+    service.active, service.installed, service.scope = _unit_state(started)
+    if not service.installed:
+        return False
+    _add_installed_detail(service)
+    return _points_into(service, root)
 
 
 _SHARES_CACHE: tuple[float, dict[int, list[str]]] | None = None
@@ -377,6 +462,12 @@ def systemd_units(project: Project) -> list[SystemdUnit]:
         _apply_unit_text(text, unit)
         unit.active, unit.installed, unit.scope = _unit_state(unit.name)
         _add_installed_detail(unit)
+        if unit.installed and not _points_into(unit, project.root):
+            # Installed under this name, but running something else: none of
+            # what systemd says about it is this project's. Only the file the
+            # project ships describes it.
+            unit = SystemdUnit(name=Path(rel).name)
+            _apply_unit_text(text, unit)
         unit.socket = _socket_for(unit, project, sockets)
         seen: set[str] = set()
         unit.environment_files = [ref for ref in unit.environment_files if not (ref.path in seen or seen.add(ref.path))]

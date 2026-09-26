@@ -204,15 +204,19 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
                 if port in probed_ports:
                     continue
                 probed_ports.add(port)
-                found = _discover_url(local_base(port), context)
+                # Where it actually listens: loopback only reaches a service bound to every address.
+                base = local_base(port, proc.addresses.get(port))
+                found = _discover_url(base, context)
                 if found is not None and _described_nothing(found) and found.web_ui is not None:
                     # A page for people, served by a process of this project.
-                    website = website or {"url": local_base(port), "title": found.web_ui.get("title"), "routes": [], "bind": None, "evidence": [f"A process from this project ({proc.program}) serves a website on port {port}"]}
+                    website = website or {"url": base, "title": found.web_ui.get("title"), "routes": [], "bind": None, "evidence": [f"A process from this project ({proc.program}) serves a website on port {port}"]}
                     continue
                 if found is not None:
                     rt = _adopt_service(found, unique_id("running", ids), RuntimeKind.PROCESS, "Already running on this machine", evidence=[f"A process from this project ({proc.program}) is listening on port {port}", *found.evidence], credentials=Credentials(strategy=CredentialStrategy.RUNTIME_MANAGED, names=secret_names, supplied=list(secret_names), note="Already running with its own environment."))
                     runtimes.append(rt)
-                    capabilities = capabilities or found.capabilities
+                    # What the running service itself declares it can do is
+                    # stronger evidence than words picked out of its README.
+                    capabilities = found.capabilities or capabilities
                     description = description or found.description
 
     # 2. Managed: Compose services (answering, or startable) and systemd units.
@@ -226,7 +230,7 @@ def compose_draft(project: Project, findings: list[Finding], units: list[Systemd
             evidence += site["evidence"]
         if found is not None:
             runtimes.append(_adopt_service(found, unique_id("compose", ids), RuntimeKind.DOCKER_COMPOSE, "Runs as a local service (already running)", evidence=[service["source"], "It answers on that port", *found.evidence], credentials=creds))
-            capabilities = capabilities or found.capabilities
+            capabilities = found.capabilities or capabilities
         elif site is not None:
             continue  # running, with a website and nothing behind it that takes work
         else:
