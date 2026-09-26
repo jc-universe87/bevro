@@ -194,6 +194,10 @@ class Worker:
                     # ago stops being true here, with nothing restarted.
                     self.roots = trust_service.apply_to_process(db)
                     if connect_service.run_pending(db, self.roots) or connect_service.run_reconnects(db) or bridge_service.run_pending(db, self.roots) or agent_service.run_pending(db, self.roots):
+                        # What was just connected or looked at again is reported
+                        # on straight away: until then every page would have to
+                        # guess whether Bevro can use it, and they would disagree.
+                        last_report = -AVAILABILITY_EVERY_SECONDS
                         continue  # Connect work was handled; look again straight away
                     run_id = acquire(db, self.kinds, self.worker_id)
             except OperationalError as exc:
