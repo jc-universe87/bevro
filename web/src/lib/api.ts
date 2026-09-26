@@ -474,17 +474,49 @@ export interface ConnectDraft {
 
 export type HealthOut = TestResult;
 
+/**
+ * Which of the person's apps and agents fits a request, and how it can be
+ * used now (docs/ROUTING.md). Names and plain sentences only.
+ *
+ *   direct       Bevro sends it the work (`sure`: without asking first)
+ *   handoff      the person opens its own app
+ *   blocked      Bevro could, once it has a credential
+ *   unavailable  Bevro could, but can't reach it right now
+ *   how_to       no app to open; here is how it is used
+ *   setup        known, and nothing says yet how it is used
+ *   choice       a few fit about as well: the person picks
+ *   none         nothing the person has fits
+ */
+export type RouteOutcome = "direct" | "handoff" | "blocked" | "unavailable" | "how_to" | "setup" | "choice" | "none";
+
+export interface RouteAnswer {
+  outcome: RouteOutcome;
+  message: string;
+  sure: boolean;
+  item: { id: string; name: string } | null;
+  why: string | null;
+  choices: { id: string; name: string; summary: string }[];
+}
+
+function asRouteAnswer(value: unknown): RouteAnswer | null {
+  const a = value as RouteAnswer | null;
+  return a && typeof a.outcome === "string" && typeof a.message === "string" && Array.isArray(a.choices) ? a : null;
+}
+
 export class ApiError extends Error {
   status: number;
   /** Short machine code from the API, e.g. "no_provider", "use_elsewhere". */
   reason: string | null;
   /** With "use_elsewhere": the app the person has for this. */
   suggestion: { id: string; name: string } | null;
-  constructor(status: number, message: string, reason: string | null = null, suggestion: { id: string; name: string } | null = null) {
+  /** When a request wasn't started: the whole answer, to show instead. */
+  answer: RouteAnswer | null;
+  constructor(status: number, message: string, reason: string | null = null, suggestion: { id: string; name: string } | null = null, answer: RouteAnswer | null = null) {
     super(message);
     this.status = status;
     this.reason = reason;
     this.suggestion = suggestion;
+    this.answer = answer;
   }
 }
 
@@ -497,6 +529,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let message = "Something went wrong.";
     let reason: string | null = null;
     let suggestion: { id: string; name: string } | null = null;
+    let answer: RouteAnswer | null = null;
     try {
       const body = await res.json();
       if (typeof body?.detail === "string") message = body.detail;
@@ -506,11 +539,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         reason = typeof body.detail.reason === "string" ? body.detail.reason : null;
         const s = body.detail.suggestion;
         suggestion = s && typeof s.id === "string" && typeof s.name === "string" ? { id: s.id, name: s.name } : null;
+        answer = asRouteAnswer(body.detail.answer);
       }
     } catch {
       /* keep the generic message */
     }
-    throw new ApiError(res.status, message, reason, suggestion);
+    throw new ApiError(res.status, message, reason, suggestion, answer);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -518,6 +552,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   meta: () => request<Meta>("/meta"),
+  /** Which app or agent, and how - before anything runs. `provider_id`: the person chose it. */
+  route: (text: string, provider_id?: string) =>
+    request<RouteAnswer>("/route", { method: "POST", body: JSON.stringify(provider_id ? { request: text, provider_id } : { request: text }) }),
   submitTask: (body: { request: string; provider_id?: string }) =>
     request<TaskDetail>("/tasks", { method: "POST", body: JSON.stringify(body) }),
   listTasks: (params: { q?: string; state?: string } = {}) => {

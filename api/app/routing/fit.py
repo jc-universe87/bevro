@@ -437,4 +437,5 @@ def summary(item: Any) -> str:
     if text:
         return text if len(text) <= 120 else text[:117].rsplit(" ", 1)[0] + "…"
     titles = [str(c.get("title") or c.get("id")) for c in item.capabilities or [] if isinstance(c, dict) and c.get("id")]
-    return _join([t for t in titles[:3]]) if titles else ""
+    # One sentence: "Review applications, prepare documents and ...".
+    return _join([t if i == 0 else t[:1].lower() + t[1:] for i, t in enumerate(titles[:3])]) if titles else ""

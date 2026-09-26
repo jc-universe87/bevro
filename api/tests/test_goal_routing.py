@@ -159,6 +159,13 @@ def test_L_two_close_matches_are_a_choice_not_a_guess(db):
     assert all(o.summary for o in answer.choices)
 
 
+def test_a_choice_says_what_each_one_is_for_in_a_sentence(db):
+    from app.routing.fit import summary
+
+    assert summary(jobs_desk(db)) == "Review opportunities, review applications and review vacancies"
+    assert summary(notebook(db)) == "Keeps what you have noted, learned and thought about."
+
+
 def test_N_a_vague_request_is_not_matched_to_anything(db):
     jobs_desk(db)
     notebook(db)

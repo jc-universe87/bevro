@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import GoalAnswer from "../components/GoalAnswer";
 import { OpenLink } from "../components/Hub";
 import Icon from "../components/Icon";
-import { api, ApiError, type Notification, type Provider, type ScheduleIntent } from "../lib/api";
+import { api, ApiError, type Notification, type Provider, type RouteAnswer, type ScheduleIntent } from "../lib/api";
 import { here, hubView } from "../lib/hub";
 
 const TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -14,6 +15,8 @@ export default function Home() {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<HomeError | null>(null);
+  // Which app or agent is for this, when Bevro isn't simply starting it.
+  const [answer, setAnswer] = useState<RouteAnswer | null>(null);
   // When someone asks for work to happen again, Bevro shows what it would set
   // up and waits: recurring work is never created behind their back.
   const [intent, setIntent] = useState<ScheduleIntent | null>(null);
@@ -39,7 +42,42 @@ export default function Home() {
   }, []);
 
   const failed = (err: unknown) => {
-    setError(err instanceof ApiError ? { message: err.message, reason: err.reason, suggestion: err.suggestion } : { message: "Bevro couldn't reach the server. Try again in a moment.", reason: null, suggestion: null });
+    if (err instanceof ApiError && err.answer) {
+      // Not started, and why: the same answer Home would have shown.
+      setAnswer(err.answer);
+    } else {
+      setError(err instanceof ApiError ? { message: err.message, reason: err.reason, suggestion: err.suggestion } : { message: "Bevro couldn't reach the server. Try again in a moment.", reason: null, suggestion: null });
+    }
+    setBusy(false);
+  };
+
+  /** Start the work. `provider_id` when the person chose who does it. */
+  const start = async (request: string, provider_id?: string) => {
+    setBusy(true);
+    try {
+      const task = await api.submitTask(provider_id ? { request, provider_id } : { request });
+      navigate(`/tasks/${task.id}`);
+    } catch (err) {
+      failed(err);
+    }
+  };
+
+  /**
+   * Which app or agent, then how. Only a sure answer that Bevro can act on
+   * starts work by itself; anything else is said, and waits for the person.
+   * If the answer can't be had, the request goes as it always did: the task
+   * service routes it the same way and says the same thing when it won't run.
+   */
+  const ask = async (request: string, provider_id?: string) => {
+    setBusy(true);
+    setError(null);
+    setAnswer(null);
+    const found = await api.route(request, provider_id).catch(() => null);
+    if (found === null || (found.outcome === "direct" && found.sure)) {
+      await start(request, provider_id);
+      return;
+    }
+    setAnswer(found);
     setBusy(false);
   };
 
@@ -60,8 +98,7 @@ export default function Home() {
           return;
         }
       }
-      const task = await api.submitTask({ request });
-      navigate(`/tasks/${task.id}`);
+      await ask(request);
     } catch (err) {
       failed(err);
     }
@@ -81,13 +118,14 @@ export default function Home() {
 
   const justOnce = async () => {
     setIntent(null);
+    await ask(text.trim());
+  };
+
+  // "Try again" on something Bevro couldn't reach: look, then answer afresh for it.
+  const retry = async (id: string) => {
     setBusy(true);
-    try {
-      const task = await api.submitTask({ request: text.trim() });
-      navigate(`/tasks/${task.id}`);
-    } catch (err) {
-      failed(err);
-    }
+    await api.checkProvider(id).catch(() => null);
+    await ask(text.trim(), id);
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -112,6 +150,7 @@ export default function Home() {
             onChange={(e) => {
               setText(e.target.value);
               setIntent(null);
+              setAnswer(null);
             }}
             onKeyDown={onKeyDown}
             placeholder="Say it in your own words…"
@@ -185,7 +224,9 @@ export default function Home() {
         )}
 
         <div className="mt-3 flex items-start justify-between gap-4 text-sm text-muted min-h-[1.5rem]">
-          {error ? (
+          {answer ? (
+            <GoalAnswer answer={answer} mine={mine ?? []} busy={busy} onUse={(id) => void start(text.trim(), id)} onChoose={(id) => void ask(text.trim(), id)} onRetry={(id) => void retry(id)} />
+          ) : error ? (
             <HomeAnswer error={error} mine={mine ?? []} />
           ) : (
             <span />
@@ -193,7 +234,7 @@ export default function Home() {
           <span className="hidden sm:inline shrink-0 whitespace-nowrap text-subtle">Enter to send</span>
         </div>
 
-        {mine && mine.length > 0 && !error && !intent && (
+        {mine && mine.length > 0 && !error && !answer && !intent && (
           <nav aria-label="Your apps and agents" className="mt-10 text-center">
             <p className="bv-meta">Your apps & agents</p>
             <ul className="mt-2 flex flex-wrap justify-center gap-x-1 gap-y-1">
