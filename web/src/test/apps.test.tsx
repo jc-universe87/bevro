@@ -118,7 +118,9 @@ test("each item says what it is for, how it is used, and offers the one useful t
   // Runs on a schedule and posts its results: said, and not dressed up as a way in.
   const b = item("Briefing");
   expect(b).toHaveTextContent("Available through Scheduled runs · Results to Telegram");
-  expect(within(b).getAllByRole("button").map((x) => x.textContent)).toEqual(["Add credential", "How to use it"]);
+  const useful = within(b).getAllByRole("button").filter((x) => !x.hasAttribute("aria-haspopup"));
+  expect(useful.map((x) => x.textContent)).toEqual(["Add credential", "How to use it"]);
+  expect(within(b).getByRole("button", { name: "More options for Briefing" })).toBeInTheDocument();
   expect(b).toHaveTextContent("Direct use in Bevro needs a credential");
   expect(b.querySelector(".bv-dot-attention")).toBeNull(); // the app is fine; nothing to warn about
 

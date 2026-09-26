@@ -4,8 +4,9 @@ import Help from "../components/Help";
 import { AskForm, LetterMark, OpeningHelp, OpenLink, StatusText } from "../components/Hub";
 import Icon from "../components/Icon";
 import { Page } from "../components/PageHeader";
+import { RemoveQuestion, useRemoval } from "../components/RemoveFromBevro";
 import TestResults from "../components/TestResults";
-import { api, ApiError, type Provider, type ProviderDetails, type RemovalPlan, type TestResult } from "../lib/api";
+import { api, ApiError, type Provider, type ProviderDetails, type TestResult } from "../lib/api";
 import { here, hubView } from "../lib/hub";
 import { ActionButton } from "./Apps";
 
@@ -96,25 +97,6 @@ function CredentialRow({ provider, credential, onChange, autoFocus, hideButton =
       )}
     </li>
   );
-}
-
-/** What removal really does, in the order that matters: what goes, then what stays. */
-export function removalConsequences(provider: Provider, plan: RemovalPlan | null): string[] {
-  const lines: string[] = [];
-  if ((plan?.in_flight ?? 0) > 0) {
-    return [`${provider.name} is working on something right now. Wait for it to finish, or cancel it first.`];
-  }
-  if (plan?.built_project) lines.push("The project Bevro wrote for it is deleted.");
-  if (plan?.built_connection) lines.push("The connection Bevro built for it is deleted.");
-  if ((plan?.credentials ?? 0) > 0) {
-    lines.push(plan?.credentials === 1 ? "Its stored credential is deleted." : `Its ${plan?.credentials} stored credentials are deleted.`);
-  }
-  lines.push(`Nothing outside Bevro is touched: ${provider.name} itself stays exactly as it is.`);
-  if ((plan?.history ?? 0) > 0) {
-    const n = plan?.history ?? 0;
-    lines.push(`${n} ${n === 1 ? "task stays" : "tasks stay"} in Recent, still showing ${provider.name} as having done the work.`);
-  }
-  return lines;
 }
 
 function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
@@ -282,8 +264,8 @@ export default function AppDetail() {
   const [busy, setBusy] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [details, setDetails] = useState<ProviderDetails | null>(null);
-  const [confirmRemove, setConfirmRemove] = useState(false);
-  const [plan, setPlan] = useState<RemovalPlan | null>(null);
+  const removeButton = useRef<HTMLButtonElement>(null);
+  const removal = useRemoval(id, () => navigate("/apps"), removeButton);
   const [editing, setEditing] = useState(false);
   const [purpose, setPurpose] = useState("");
   const [credentialOpen, setCredentialOpen] = useState(searchParams.get("credential") === "1");
@@ -347,15 +329,6 @@ export default function AppDetail() {
       setNote(status.state === "failed" ? status.note : "Bevro is building a new version. The one you have keeps working until it passes.");
       setEditing(false);
       await refresh();
-    });
-  const askToRemove = async () => {
-    setPlan(await api.removalPlan(id).catch(() => null));
-    setConfirmRemove(true);
-  };
-  const remove = () =>
-    run(async () => {
-      await api.removeProvider(id);
-      navigate("/apps");
     });
   const loadDetails = async () => {
     if (details) return;
@@ -652,30 +625,10 @@ export default function AppDetail() {
         </details>
 
         <div className="mt-10 border-t bv-sep pt-5">
-          {confirmRemove ? (
-            <div role="group" aria-labelledby="remove-heading" className="bv-panel">
-              <p id="remove-heading" className="font-medium">
-                Remove {p.name} from Bevro?
-              </p>
-              <p className="mt-1 text-sm">
-                This removes {p.name} from your Apps & agents list and removes Bevro's current setup for it. Your previous task history will remain.
-              </p>
-              <ul className="mt-2 space-y-0.5 text-sm text-muted">
-                {removalConsequences(p, plan).map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button type="button" className="bv-btn-quiet" onClick={() => { setConfirmRemove(false); setPlan(null); }}>
-                  Cancel
-                </button>
-                <button type="button" className="bv-btn-danger" onClick={remove} disabled={busy || (plan?.in_flight ?? 0) > 0}>
-                  Remove from Bevro
-                </button>
-              </div>
-            </div>
+          {removal.asking ? (
+            <RemoveQuestion provider={p} removal={removal} />
           ) : (
-            <button type="button" className="bv-btn-danger -ml-3" onClick={() => void askToRemove()} disabled={busy}>
+            <button ref={removeButton} type="button" className="bv-btn-danger -ml-3" onClick={() => void removal.ask()} disabled={busy}>
               Remove from Bevro
             </button>
           )}

@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AskForm, LetterMark, OpenLink, StatusText } from "../components/Hub";
+import { ItemMenu } from "../components/ItemMenu";
 import PageHeader, { Page } from "../components/PageHeader";
+import { RemoveQuestion, useRemoval } from "../components/RemoveFromBevro";
 import { api, type Provider } from "../lib/api";
 import { here, hubView, type HubAction } from "../lib/hub";
 
@@ -65,10 +67,12 @@ export function ActionButton({ action, provider, primary, onAsk, onRetry, onResu
   }
 }
 
-function HubItem({ provider, onChange }: { provider: Provider; onChange: (p: Provider) => void }) {
+function HubItem({ provider, onChange, onRemoved }: { provider: Provider; onChange: (p: Provider) => void; onRemoved: (p: Provider) => void }) {
   const view = useMemo(() => hubView(provider, here()), [provider]);
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const removal = useRemoval(provider.id, () => onRemoved(provider), menuButton);
   const retry = async () => {
     setBusy(true);
     try {
@@ -83,12 +87,17 @@ function HubItem({ provider, onChange }: { provider: Provider; onChange: (p: Pro
   const nameId = `hub-${provider.id}`;
   return (
     <li className="py-5 first:pt-0" aria-labelledby={nameId}>
-      <div className="flex items-start gap-4">
+      <div className="relative flex items-start gap-4">
         <LetterMark provider={provider} />
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          {/* Room on the right for the "…", which sits over the top corner. */}
+          <div className="pr-10 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            {/* The name is the way to its page, and looks like a link even without a mouse to hover. */}
             <h2 id={nameId} className="text-base font-semibold">
-              <Link to={`/apps/${provider.id}`} className="hover:underline underline-offset-2">
+              <Link
+                to={`/apps/${provider.id}`}
+                className="underline decoration-[var(--bv-border-strong)] decoration-1 underline-offset-4 hover:decoration-current focus-visible:decoration-current"
+              >
                 {provider.name}
               </Link>
             </h2>
@@ -96,7 +105,7 @@ function HubItem({ provider, onChange }: { provider: Provider; onChange: (p: Pro
             {provider.enabled && view.attention && <StatusText tone="attention">{view.attention}</StatusText>}
             {provider.enabled && view.progress && <StatusText tone="neutral">{view.progress}</StatusText>}
           </div>
-          {provider.description && <p className="mt-0.5 text-muted max-w-prose">{provider.description}</p>}
+          {provider.description && <p className="mt-0.5 pr-10 text-muted max-w-prose">{provider.description}</p>}
           {view.through.length > 0 && (
             <p className="bv-meta mt-1.5">Available through {view.through.join(" · ")}</p>
           )}
@@ -110,6 +119,10 @@ function HubItem({ provider, onChange }: { provider: Provider; onChange: (p: Pro
             ))}
           </div>
           {asking && <AskForm provider={provider} onDone={() => setAsking(false)} />}
+          {removal.asking && <RemoveQuestion provider={provider} removal={removal} className="mt-4" />}
+        </div>
+        <div className="absolute -right-2 -top-2.5">
+          <ItemMenu provider={provider} buttonRef={menuButton} onRemove={() => void removal.ask()} />
         </div>
       </div>
     </li>
@@ -133,6 +146,17 @@ export default function Apps() {
   // appears here because Bevro has code for it, and nothing is hidden.
   const mine = providers ?? [];
   const replace = (updated: Provider) => setProviders((list) => (list ?? []).map((x) => (x.id === updated.id ? updated : x)));
+  // Gone at once; the server has already let it go, so a reload agrees.
+  const [removed, setRemoved] = useState<string | null>(null);
+  const status = useRef<HTMLParagraphElement>(null);
+  const drop = (gone: Provider) => {
+    setProviders((list) => (list ?? []).filter((x) => x.id !== gone.id));
+    setRemoved(`${gone.name} was removed from Bevro.`);
+  };
+  // Its row, and the focus in it, are gone: the sentence saying so takes the focus.
+  useEffect(() => {
+    if (removed) status.current?.focus();
+  }, [removed]);
 
   return (
     <Page>
@@ -148,6 +172,10 @@ export default function Apps() {
           </div>
         )}
       </PageHeader>
+
+      <p ref={status} tabIndex={-1} role="status" className={removed ? "bv-hint mb-4 outline-none" : "sr-only"}>
+        {removed}
+      </p>
 
       {error && (
         <div role="alert" className="bv-panel">
@@ -167,7 +195,7 @@ export default function Apps() {
       {mine.length > 0 && (
         <ul className="bv-divide" aria-label="Apps and agents">
           {mine.map((p) => (
-            <HubItem key={p.id} provider={p} onChange={replace} />
+            <HubItem key={p.id} provider={p} onChange={replace} onRemoved={drop} />
           ))}
         </ul>
       )}

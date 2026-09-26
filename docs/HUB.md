@@ -92,6 +92,10 @@ the person uses.
   - The only thing missing is a credential → **Add credential**.
   - A way in that used to work has stopped → **Try again** (a real problem).
   - Otherwise → **How to use it**.
+- Every item is the person's to manage from the list itself: its name links
+  to its page, and a quiet **…** in the row's corner offers **Details** and
+  **Remove from Bevro**. Removing asks first, in the same words as on the
+  item's page, and the item is gone at once; its task history stays.
 - Warning styling is kept for real problems: a way in that stopped answering,
   a credential that is needed, the worker away.
 - Home asks "What do you want to get done?". When no agent Bevro can drive
