@@ -376,6 +376,13 @@ I found 2. Which should this connection use?
 
 Nothing here knows what `/p/` means, or what a profile is.
 
+The same question is asked wherever the API is found: connected by its
+address, or found running behind a project folder. The answer is kept
+(`source.connection_context`) and applied again by **Look again**. An item
+that has never been asked - connected before its API was found - says
+"Direct use in Bevro needs you to say which one it's for" and asks on its own
+page; it never asks for a key its command line would need instead.
+
 ### Safety, from the service's own words
 
 Each operation is classified `read_only`, `work_execution`, `state_change`,

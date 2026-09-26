@@ -89,7 +89,15 @@ the person uses.
   - Bevro can take work → **Use in Bevro**; Open app is secondary.
   - It can't, but it has a safe web address → **Open *Name***; direct access
     set-up is secondary and quiet.
-  - The only thing missing is a credential → **Add credential**.
+  - The only thing missing is a credential → **Add credential**, and the
+    sentence names it when Bevro can tell ("Direct use in Bevro needs an
+    OpenAI API key"). That is said only when a missing credential blocks
+    *every* way in that could take work: a way in that needs nothing from
+    the person but is down is said as such instead, and a key Bevro holds for
+    one item never counts for another. A key a schedule gets from elsewhere
+    (a systemd credentials file, say) is that schedule's, not Bevro's.
+  - Its API serves several profiles and nobody has said which →
+    **Choose which one**.
   - A way in that used to work has stopped → **Try again** (a real problem).
   - Otherwise → **How to use it**.
 - Every item is the person's to manage from the list itself: its name links
@@ -101,6 +109,26 @@ the person uses.
 - Home asks "What do you want to get done?" and answers with the app or
   agent for it, why, and the one thing to do next - starting work only when
   Bevro is sure and can do it itself (docs/ROUTING.md).
+
+## Whose fact is this?
+
+Everything Bevro records about an item was found for that item, from where
+it lives, and is replaced - not added to - when Bevro looks again. Two
+things keep that true when projects look alike:
+
+- **A running service is asked where it listens.** The port a project's
+  process listens on is probed at the address it is bound to; a service
+  bound only to, say, a private-network address does not answer on
+  127.0.0.1, and treating that silence as "not running" is how an API gets
+  missed and a framework's default port guessed instead.
+- **A name is not an identity.** Units and timers are found by the names of
+  files a project ships; what systemd has installed under such a name counts
+  for the project only if it runs from the project's folder. Otherwise its
+  state, start command, credential files and schedule are someone else's.
+
+What a running service declares it can do outranks words picked out of its
+README, and what the person wrote about what an item is for outranks both -
+but it never creates a way in, a schedule or a credential.
 
 ## Not done here
 
