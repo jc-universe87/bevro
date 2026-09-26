@@ -47,6 +47,9 @@ class DraftCapability(BaseModel):
     weight: float | None = None
     # Which version of the wording produced this.
     wording: int | None = None
+    # "person" when the person wrote it ("What should Bevro use it for?"):
+    # the strongest evidence of what it is for, and never rediscovered away.
+    by: str | None = Field(default=None, max_length=20)
 
 
 class DraftAuth(BaseModel):

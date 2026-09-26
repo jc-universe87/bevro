@@ -92,7 +92,7 @@ def capabilities_from_summary(summary: str) -> list[DraftCapability]:
     for part in re.split(r"[,\n;]+", summary or ""):
         cap = capability_from_text(part)
         if cap and all(c.id != cap.id for c in out):
-            out.append(cap)
+            out.append(cap.model_copy(update={"by": "person"}))
         if len(out) >= 8:
             break
     return out

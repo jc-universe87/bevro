@@ -99,7 +99,11 @@ def state_of(db, provider: Provider) -> ProviderState:
     """The current picture: which way in, and whether it can be used now."""
     # `explain=False`: what could actually take work now, with nothing put
     # forward merely to make a failure readable.
-    usable, skipped = runtime_service.eligible_runtimes(provider, explain=False)
+    # Which credentials Bevro holds, by name only: enough to know a way in
+    # that needs one Bevro stores is not waiting for anything. Values are
+    # only ever decrypted for a run.
+    held = {s.name: "" for s in provider.secrets}
+    usable, skipped = runtime_service.eligible_runtimes(provider, held, explain=False)
     every = runtime_service.runtimes_of(provider)
     selected = usable[0] if usable else runtime_service.active_runtime(provider)
     others = [rt for rt in every if selected is None or rt.id != selected.id]

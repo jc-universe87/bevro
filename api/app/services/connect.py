@@ -781,9 +781,12 @@ def _reconnect_here(db: Session, provider: Provider, *, location: str = API, rul
             rt.reachability = rt.reachability.with_result(ruled_out, False)
     set_runtimes(provider, runtimes, active_id)
     # The service's own account of what it can do may have moved on: new
-    # operations, renamed ones. The name stays as the person left it.
+    # operations, renamed ones. The name stays as the person left it, and so
+    # does anything they wrote about what it is for.
     if draft.capabilities:
-        provider.capabilities = [c.model_dump() for c in draft.capabilities]
+        theirs = [c for c in provider.capabilities or [] if isinstance(c, dict) and c.get("by") == "person"]
+        found = [c.model_dump() for c in draft.capabilities if all(c.id != t.get("id") for t in theirs)]
+        provider.capabilities = theirs + found
     # How it is used is looked at again too. An address the person gave is
     # theirs, not something discovery found, so it stays.
     from app.connect.surfaces import from_stored, merge

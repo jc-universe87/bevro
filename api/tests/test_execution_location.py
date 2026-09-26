@@ -363,6 +363,29 @@ def test_reconnecting_picks_up_what_the_service_now_says_it_can_do(seeded):
     assert {c["id"] for c in provider.capabilities} != before
 
 
+def test_reconnecting_keeps_what_the_person_said_it_is_for(seeded):
+    """What the person wrote under "What should Bevro use it for?" is the
+    strongest routing evidence there is. Looking again refreshes what the
+    service says about itself and leaves theirs alone."""
+    from app.services import connect as connect_service
+
+    provider = _connected_service(seeded, fx.service(descriptor=fx.READ_ONLY_API)[0])
+    provider.capabilities = [{"id": "household_admin", "title": "Household admin", "by": "person"}, *provider.capabilities]
+    seeded.commit()
+    _discovery_over(fx.service(descriptor=fx.JOBS_API)[0])
+    connect_service.reconnect_provider(seeded, provider)
+    seeded.refresh(provider)
+    assert provider.capabilities[0] == {"id": "household_admin", "title": "Household admin", "by": "person"}
+    assert [c["id"] for c in provider.capabilities].count("household_admin") == 1
+    assert len(provider.capabilities) > 1  # and the service's own list is there too
+
+
+def test_what_the_person_types_is_marked_as_theirs():
+    from app.connect.capabilities import capabilities_from_summary
+
+    assert [(c.id, c.by) for c in capabilities_from_summary("Meal planning, shopping lists")] == [("meal_planning", "person"), ("shopping_lists", "person")]
+
+
 def test_a_service_s_own_words_for_a_thing_are_kept(seeded):
     """A tag and a URL often disagree - "shortlist" over /opportunities - and
     a person may ask with either word."""
