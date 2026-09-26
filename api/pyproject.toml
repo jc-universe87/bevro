@@ -1,7 +1,7 @@
 [project]
 name = "bevro-api"
 version = "0.1.0"
-description = "Bevro API - the workspace layer above agents, apps and other work providers."
+description = "Bevro API - a self-hosted hub that brings your AI agents and apps together."
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115,<1",

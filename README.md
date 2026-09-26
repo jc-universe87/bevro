@@ -11,58 +11,66 @@
 
 # Bevro
 
-**All your agents and apps in one place.**
+**One place for all your AI agents and apps — on your own machine.**
 
-Bevro is a personal hub for the agents and apps you build and use. Tell it
-what you want to accomplish, and it helps you find the right tool, works with
-it directly when possible, or takes you to the right interface when it isn't.
+Bevro is a self-hosted hub. Connect the agents and apps you already use, then
+ask for what you need in plain words. Bevro picks the right one, hands the
+work over and keeps the result — in a database on your own hardware.
 
-An app belongs in Bevro because you use it, not because Bevro can drive it:
-a web app with no interface for programs is listed, described and opened
-like any other ([docs/HUB.md](docs/HUB.md)).
+## The problem
+
+- **Agents are scattered.** A research agent here, a coding agent there, a
+  script in a folder, a web app in a browser tab. Each has its own screen, its
+  own history and its own place where results end up. Few tools bring them
+  together.
+- **The platforms that do bring them together keep your data.** Hosted
+  assistants such as ChatGPT or Claude can connect to tools and agents, but
+  then your requests, results and connected accounts live on their servers,
+  under their terms.
+- **Agent frameworks help you build one agent,** not live with twenty. They
+  do not help you find the right one, run it, repeat it and keep track of
+  what it did.
+
+## What Bevro does
+
+| | |
+|---|---|
+| **Brings them together** | Type a web address, a folder, a command or an MCP server (a common way for AI tools to offer their functions to other programs). Bevro works out what it is and connects it, without changing it. Apps it cannot drive are listed too, with a link to open them. |
+| **Finds the right one** | Ask in plain words. Bevro chooses by what each agent says it can do — or tells you which app to open. |
+| **Keeps one record** | Every request becomes a task with an honest status, a short outcome and the files behind it, whichever agent did the work. |
+| **Repeats and watches** | "Every Monday…" or "check daily, tell me only when something changes" — without touching the agent. |
+| **Stays yours** | Runs with Docker on your computer or server. Tasks, results and credentials sit in your own PostgreSQL database. By default Bevro itself sends nothing to any outside service. |
 
 ```
-You
- ↓
-Bevro Task        what was asked, and where it has got to
- ↓
-Provider          an agent, an app, a workflow, a coding tool, a person…
- ↓
-Runtime           how this installation reaches that provider
- ↓
-Result            a summary you can read, and the artifacts behind it
-```
-
-In practice:
-
-```
-You:        "Allocate participants for the spring conference"
+You:        "Free up Friday afternoon"
                      ↓
-Bevro:      creates a Task, picks a provider, watches it work
+Bevro:      creates a Task, picks the calendar agent, watches it work
                      ↓
-Provider:   the events app already running in your organisation
+Provider:   the calendar assistant you already use
                      ↓
-Result:     "Done. 148 participants allocated. 7 need review."   Review in the events app →
+Result:     "Done. 3 meetings moved. 1 needs your reply."   Open in Calendar →
 ```
 
-## Why Bevro
+### What "stays yours" does and does not mean
 
-**It is not an agent framework.** Bevro does not run agent loops, choose
-models or hold prompts. It is the workspace *above* the things that do work:
-it remembers what was asked, hands it on, keeps a faithful record of what came
-back, and stays out of the way.
+- **Bevro's own record** — every request, result, schedule and stored key —
+  never leaves your machine.
+- **A connected agent behaves as it always did.** If it is a cloud service,
+  your request still goes to that service. Bevro changes where the record of
+  your work lives, not where each agent sends its data.
+- **The optional routing model** (see [Routing](#routing)) sends the text of
+  each request to the model service you choose — or to one you host yourself.
+- **There is no login yet.** Bevro listens only on the machine it runs on. On
+  a shared server, put it behind something that asks for a password first;
+  see [SECURITY.md](SECURITY.md).
 
-**Bevro adapts to providers; providers do not adapt to Bevro.** Type the
-address of a service, the folder of an agent you already have, an MCP server
-or a command. Bevro works out how to talk to it and what it can do. Nothing is
-modified, and no provider has to implement a Bevro protocol.
+### What Bevro is not
 
-**One record of the work.** Every request is a Task with an honest state, one
-concise outcome and the artifacts behind it — whichever provider did it, and
-however many ways Bevro had to try.
-
-**Yours.** It runs on your machine with Docker, stores everything in your own
-PostgreSQL, and in its default configuration calls nothing outside it.
+- **Not an agent framework.** It runs no agent loops, chooses no models and
+  holds no prompts. It sits above the things that do the work.
+- **Not a new protocol.** Agents and apps do not have to change to be used;
+  Bevro adapts to them.
+- **Not a sandbox.** Local agents run as you, in folders you approve.
 
 ## Screenshots
 
@@ -70,7 +78,7 @@ PostgreSQL, and in its default configuration calls nothing outside it.
 |---|---|
 | ![Home](docs/screenshots/home-light.png) | ![A task result with a deep link](docs/screenshots/task-result.png) |
 
-| Recent | Agents |
+| Recent | Apps & agents |
 |---|---|
 | ![Recent](docs/screenshots/recent.png) | ![Agents](docs/screenshots/agents.png) |
 
@@ -89,9 +97,9 @@ A coding agent, working in a directory you approved (optional — see
 
 <p align="center"><img src="docs/screenshots/home-dark.png" alt="Home, dark theme" width="70%"></p>
 
-<sub>The screenshots show a workspace with the example providers turned on
-(`BEVRO_DEMO_MODE=true`) so there is something to look at. A new installation
-starts empty.</sub>
+<sub>The screenshots show a workspace with a few stand-in agents connected
+(inbox, writing, meeting notes, research, travel, calendar), returning sample
+results so there is something to look at. A new installation starts empty.</sub>
 
 ## Core concepts
 
